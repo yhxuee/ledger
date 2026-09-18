@@ -53,3 +53,14 @@ struct GlassPrimaryButtonStyle: ViewModifier {
 }
 
 extension View { func glassPrimaryButton() -> some View { modifier(GlassPrimaryButtonStyle()) } }
+
+struct ToolbarIconButton: View {
+    let systemName: String
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) { Image(systemName: systemName).frame(width: 24, height: 24) }
+            .accessibilityLabel(label)
+    }
+}

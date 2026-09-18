@@ -30,10 +30,9 @@ struct AccountsView: View {
         .background(LedgerBackground())
         .navigationTitle("Accounts")
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                GlassIconButton(systemName: "plus", label: "Add account", prominent: true) { creating = true }
-                LedgerBookMenu()
-            }
+            ToolbarItem(placement: .topBarTrailing) { ToolbarIconButton(systemName: "plus", label: "Add account") { creating = true } }
+            if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
+            ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() }
         }
         .sheet(item: $editing) { item in AccountEditorView(item: item) { deleting = $0 } }
         .sheet(isPresented: $creating) { AccountEditorView(item: nil) { deleting = $0 } }

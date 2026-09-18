@@ -61,6 +61,13 @@ enum BackupCodec {
                 guard let destination = transaction.destinationAccountID, destination != transaction.accountID, knownAccounts.contains(destination) else { throw BackupError.invalidTransfer }
             }
         }
+        for rule in state.recurringRules ?? [] {
+            guard rule.userID == state.settings.userID, knownAccounts.contains(rule.accountID), rule.amount.isFinite, rule.amount > 0, rule.customIntervalDays > 0 else { throw BackupError.invalidValue("recurring transaction") }
+            guard categoryIDs.contains(rule.categoryID) else { throw BackupError.invalidValue("recurring category") }
+            if rule.type == .transfer {
+                guard let destination = rule.destinationAccountID, destination != rule.accountID, knownAccounts.contains(destination) else { throw BackupError.invalidTransfer }
+            }
+        }
         for currency in CurrencyCode.allCases {
             guard let rate = state.settings.rates[currency], rate.isFinite, rate > 0 else { throw BackupError.invalidValue("exchange rate \(currency.rawValue)") }
         }

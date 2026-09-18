@@ -25,7 +25,8 @@ struct OverviewView: View {
         }
         .navigationTitle(selected?.account.name ?? "Overview")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { GlassIconButton(systemName: "plus", label: "Add transaction", tint: LedgerPalette.coral) { showTransactionEditor = true } }
+            ToolbarItem(placement: .topBarTrailing) { ToolbarIconButton(systemName: "plus", label: "Add transaction") { showTransactionEditor = true } }
+            if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
             ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() }
         }
         .sheet(isPresented: $showAccountPicker) { AccountPickerView(selectedAccountID: $selectedAccountID) }

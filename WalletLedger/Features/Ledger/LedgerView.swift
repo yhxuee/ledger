@@ -63,6 +63,7 @@ struct LedgerView: View {
         }
         .background(LedgerBackground())
         .navigationTitle("Ledger")
+        .navigationBarTitleDisplayMode(.inline)
         .modifier(LedgerSearchModifier(text: $query, isPresented: $isSearchPresented))
         .safeAreaInset(edge: .bottom) {
             if !isSearchPresented {
@@ -82,9 +83,11 @@ struct LedgerView: View {
                     if filtersActive { Button("Clear Filters", role: .destructive, action: clearFilters) }
                 } label: { Label("Filter", systemImage: filtersActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle") }
                 Button {
-                    showingCalendar.toggle()
-                    hasCalendarDay = true
-                    calendarDay = .now
+                    withAnimation(.snappy) {
+                        showingCalendar.toggle()
+                        hasCalendarDay = showingCalendar
+                        if showingCalendar { calendarDay = .now }
+                    }
                 } label: { Image(systemName: hasCalendarDay ? "calendar.circle.fill" : "calendar") }
                 .accessibilityLabel("Daily calendar")
                 LedgerBookMenu()
@@ -103,17 +106,18 @@ struct LedgerView: View {
     private func clearFilters() { selectedCategories.removeAll(); selectedAccounts.removeAll(); hasCustomRange = false; hasCalendarDay = false; showingCalendar = false }
 
     private var calendarPanel: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(calendarDay.formatted(.dateTime.weekday(.wide).month(.wide).day())).font(.headline)
-                Spacer()
-                Button("Clear") { hasCalendarDay = false; showingCalendar = false }.font(.subheadline)
-            }.padding(.horizontal)
+        ZStack(alignment: .topTrailing) {
             LedgerCalendarView(selection: $calendarDay, transactions: store.activeTransactions, accounts: store.accounts.map(\.account))
                 .onChange(of: calendarDay) { _, _ in hasCalendarDay = true }
+            Button { withAnimation(.snappy) { hasCalendarDay = false; showingCalendar = false } } label: {
+                Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.secondary)
+            }
+            .accessibilityLabel("Close calendar")
+            .padding(10)
         }
-        .padding(.top, 8)
-        .background(.thinMaterial)
+        .padding(10)
+        .ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(.horizontal, 12).padding(.top, 8)
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 

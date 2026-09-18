@@ -38,6 +38,14 @@ enum LedgerTransactionType: String, Codable, CaseIterable, Identifiable, Sendabl
     var title: String { rawValue.capitalized }
 }
 
+enum RecurringInterval: String, Codable, CaseIterable, Identifiable, Sendable {
+    case weekly, monthly, yearly, customDays
+    var id: String { rawValue }
+    var title: String {
+        switch self { case .weekly: "Weekly"; case .monthly: "Monthly"; case .yearly: "Yearly"; case .customDays: "Custom Days" }
+    }
+}
+
 struct LedgerCategoryID: RawRepresentable, Codable, Hashable, Identifiable, Sendable {
     let rawValue: String
     var id: String { rawValue }
@@ -102,6 +110,24 @@ struct LedgerTransaction: Identifiable, Codable, Hashable, Sendable {
     var syncStatus: SyncStatus
 }
 
+struct RecurringRule: Identifiable, Codable, Hashable, Sendable {
+    var id: UUID
+    var userID: String
+    var type: LedgerTransactionType
+    var accountID: UUID
+    var destinationAccountID: UUID?
+    var amount: Double
+    var currency: CurrencyCode
+    var categoryID: LedgerCategoryID
+    var note: String?
+    var interval: RecurringInterval
+    var customIntervalDays: Int
+    var nextRunAt: Date
+    var isEnabled: Bool
+    var createdAt: Date
+    var updatedAt: Date
+}
+
 struct LedgerCategory: Identifiable, Codable, Hashable, Sendable {
     var id: LedgerCategoryID
     var name: String
@@ -123,6 +149,7 @@ struct LedgerSettings: Codable, Hashable, Sendable {
     var backupReminders: Bool
     var lastBackupAt: Date?
     var updatedAt: Date
+    var exchangeRatesUpdatedAt: Date? = nil
 }
 
 struct LedgerState: Codable, Hashable, Sendable {
@@ -131,6 +158,7 @@ struct LedgerState: Codable, Hashable, Sendable {
     var transactions: [LedgerTransaction]
     var categories: [LedgerCategory]
     var settings: LedgerSettings
+    var recurringRules: [RecurringRule]? = nil
 }
 
 struct LedgerBook: Identifiable, Codable, Hashable, Sendable {

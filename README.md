@@ -2,7 +2,7 @@
 
 Native SwiftUI reconstruction of the `wallet-ledger-overview` personal-finance PWA. Open `WalletLedger.xcodeproj` in Xcode 26.
 
-Version 1.2.0 adds Liquid Glass ledger/settings surfaces, account-colored calendar markers, an on-demand search control, custom emoji/SF Symbol expense categories, PhotosPicker card artwork, smoother section transitions, larger transaction keys, and collision-aware Analytics annotations that fall back to maximum/minimum labels. Apple does not expose a general live FX quote API; rates remain explicit local reference data.
+Version 1.3.0 separates the Overview/Accounts toolbar actions into native Liquid Glass controls, keeps the Ledger title visible above a glass calendar, fixes exchange-rate keyboard dismissal, adds Frankfurter daily reference-rate refresh with offline caching, and adds recurring expense, income, and transfer rules with weekly, monthly, yearly, or custom-day schedules.
 
 ## Requirements
 
@@ -27,6 +27,8 @@ Version 1.2.0 adds Liquid Glass ledger/settings surfaces, account-colored calend
 - `Features`: Overview, Ledger, Analytics, Accounts, Settings and transaction editor.
 
 Balances are derived from `openingBalance + active ledger entries`. Expense, income and transfer effects are applied exactly once. Transfers never count as expense analytics. Monthly budget includes only participating accounts and only current-month expenses. Historical reporting uses each transaction’s saved FX snapshot.
+
+Frankfurter refreshes HKD-reference rates at most once per local calendar day when automatic updates are enabled. A manual refresh remains available, and the last successful values stay available offline. Recurring rules are processed on launch, ledger switch, and whenever the app becomes active; missed due dates are caught up without creating the same occurrence twice.
 
 ## Backup formats
 

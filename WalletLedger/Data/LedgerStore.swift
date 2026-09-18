@@ -16,6 +16,7 @@ final class LedgerStore: ObservableObject {
             books = library.books
             activeBookID = active.id
             state = active.state
+            processDueRecurring()
         } else {
             let initial = Self.loadLegacyState() ?? SeedData.make()
             let book = LedgerBook(id: UUID(), name: "Ledger 1", state: initial, createdAt: .now, updatedAt: .now)
@@ -38,6 +39,7 @@ final class LedgerStore: ObservableObject {
         state = book.state
         undoTransaction = nil
         undoMessage = nil
+        processDueRecurring()
         scheduleSave()
     }
 
@@ -135,6 +137,10 @@ final class LedgerStore: ObservableObject {
             state.transactions[index].updatedAt = deletedAt
             state.transactions[index].version += 1
         }
+        if var rules = state.recurringRules {
+            for index in rules.indices where rules[index].accountID == account.id || rules[index].destinationAccountID == account.id { rules[index].isEnabled = false; rules[index].updatedAt = deletedAt }
+            state.recurringRules = rules
+        }
         scheduleSave()
     }
 
@@ -145,6 +151,20 @@ final class LedgerStore: ObservableObject {
     }
 
     @discardableResult
+    func refreshExchangeRatesIfNeeded(force: Bool = false) async throws -> String? {
+        guard force || state.settings.automaticRates else { return nil }
+        if !force, let updated = state.settings.exchangeRatesUpdatedAt, Calendar.current.isDateInToday(updated) { return nil }
+        let requestedBookID = activeBookID
+        let result = try await FrankfurterRateService.shared.latest()
+        guard requestedBookID == activeBookID else { return nil }
+        updateSettings {
+            $0.rates = result.rates
+            $0.exchangeRatesUpdatedAt = .now
+        }
+        return result.sourceDate
+    }
+
+    @discardableResult
     func addCategory(name rawName: String, detail rawDetail: String, symbol: String, colorHex: String) -> LedgerCategoryID? {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !symbol.isEmpty else { return nil }
@@ -152,6 +172,58 @@ final class LedgerStore: ObservableObject {
         state.categories.append(.init(id: id, name: name, detail: rawDetail.trimmingCharacters(in: .whitespacesAndNewlines), symbol: symbol, colorHex: colorHex))
         scheduleSave()
         return id
+    }
+
+    var recurringRules: [RecurringRule] { state.recurringRules ?? [] }
+
+    func saveRecurringRule(_ rule: RecurringRule) {
+        var rules = state.recurringRules ?? []
+        if let index = rules.firstIndex(where: { $0.id == rule.id }) { rules[index] = rule }
+        else { rules.append(rule) }
+        state.recurringRules = rules
+        scheduleSave()
+    }
+
+    func deleteRecurringRule(_ rule: RecurringRule) {
+        state.recurringRules = (state.recurringRules ?? []).filter { $0.id != rule.id }
+        scheduleSave()
+    }
+
+    func setRecurringRule(_ rule: RecurringRule, enabled: Bool) {
+        guard var rules = state.recurringRules, let index = rules.firstIndex(where: { $0.id == rule.id }) else { return }
+        rules[index].isEnabled = enabled
+        rules[index].updatedAt = .now
+        state.recurringRules = rules
+        scheduleSave()
+    }
+
+    func processDueRecurring(now: Date = .now) {
+        guard var rules = state.recurringRules, !rules.isEmpty else { return }
+        var changed = false
+        for index in rules.indices where rules[index].isEnabled {
+            var executions = 0
+            while rules[index].nextRunAt <= now && executions < 100 {
+                let rule = rules[index]
+                addTransaction(type: rule.type, accountID: rule.accountID, destinationAccountID: rule.destinationAccountID, amount: rule.amount, currency: rule.currency, categoryID: rule.categoryID, occurredAt: rule.nextRunAt, note: rule.note)
+                rules[index].nextRunAt = nextDate(after: rule.nextRunAt, interval: rule.interval, customDays: rule.customIntervalDays)
+                rules[index].updatedAt = now
+                executions += 1
+                changed = true
+            }
+        }
+        if changed { state.recurringRules = rules; scheduleSave() }
+    }
+
+    private func nextDate(after date: Date, interval: RecurringInterval, customDays: Int) -> Date {
+        let component: Calendar.Component
+        let value: Int
+        switch interval {
+        case .weekly: component = .weekOfYear; value = 1
+        case .monthly: component = .month; value = 1
+        case .yearly: component = .year; value = 1
+        case .customDays: component = .day; value = max(1, customDays)
+        }
+        return Calendar.current.date(byAdding: component, value: value, to: date) ?? date.addingTimeInterval(86_400)
     }
 
     func replace(with envelope: LedgerBackupEnvelope) {

@@ -35,11 +35,16 @@ final class LedgerCalculationsTests: XCTestCase {
     }
 
     func testBackupRoundTrip() throws {
-        let state = SeedData.make()
+        var state = SeedData.make()
+        let source = try XCTUnwrap(state.accounts.first)
+        state.recurringRules = [
+            .init(id: UUID(), userID: state.settings.userID, type: .expense, accountID: source.id, destinationAccountID: nil, amount: 88, currency: source.currency, categoryID: .food, note: "Weekly lunch", interval: .weekly, customIntervalDays: 7, nextRunAt: .now, isEnabled: true, createdAt: .now, updatedAt: .now)
+        ]
         let data = try BackupCodec.encode(BackupCodec.envelope(for: state))
         let decoded = try BackupCodec.decode(data, sourceName: "test.walletledger")
         XCTAssertEqual(decoded.envelope.data.accounts.count, state.accounts.count)
         XCTAssertEqual(decoded.envelope.data.transactions.count, state.transactions.count)
+        XCTAssertEqual(decoded.envelope.data.recurringRules, state.recurringRules)
     }
 
     private func makeTransaction(type: LedgerTransactionType, source: LedgerAccount, destination: LedgerAccount? = nil, amount: Double) -> LedgerTransaction {
