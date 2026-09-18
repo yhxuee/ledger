@@ -13,6 +13,7 @@ struct TransactionEditorView: View {
     @State private var note: String
     @State private var minorUnits: String
     @State private var showDeleteConfirmation = false
+    @State private var showingCategoryEditor = false
 
     init(transaction: LedgerTransaction? = nil) {
         original = transaction
@@ -64,6 +65,9 @@ struct TransactionEditorView: View {
             if accountID == nil { accountID = activeAccounts.first?.id; currency = activeAccounts.first?.currency ?? store.state.settings.baseCurrency }
             if destinationID == nil { destinationID = activeAccounts.first(where: { $0.id != accountID })?.id }
         }
+        .sheet(isPresented: $showingCategoryEditor) {
+            CategoryEditorSheet { id in categoryID = id }
+        }
     }
 
     private var amountPanel: some View {
@@ -112,14 +116,14 @@ struct TransactionEditorView: View {
     private var keypad: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 3), spacing: 9) {
             ForEach(["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "delete.left"], id: \.self) { key in
-                if key.isEmpty { Color.clear.frame(height: 56) }
+                if key.isEmpty { Color.clear.frame(height: 68) }
                 else {
                     Button { press(key) } label: {
-                        Group { if key == "delete.left" { Image(systemName: key) } else { Text(key) } }.font(.title2.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 56)
+                        Group { if key == "delete.left" { Image(systemName: key) } else { Text(key) } }.font(.title.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 68)
                     }.buttonStyle(.plain).ledgerGlass(interactive: true, in: Circle())
                 }
             }
-        }.frame(maxWidth: 350)
+        }.frame(maxWidth: 380)
     }
 
     private var categoryPicker: some View {
@@ -127,12 +131,21 @@ struct TransactionEditorView: View {
             HStack(spacing: 10) {
                 ForEach(store.state.categories) { category in
                     Button { withAnimation(.snappy) { categoryID = category.id } } label: {
-                        VStack(spacing: 4) { Image(systemName: category.symbol).font(.title3); Text(category.name).font(.caption.weight(.semibold)); Text(category.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+                        VStack(spacing: 4) { CategoryIcon(category: category, font: .title3); Text(category.name).font(.caption.weight(.semibold)); Text(category.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
                             .frame(width: 112, height: 78)
-                            .foregroundStyle(categoryID == category.id ? LedgerPalette.category(category.id) : .primary)
+                            .foregroundStyle(categoryID == category.id ? Color(hex: category.colorHex) : Color.primary)
                             .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     }.buttonStyle(.plain)
                 }
+                Button { showingCategoryEditor = true } label: {
+                    VStack(spacing: 6) {
+                        Image(systemName: "plus.circle.fill").font(.title2)
+                        Text("New Category").font(.caption.weight(.semibold))
+                    }
+                    .frame(width: 112, height: 78)
+                    .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                }
+                .buttonStyle(.plain)
             }.padding(.vertical, 4)
         }
     }
@@ -156,5 +169,57 @@ struct TransactionEditorView: View {
             store.addTransaction(type: type, accountID: accountID, destinationAccountID: destinationID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note)
         }
         dismiss()
+    }
+}
+
+private struct CategoryEditorSheet: View {
+    @EnvironmentObject private var store: LedgerStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var detail = ""
+    @State private var mode = 0
+    @State private var emoji = "🍽️"
+    @State private var selectedSymbol = "cup.and.saucer.fill"
+    @State private var color = LedgerPalette.coral
+    let onAdd: (LedgerCategoryID) -> Void
+
+    private let symbols = ["cup.and.saucer.fill", "cart.fill", "house.fill", "heart.fill", "gift.fill", "airplane", "gamecontroller.fill", "cross.case.fill", "graduationcap.fill", "pawprint.fill", "figure.run", "ellipsis.circle.fill"]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Category") {
+                    TextField("Name", text: $name)
+                    TextField("Description", text: $detail)
+                    ColorPicker("Color", selection: $color)
+                }
+                Section("Appearance") {
+                    Picker("Type", selection: $mode) { Text("Emoji").tag(0); Text("Icon").tag(1) }.pickerStyle(.segmented)
+                    if mode == 0 {
+                        TextField("Emoji", text: $emoji).font(.title2)
+                    } else {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 14) {
+                            ForEach(symbols, id: \.self) { symbol in
+                                Button { selectedSymbol = symbol } label: {
+                                    Image(systemName: symbol).font(.title3).frame(width: 42, height: 42)
+                                        .background(selectedSymbol == symbol ? color.opacity(0.22) : Color.clear, in: Circle())
+                                }.buttonStyle(.plain)
+                            }
+                        }.padding(.vertical, 6)
+                    }
+                }
+            }
+            .navigationTitle("New Category")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        let value = mode == 0 ? "emoji:\(String(emoji.prefix(1)))" : selectedSymbol
+                        if let id = store.addCategory(name: name, detail: detail, symbol: value, colorHex: color.rgbHex) { onAdd(id); dismiss() }
+                    }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (mode == 0 && emoji.isEmpty))
+                }
+            }
+        }
     }
 }

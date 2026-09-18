@@ -38,9 +38,20 @@ enum LedgerTransactionType: String, Codable, CaseIterable, Identifiable, Sendabl
     var title: String { rawValue.capitalized }
 }
 
-enum LedgerCategoryID: String, Codable, CaseIterable, Identifiable, Sendable {
-    case food, transport, shopping, utilities, other
+struct LedgerCategoryID: RawRepresentable, Codable, Hashable, Identifiable, Sendable {
+    let rawValue: String
     var id: String { rawValue }
+
+    init(rawValue: String) { self.rawValue = rawValue }
+    init(from decoder: Decoder) throws { rawValue = try decoder.singleValueContainer().decode(String.self) }
+    func encode(to encoder: Encoder) throws { var container = encoder.singleValueContainer(); try container.encode(rawValue) }
+
+    static let food = Self(rawValue: "food")
+    static let transport = Self(rawValue: "transport")
+    static let shopping = Self(rawValue: "shopping")
+    static let utilities = Self(rawValue: "utilities")
+    static let other = Self(rawValue: "other")
+    static let builtIns: [Self] = [.food, .transport, .shopping, .utilities, .other]
 }
 
 enum SyncStatus: String, Codable, Sendable { case synced, pending, conflict }
@@ -61,6 +72,7 @@ struct LedgerAccount: Identifiable, Codable, Hashable, Sendable {
     var includeInBudget: Bool
     var logo: String
     var cardStyle: CardStyle
+    var cardImageData: Data? = nil
     var createdAt: Date
     var updatedAt: Date
     var deletedAt: Date?
@@ -96,6 +108,11 @@ struct LedgerCategory: Identifiable, Codable, Hashable, Sendable {
     var detail: String
     var symbol: String
     var colorHex: String
+
+    var emoji: String? {
+        guard symbol.hasPrefix("emoji:") else { return nil }
+        return String(symbol.dropFirst(6))
+    }
 }
 
 struct LedgerSettings: Codable, Hashable, Sendable {

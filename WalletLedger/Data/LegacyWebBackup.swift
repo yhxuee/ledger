@@ -30,10 +30,11 @@ enum LegacyWebBackup {
         let transactions = web.data.transactions.compactMap { item -> LedgerTransaction? in
             guard let source = accountIDMap[item.accountId] else { return nil }
             let occurred = parseDateTime(item.date, item.time) ?? .now
-            return LedgerTransaction(id: stableUUID(item.id), userID: userID, type: LedgerTransactionType(rawValue: item.type) ?? .expense, accountID: source, destinationAccountID: item.destinationAccountId.flatMap { accountIDMap[$0] }, amount: item.amount, currency: CurrencyCode(rawValue: item.currency) ?? .HKD, accountAmount: item.accountAmount, destinationAmount: item.destinationAmount, categoryID: LedgerCategoryID(rawValue: item.categoryId) ?? .other, occurredAt: occurred, note: item.note, exchangeRateAtTransaction: item.exchangeRateAtTransaction, createdAt: parseISO(item.createdAt) ?? occurred, updatedAt: parseISO(item.updatedAt) ?? occurred, deletedAt: parseISO(item.deletedAt), version: item.version ?? 1, syncStatus: .pending)
+            return LedgerTransaction(id: stableUUID(item.id), userID: userID, type: LedgerTransactionType(rawValue: item.type) ?? .expense, accountID: source, destinationAccountID: item.destinationAccountId.flatMap { accountIDMap[$0] }, amount: item.amount, currency: CurrencyCode(rawValue: item.currency) ?? .HKD, accountAmount: item.accountAmount, destinationAmount: item.destinationAmount, categoryID: item.categoryId.isEmpty ? .other : LedgerCategoryID(rawValue: item.categoryId), occurredAt: occurred, note: item.note, exchangeRateAtTransaction: item.exchangeRateAtTransaction, createdAt: parseISO(item.createdAt) ?? occurred, updatedAt: parseISO(item.updatedAt) ?? occurred, deletedAt: parseISO(item.deletedAt), version: item.version ?? 1, syncStatus: .pending)
         }
         let categories = (web.data.categories ?? []).compactMap { item -> LedgerCategory? in
-            guard let id = LedgerCategoryID(rawValue: item.id) else { return nil }
+            guard !item.id.isEmpty else { return nil }
+            let id = LedgerCategoryID(rawValue: item.id)
             let seed = SeedData.categories.first { $0.id == id }
             return .init(id: id, name: item.name, detail: item.description, symbol: seed?.symbol ?? "circle.fill", colorHex: cleanHex(item.color))
         }

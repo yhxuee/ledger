@@ -25,12 +25,8 @@ struct OverviewView: View {
         }
         .navigationTitle(selected?.account.name ?? "Overview")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 14) {
-                    GlassIconButton(systemName: "plus", label: "Add transaction", tint: LedgerPalette.coral) { showTransactionEditor = true }
-                    LedgerBookMenu()
-                }
-            }
+            ToolbarItem(placement: .topBarTrailing) { GlassIconButton(systemName: "plus", label: "Add transaction", tint: LedgerPalette.coral) { showTransactionEditor = true } }
+            ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() }
         }
         .sheet(isPresented: $showAccountPicker) { AccountPickerView(selectedAccountID: $selectedAccountID) }
         .fullScreenCover(isPresented: $showTransactionEditor) { TransactionEditorView() }

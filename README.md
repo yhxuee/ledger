@@ -2,7 +2,7 @@
 
 Native SwiftUI reconstruction of the `wallet-ledger-overview` personal-finance PWA. Open `WalletLedger.xcodeproj` in Xcode 26.
 
-Version 1.1.0 turns the ellipsis into a multi-ledger switcher. Existing data migrates into Ledger 1, while each newly created ledger owns an independent account and transaction graph. It also introduces a full-screen adaptive transaction editor, redesigned Overview metrics, account/category/custom-range filters, collision-safe Analytics axes, and a native daily calendar in Ledger.
+Version 1.2.0 adds Liquid Glass ledger/settings surfaces, account-colored calendar markers, an on-demand search control, custom emoji/SF Symbol expense categories, PhotosPicker card artwork, smoother section transitions, larger transaction keys, and collision-aware Analytics annotations that fall back to maximum/minimum labels. Apple does not expose a general live FX quote API; rates remain explicit local reference data.
 
 ## Requirements
 

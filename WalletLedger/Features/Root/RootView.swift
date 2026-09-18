@@ -24,11 +24,9 @@ struct LedgerBookMenu: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.body.weight(.semibold))
-                .frame(width: 34, height: 34)
+                .frame(width: 28, height: 28)
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
-        .ledgerGlass(interactive: true, in: Circle())
         .accessibilityLabel("Choose ledger")
         .sheet(isPresented: $showingNewBook) { NewLedgerSheet() }
     }
@@ -72,7 +70,7 @@ struct RootView: View {
                 List {
                     Section {
                         ForEach(AppSection.allCases) { item in
-                            Button { section = item } label: { Label(item.rawValue, systemImage: item.symbol).fontWeight(section == item ? .semibold : .regular) }
+                            Button { withAnimation(.easeInOut(duration: 0.24)) { section = item } } label: { Label(item.rawValue, systemImage: item.symbol).fontWeight(section == item ? .semibold : .regular) }
                         }
                     }
                     Section("Accounts") {
@@ -87,22 +85,28 @@ struct RootView: View {
                 .navigationTitle("Ledger")
                 .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 290)
             } detail: {
-                NavigationStack { destination }
+                NavigationStack { destination.id(section).transition(.opacity.combined(with: .move(edge: .trailing))) }
+                    .animation(.easeInOut(duration: 0.24), value: section)
             }
         } else {
             TabView(selection: $section) {
-                NavigationStack { OverviewView(section: $section, selectedAccountID: $selectedAccountID) }.tabItem { Label("Overview", systemImage: "house") }.tag(AppSection.overview)
+                NavigationStack { OverviewView(section: animatedSection, selectedAccountID: $selectedAccountID) }.tabItem { Label("Overview", systemImage: "house") }.tag(AppSection.overview)
                 NavigationStack { LedgerView() }.tabItem { Label("Ledger", systemImage: "creditcard") }.tag(AppSection.ledger)
                 NavigationStack { AnalyticsView() }.tabItem { Label("Analytics", systemImage: "chart.bar.xaxis") }.tag(AppSection.analytics)
                 NavigationStack { AccountsView() }.tabItem { Label("Accounts", systemImage: "wallet.bifold") }.tag(AppSection.accounts)
                 NavigationStack { SettingsView() }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(AppSection.settings)
             }
+            .animation(.easeInOut(duration: 0.24), value: section)
         }
+    }
+
+    private var animatedSection: Binding<AppSection> {
+        Binding(get: { section }, set: { newValue in withAnimation(.easeInOut(duration: 0.24)) { section = newValue } })
     }
 
     @ViewBuilder private var destination: some View {
         switch section {
-        case .overview: OverviewView(section: $section, selectedAccountID: $selectedAccountID)
+        case .overview: OverviewView(section: animatedSection, selectedAccountID: $selectedAccountID)
         case .ledger: LedgerView()
         case .analytics: AnalyticsView()
         case .accounts: AccountsView()

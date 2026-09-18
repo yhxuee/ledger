@@ -10,6 +10,7 @@ struct LedgerView: View {
 
     @EnvironmentObject private var store: LedgerStore
     @State private var query = ""
+    @State private var isSearchPresented = false
     @State private var selectedCategories = Set<LedgerCategoryID>()
     @State private var selectedAccounts = Set<UUID>()
     @State private var editing: LedgerTransaction?
@@ -44,7 +45,14 @@ struct LedgerView: View {
                 ForEach(groups) { group in
                     Section(group.date.formatted(.dateTime.weekday(.wide).month(.wide).day())) {
                         ForEach(group.items) { item in
-                            Button { editing = item } label: { TransactionRow(transaction: item, category: category(item.categoryID)) }.buttonStyle(.plain)
+                            Button { editing = item } label: {
+                                TransactionRow(transaction: item, category: category(item.categoryID))
+                                    .padding(.horizontal, 14)
+                                    .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            }.buttonStyle(.plain)
+                                .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
                                 .swipeActions { Button("Delete", role: .destructive) { store.deleteTransaction(item) } }
                         }
                     }
@@ -55,7 +63,15 @@ struct LedgerView: View {
         }
         .background(LedgerBackground())
         .navigationTitle("Ledger")
-        .searchable(text: $query, prompt: "Transactions")
+        .modifier(LedgerSearchModifier(text: $query, isPresented: $isSearchPresented))
+        .safeAreaInset(edge: .bottom) {
+            if !isSearchPresented {
+                HStack {
+                    Spacer()
+                    GlassIconButton(systemName: "magnifyingglass", label: "Search transactions") { isSearchPresented = true }
+                }.padding(.horizontal, 18).padding(.vertical, 6)
+            }
+        }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Menu {
@@ -93,9 +109,7 @@ struct LedgerView: View {
                 Spacer()
                 Button("Clear") { hasCalendarDay = false; showingCalendar = false }.font(.subheadline)
             }.padding(.horizontal)
-            DatePicker("Day", selection: $calendarDay, displayedComponents: .date)
-                .datePickerStyle(.graphical)
-                .labelsHidden()
+            LedgerCalendarView(selection: $calendarDay, transactions: store.activeTransactions, accounts: store.accounts.map(\.account))
                 .onChange(of: calendarDay) { _, _ in hasCalendarDay = true }
         }
         .padding(.top, 8)
@@ -104,4 +118,28 @@ struct LedgerView: View {
     }
 
     private func category(_ id: LedgerCategoryID) -> LedgerCategory { store.state.categories.first { $0.id == id } ?? SeedData.categories.first { $0.id == id } ?? LedgerCategory(id: .other, name: "Other", detail: "Everything else", symbol: "dollarsign.circle.fill", colorHex: "62B28F") }
+}
+
+private struct LedgerSearchModifier: ViewModifier {
+    @Binding var text: String
+    @Binding var isPresented: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.searchable(text: $text, isPresented: $isPresented, prompt: Text("Transactions"))
+        } else {
+            content.overlay(alignment: .bottom) {
+                if isPresented {
+                    HStack {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                        TextField("Transactions", text: $text).textFieldStyle(.plain)
+                        Button { text = ""; isPresented = false } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                    }
+                    .padding(12)
+                    .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .padding()
+                }
+            }
+        }
+    }
 }

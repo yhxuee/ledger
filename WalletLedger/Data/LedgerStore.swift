@@ -144,6 +144,16 @@ final class LedgerStore: ObservableObject {
         scheduleSave()
     }
 
+    @discardableResult
+    func addCategory(name rawName: String, detail rawDetail: String, symbol: String, colorHex: String) -> LedgerCategoryID? {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !symbol.isEmpty else { return nil }
+        let id = LedgerCategoryID(rawValue: "custom-\(UUID().uuidString.lowercased())")
+        state.categories.append(.init(id: id, name: name, detail: rawDetail.trimmingCharacters(in: .whitespacesAndNewlines), symbol: symbol, colorHex: colorHex))
+        scheduleSave()
+        return id
+    }
+
     func replace(with envelope: LedgerBackupEnvelope) {
         do {
             try BackupCodec.validate(envelope.data)

@@ -12,7 +12,24 @@ enum LedgerPalette {
     static let teal = Color(hex: "62B28F")
 
     static func category(_ id: LedgerCategoryID) -> Color {
-        switch id { case .food: coral; case .transport: blue; case .shopping: amber; case .utilities: purple; case .other: teal }
+        if id == .food { return coral }
+        if id == .transport { return blue }
+        if id == .shopping { return amber }
+        if id == .utilities { return purple }
+        return teal
+    }
+}
+
+struct CategoryIcon: View {
+    let category: LedgerCategory
+    var font: Font = .body
+
+    var body: some View {
+        Group {
+            if let emoji = category.emoji { Text(emoji) }
+            else { Image(systemName: category.symbol) }
+        }
+        .font(font)
     }
 }
 

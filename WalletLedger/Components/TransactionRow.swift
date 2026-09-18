@@ -5,11 +5,10 @@ struct TransactionRow: View {
     let category: LedgerCategory
     var body: some View {
         HStack(spacing: 13) {
-            Image(systemName: category.symbol)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(LedgerPalette.category(category.id))
+            CategoryIcon(category: category, font: .system(size: 17, weight: .semibold))
+                .foregroundStyle(Color(hex: category.colorHex))
                 .frame(width: 40, height: 40)
-                .background(LedgerPalette.category(category.id).opacity(0.14), in: Circle())
+                .background(Color(hex: category.colorHex).opacity(0.14), in: Circle())
             VStack(alignment: .leading, spacing: 3) {
                 Text(transaction.note?.isEmpty == false ? transaction.note! : category.name).font(.body.weight(.semibold)).lineLimit(1)
                 Text("\(category.name) · \(transaction.occurredAt.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(.secondary)

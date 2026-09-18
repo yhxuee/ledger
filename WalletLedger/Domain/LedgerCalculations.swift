@@ -126,7 +126,7 @@ enum LedgerCalculations {
             }
         }
 
-        var totals = Dictionary(uniqueKeysWithValues: LedgerCategoryID.allCases.map { ($0, 0.0) })
+        var totals = Dictionary(uniqueKeysWithValues: state.categories.map { ($0.id, 0.0) })
         for transaction in activeTransactions(state) where transaction.type == .expense && transaction.occurredAt >= start && transaction.occurredAt < end && (accountID == nil || transaction.accountID == accountID) && (accountIDs.isEmpty || accountIDs.contains(transaction.accountID)) {
             guard categories.isEmpty || categories.contains(transaction.categoryID) else { continue }
             let value = historical(transaction, to: target, rates: state.settings.rates)

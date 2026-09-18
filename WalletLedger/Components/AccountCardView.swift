@@ -10,9 +10,16 @@ struct AccountCardView: View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 25, style: .continuous)
                 .fill(background)
-                .overlay(alignment: .topTrailing) {
-                    Circle().fill(.white.opacity(0.34)).frame(width: compact ? 110 : 170).blur(radius: 4).offset(x: 32, y: -45)
+            if let data = account?.account.cardImageData, let image = UIImage(data: data) {
+                GeometryReader { geometry in
+                    Image(uiImage: image)
+                        .resizable().scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .overlay(LinearGradient(colors: [.black.opacity(0.08), .black.opacity(0.48)], startPoint: .topLeading, endPoint: .bottomTrailing))
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 25, style: .continuous))
+            }
             VStack(alignment: .leading, spacing: compact ? 8 : 16) {
                 HStack {
                     Text(account?.account.logo ?? "ALL").font(.caption.weight(.bold)).padding(.horizontal, 10).padding(.vertical, 7).background(.white.opacity(0.32), in: Capsule())
@@ -26,7 +33,7 @@ struct AccountCardView: View {
                     .font(.system(size: compact ? 24 : 34, weight: .bold, design: .rounded)).minimumScaleFactor(0.6).lineLimit(1)
             }.padding(compact ? 16 : 22)
         }
-        .foregroundStyle(.black.opacity(0.84))
+        .foregroundStyle(account?.account.cardImageData == nil ? Color.black.opacity(0.84) : Color.white)
         .aspectRatio(85.6 / 53.98, contentMode: .fit)
         .accessibilityElement(children: .combine)
     }

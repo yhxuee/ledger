@@ -11,38 +11,46 @@ struct SettingsView: View {
     @State private var statusMessage: String?
 
     var body: some View {
-        Form {
-            Section("Currency") {
-                Picker("Base Currency", selection: baseCurrencyBinding) { ForEach(CurrencyCode.allCases) { Text($0.rawValue).tag($0) } }
-                Toggle("Automatic Exchange Rates", isOn: automaticRatesBinding)
-                Text("Automatic rates are reserved for a future authenticated provider.").font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Exchange Rates") {
-                ForEach(CurrencyCode.allCases.filter { $0 != store.state.settings.baseCurrency }) { currency in
-                    LabeledContent("1 \(currency.rawValue)") {
-                        TextField("Rate", value: rateBinding(currency), format: .number.precision(.fractionLength(4))).keyboardType(.decimalPad).multilineTextAlignment(.trailing)
-                        Text(store.state.settings.baseCurrency.rawValue).font(.caption).foregroundStyle(.secondary)
-                    }
+        ScrollView {
+            VStack(spacing: 16) {
+                SettingsGlassSection("Currency") {
+                    Picker("Base Currency", selection: baseCurrencyBinding) { ForEach(CurrencyCode.allCases) { Text($0.rawValue).tag($0) } }
+                    Text("Rates are stored locally and can be edited below.").font(.caption).foregroundStyle(.secondary)
                 }
-                Button("Reset Reference Rates") { store.updateSettings { $0.rates = SeedData.rates } }
-            }
-            Section("Data") {
-                Button { exportDocument = BackupDocument(envelope: store.backupEnvelope()); showingExporter = true } label: { Label("Export Backup", systemImage: "square.and.arrow.up") }
-                Button { showingImporter = true } label: { Label("Import Backup", systemImage: "square.and.arrow.down") }
-            }
-            Section("iCloud Backup") {
-                Toggle("Backup Reminders", isOn: remindersBinding)
-                Button { Task { await backupToICloud() } } label: { Label("Back Up Now", systemImage: "icloud.and.arrow.up") }.disabled(working)
-                Button { Task { await restoreFromICloud() } } label: { Label("Restore Latest Backup", systemImage: "icloud.and.arrow.down") }.disabled(working)
-                LabeledContent("Last Backup", value: store.state.settings.lastBackupAt?.formatted(date: .abbreviated, time: .shortened) ?? "Never")
-                Text("Requires the iCloud Documents capability and the container configured in WalletLedger.entitlements.").font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Storage") {
-                LabeledContent("Local Mode", value: "Application Support")
-                LabeledContent("Schema", value: "v\(store.state.schemaVersion)")
-                Text("Balances and analytics are recalculated from the local transaction ledger; they are never stored as independent mutable totals.").font(.caption).foregroundStyle(.secondary)
-            }
+                SettingsGlassSection("Exchange Rates") {
+                    ForEach(displayedCurrencies) { currency in
+                        LabeledContent("1 \(currency.rawValue)") {
+                            TextField("Rate", value: rateBinding(currency), format: .number.precision(.fractionLength(4))).keyboardType(.decimalPad).multilineTextAlignment(.trailing)
+                            Text(store.state.settings.baseCurrency.rawValue).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Divider()
+                    }
+                    Button("Reset Reference Rates") { store.updateSettings { $0.rates = SeedData.rates } }
+                }
+                SettingsGlassSection("Data") {
+                    Button { exportDocument = BackupDocument(envelope: store.backupEnvelope()); showingExporter = true } label: { Label("Export Backup", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity, alignment: .leading) }
+                    Divider()
+                    Button { showingImporter = true } label: { Label("Import Backup", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity, alignment: .leading) }
+                }
+                SettingsGlassSection("iCloud Backup") {
+                    Toggle("Backup Reminders", isOn: remindersBinding)
+                    Divider()
+                    Button { Task { await backupToICloud() } } label: { Label("Back Up Now", systemImage: "icloud.and.arrow.up").frame(maxWidth: .infinity, alignment: .leading) }.disabled(working)
+                    Divider()
+                    Button { Task { await restoreFromICloud() } } label: { Label("Restore Latest Backup", systemImage: "icloud.and.arrow.down").frame(maxWidth: .infinity, alignment: .leading) }.disabled(working)
+                    Divider()
+                    LabeledContent("Last Backup", value: store.state.settings.lastBackupAt?.formatted(date: .abbreviated, time: .shortened) ?? "Never")
+                    Text("Requires the iCloud Documents capability and the container configured in WalletLedger.entitlements.").font(.caption).foregroundStyle(.secondary)
+                }
+                SettingsGlassSection("Storage") {
+                    LabeledContent("Local Mode", value: "Application Support")
+                    Divider()
+                    LabeledContent("Schema", value: "v\(store.state.schemaVersion)")
+                    Text("Balances and analytics are recalculated from the local transaction ledger; they are never stored as independent mutable totals.").font(.caption).foregroundStyle(.secondary)
+                }
+            }.padding()
         }
+        .background(LedgerBackground())
         .navigationTitle("Settings")
         .toolbar { ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() } }
         .fileExporter(isPresented: $showingExporter, document: exportDocument, contentType: .walletLedgerBackup, defaultFilename: backupFileName) { result in if case .failure(let error) = result { store.presentedError = error.localizedDescription } }
@@ -60,7 +68,7 @@ struct SettingsView: View {
     }
 
     private var baseCurrencyBinding: Binding<CurrencyCode> { Binding(get: { store.state.settings.baseCurrency }, set: { value in store.updateSettings { $0.baseCurrency = value } }) }
-    private var automaticRatesBinding: Binding<Bool> { Binding(get: { store.state.settings.automaticRates }, set: { value in store.updateSettings { $0.automaticRates = value } }) }
+    private var displayedCurrencies: [CurrencyCode] { CurrencyCode.allCases.filter { $0 != .HKD && $0 != store.state.settings.baseCurrency } }
     private var remindersBinding: Binding<Bool> { Binding(get: { store.state.settings.backupReminders }, set: { value in store.updateSettings { $0.backupReminders = value } }) }
     private var backupFileName: String {
         let values = Calendar.current.dateComponents([.year, .month, .day], from: .now)
@@ -88,6 +96,26 @@ struct SettingsView: View {
         working = true; defer { working = false }
         do { importPreview = try await ICloudBackupService.shared.restoreLatest() }
         catch { store.presentedError = error.localizedDescription }
+    }
+}
+
+private struct SettingsGlassSection<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            Text(title.uppercased()).font(.caption.weight(.semibold)).foregroundStyle(.secondary).tracking(0.7)
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }
 

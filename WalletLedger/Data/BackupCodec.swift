@@ -49,7 +49,7 @@ enum BackupCodec {
         guard Set(transactionIDs).count == transactionIDs.count else { throw BackupError.duplicateID("transaction") }
         let knownAccounts = Set(accountIDs)
         let categoryIDs = state.categories.map(\.id)
-        guard Set(categoryIDs).count == categoryIDs.count, Set(categoryIDs) == Set(LedgerCategoryID.allCases) else { throw BackupError.invalidValue("categories") }
+        guard Set(categoryIDs).count == categoryIDs.count, LedgerCategoryID.builtIns.allSatisfy(categoryIDs.contains) else { throw BackupError.invalidValue("categories") }
         for account in state.accounts {
             guard account.openingBalance.isFinite, account.budget.isFinite, account.budget >= 0 else { throw BackupError.invalidValue("account \(account.name)") }
         }

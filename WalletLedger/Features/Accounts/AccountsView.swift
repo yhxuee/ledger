@@ -1,4 +1,6 @@
+import PhotosUI
 import SwiftUI
+import UIKit
 
 struct AccountsView: View {
     @EnvironmentObject private var store: LedgerStore
@@ -47,6 +49,7 @@ private struct AccountEditorView: View {
     let onDelete: (LedgerAccount) -> Void
     @State private var account: LedgerAccount
     @State private var desiredBalance: Double
+    @State private var photoItem: PhotosPickerItem?
     private let isNew: Bool
 
     private let presets: [CardStyle] = [
@@ -86,6 +89,8 @@ private struct AccountEditorView: View {
                     ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(presets, id: \.self) { style in Button { account.cardStyle = style } label: { RoundedRectangle(cornerRadius: 12).fill(LinearGradient(colors: [Color(hex: style.startHex), Color(hex: style.endHex)], startPoint: .topLeading, endPoint: .bottomTrailing)).frame(width: 74, height: 48).overlay { if account.cardStyle == style { Image(systemName: "checkmark.circle.fill").foregroundStyle(.white) } } }.buttonStyle(.plain) } } }
                     ColorPicker("Start Color", selection: Binding(get: { Color(hex: account.cardStyle.startHex) }, set: { account.cardStyle.startHex = $0.rgbHex }))
                     ColorPicker("End Color", selection: Binding(get: { Color(hex: account.cardStyle.endHex) }, set: { account.cardStyle.endHex = $0.rgbHex }))
+                    PhotosPicker(selection: $photoItem, matching: .images) { Label(account.cardImageData == nil ? "Choose Card Photo" : "Replace Card Photo", systemImage: "photo") }
+                    if account.cardImageData != nil { Button("Remove Card Photo", role: .destructive) { account.cardImageData = nil; photoItem = nil } }
                 }
                 if !isNew { Section { Button("Delete Account", role: .destructive) { onDelete(account); dismiss() } } }
             }
@@ -95,6 +100,23 @@ private struct AccountEditorView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button("Save") { account.name = account.name.trimmingCharacters(in: .whitespacesAndNewlines); account.logo = account.logo.isEmpty ? String(account.name.prefix(3)).uppercased() : account.logo; store.saveAccount(account, desiredBalance: desiredBalance); dismiss() }.disabled(account.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
             }
+            .onChange(of: photoItem) { _, item in
+                guard let item else { return }
+                Task {
+                    do {
+                        if let data = try await item.loadTransferable(type: Data.self), let resized = resizeCardImage(data) { account.cardImageData = resized }
+                    } catch { store.presentedError = "Photo import failed: \(error.localizedDescription)" }
+                }
+            }
         }
+    }
+
+    private func resizeCardImage(_ data: Data) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
+        let maximum: CGFloat = 1_200
+        let scale = min(1, maximum / max(image.size.width, image.size.height))
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let rendered = UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        return rendered.jpegData(compressionQuality: 0.82)
     }
 }
