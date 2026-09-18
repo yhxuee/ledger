@@ -1,0 +1,40 @@
+name: Build Unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build .app without signing
+        run: |
+          xcodebuild clean build \
+            -scheme "WalletLedger" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath ./build_output \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_ENTITLEMENTS=""
+
+      - name: Package to IPA
+        run: |
+          mkdir -p Payload
+          # 复制生成的 .app 到 Payload 目录
+          cp -r ./build_output/Build/Products/Release-iphoneos/*.app Payload/
+          # 压缩生成 ipa
+          zip -r WalletLedger.ipa Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WalletLedger-IPA
+          path: WalletLedger.ipa
