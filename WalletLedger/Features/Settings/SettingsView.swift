@@ -3,7 +3,6 @@ import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @EnvironmentObject private var store: LedgerStore
-    @Binding var section: AppSection
     @State private var showingExporter = false
     @State private var showingImporter = false
     @State private var exportDocument: BackupDocument?
@@ -45,7 +44,7 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { AppSectionMenu(selection: $section) } }
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() } }
         .fileExporter(isPresented: $showingExporter, document: exportDocument, contentType: .walletLedgerBackup, defaultFilename: backupFileName) { result in if case .failure(let error) = result { store.presentedError = error.localizedDescription } }
         .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.walletLedgerBackup, .json]) { result in
             do {

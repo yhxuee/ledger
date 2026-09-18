@@ -2,7 +2,6 @@ import SwiftUI
 
 struct AccountsView: View {
     @EnvironmentObject private var store: LedgerStore
-    @Binding var section: AppSection
     @State private var editing: AccountViewModel?
     @State private var creating = false
     @State private var deleting: LedgerAccount?
@@ -31,7 +30,7 @@ struct AccountsView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 GlassIconButton(systemName: "plus", label: "Add account", prominent: true) { creating = true }
-                AppSectionMenu(selection: $section)
+                LedgerBookMenu()
             }
         }
         .sheet(item: $editing) { item in AccountEditorView(item: item) { deleting = $0 } }

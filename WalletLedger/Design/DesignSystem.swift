@@ -46,7 +46,7 @@ enum LedgerFormat {
     }
 
     static func transaction(_ amount: Double, currency: CurrencyCode, type: LedgerTransactionType) -> String {
-        let sign = type == .expense || type == .transfer ? "−" : "+"
+        let sign = type == .income ? "+" : ""
         return "\(sign)\(currency.rawValue) \(amount.formatted(.number.precision(.fractionLength(2))))"
     }
 }

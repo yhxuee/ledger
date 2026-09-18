@@ -116,6 +116,20 @@ struct LedgerState: Codable, Hashable, Sendable {
     var settings: LedgerSettings
 }
 
+struct LedgerBook: Identifiable, Codable, Hashable, Sendable {
+    var id: UUID
+    var name: String
+    var state: LedgerState
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+struct LedgerLibrary: Codable, Hashable, Sendable {
+    var schemaVersion: Int
+    var activeBookID: UUID
+    var books: [LedgerBook]
+}
+
 struct AccountViewModel: Identifiable, Hashable, Sendable {
     var account: LedgerAccount
     var balance: Double

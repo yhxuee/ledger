@@ -47,4 +47,21 @@ enum SeedData {
         ]
         return LedgerState(schemaVersion: 1, accounts: [checking, savings, card, investments], transactions: transactions, categories: categories, settings: .init(userID: localUserID, baseCurrency: .HKD, rates: rates, automaticRates: false, backupReminders: true, lastBackupAt: nil, updatedAt: now))
     }
+
+    static func makeEmpty() -> LedgerState {
+        let now = Date()
+        let account = LedgerAccount(
+            id: UUID(), userID: localUserID, name: "Main Account", type: .checking,
+            currency: .HKD, openingBalance: 0, budget: 0, includeInBudget: true,
+            logo: "MAIN", cardStyle: .init(startHex: "86C5DA", endHex: "C6E7CF"),
+            createdAt: now, updatedAt: now, deletedAt: nil, version: 1, syncStatus: .pending
+        )
+        return LedgerState(
+            schemaVersion: 1,
+            accounts: [account],
+            transactions: [],
+            categories: categories,
+            settings: .init(userID: localUserID, baseCurrency: .HKD, rates: rates, automaticRates: false, backupReminders: true, lastBackupAt: nil, updatedAt: now)
+        )
+    }
 }

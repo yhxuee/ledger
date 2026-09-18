@@ -18,8 +18,11 @@ struct TransactionRow: View {
             Text(LedgerFormat.transaction(transaction.amount, currency: transaction.currency, type: transaction.type))
                 .font(.subheadline.monospacedDigit().weight(.semibold))
                 .foregroundStyle(transaction.type == .income ? .green : .primary)
+            Image(systemName: "chevron.right")
+                .font(.caption.bold())
+                .foregroundStyle(.tertiary)
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, 9)
         .contentShape(Rectangle())
     }
 }

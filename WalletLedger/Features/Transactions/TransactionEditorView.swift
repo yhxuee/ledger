@@ -32,18 +32,22 @@ struct TransactionEditorView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 10) {
-                    Picker("Transaction type", selection: $type) { ForEach(LedgerTransactionType.allCases) { Text($0.title).tag($0) } }
-                        .pickerStyle(.segmented)
-                    amountPanel
-                    accountPanel
-                    keypad
-                    if type != .transfer { categoryPicker }
-                    if original != nil {
-                        Button("Delete Transaction", role: .destructive) { showDeleteConfirmation = true }.frame(maxWidth: .infinity).padding(.top, 4)
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(spacing: 12) {
+                        Picker("Transaction type", selection: $type) { ForEach(LedgerTransactionType.allCases) { Text($0.title).tag($0) } }
+                            .pickerStyle(.segmented)
+                        amountPanel
+                        detailsPanel
+                        keypad
+                        if type != .transfer { categoryPicker }
+                        if original != nil {
+                            Button("Delete Transaction", role: .destructive) { showDeleteConfirmation = true }.frame(maxWidth: .infinity).padding(.top, 4)
+                        }
                     }
-                }.padding(.horizontal, 14).padding(.vertical, 10)
+                    .frame(minHeight: max(0, geometry.size.height - 20), alignment: .top)
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                }
             }
             .background(LedgerBackground())
             .navigationTitle(original == nil ? "Add Transaction" : "Edit Transaction")
@@ -56,7 +60,6 @@ struct TransactionEditorView: View {
                 Button("Delete Transaction", role: .destructive) { if let original { store.deleteTransaction(original) }; dismiss() }
             }
         }
-        .presentationDetents([.large])
         .onAppear {
             if accountID == nil { accountID = activeAccounts.first?.id; currency = activeAccounts.first?.currency ?? store.state.settings.baseCurrency }
             if destinationID == nil { destinationID = activeAccounts.first(where: { $0.id != accountID })?.id }
@@ -64,18 +67,20 @@ struct TransactionEditorView: View {
     }
 
     private var amountPanel: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             Picker("Currency", selection: $currency) { ForEach(CurrencyCode.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu)
-            Text(LedgerFormat.money(amount, currency: currency)).font(.system(size: 42, weight: .bold, design: .rounded)).minimumScaleFactor(0.55).lineLimit(1)
-            TextField("Add a note", text: $note).textFieldStyle(.roundedBorder).multilineTextAlignment(.center)
-            DatePicker("Date", selection: $occurredAt, displayedComponents: [.date, .hourAndMinute]).labelsHidden()
-        }.frame(maxWidth: .infinity).padding(.horizontal, 14).padding(.vertical, 10).ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            Text(LedgerFormat.money(amount, currency: currency)).font(.system(size: 48, weight: .bold, design: .rounded)).minimumScaleFactor(0.55).lineLimit(1)
+        }.frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 12).ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
-    private var accountPanel: some View {
-        VStack(spacing: 6) {
-            Picker(type == .transfer ? "From Account" : "Account", selection: $accountID) {
-                ForEach(activeAccounts) { Text($0.name).tag(Optional($0.id)) }
+    private var detailsPanel: some View {
+        VStack(spacing: 0) {
+            LabeledContent(type == .transfer ? "From Account" : "Account") {
+                Picker(type == .transfer ? "From Account" : "Account", selection: $accountID) {
+                    ForEach(activeAccounts) { Text($0.name).tag(Optional($0.id)) }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
             }
             .onChange(of: accountID) { _, newValue in
                 if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
@@ -83,24 +88,38 @@ struct TransactionEditorView: View {
             }
             if type == .transfer {
                 Divider()
-                Picker("To Account", selection: $destinationID) {
-                    ForEach(activeAccounts.filter { $0.id != accountID }) { Text($0.name).tag(Optional($0.id)) }
+                LabeledContent("To Account") {
+                    Picker("To Account", selection: $destinationID) {
+                        ForEach(activeAccounts.filter { $0.id != accountID }) { Text($0.name).tag(Optional($0.id)) }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
                 }
             }
-        }.padding(.horizontal, 14).padding(.vertical, 9).ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            Divider()
+            HStack(spacing: 10) {
+                Image(systemName: "note.text").foregroundStyle(.secondary)
+                TextField("Note (optional)", text: $note).textFieldStyle(.plain)
+            }
+            .padding(.vertical, 12)
+            Divider()
+            DatePicker("Date", selection: $occurredAt, displayedComponents: [.date, .hourAndMinute])
+        }
+        .padding(.horizontal, 16).padding(.vertical, 4)
+        .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private var keypad: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 5) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 3), spacing: 9) {
             ForEach(["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "delete.left"], id: \.self) { key in
-                if key.isEmpty { Color.clear.frame(height: 40) }
+                if key.isEmpty { Color.clear.frame(height: 56) }
                 else {
                     Button { press(key) } label: {
-                        Group { if key == "delete.left" { Image(systemName: key) } else { Text(key) } }.font(.title3.weight(.medium)).frame(maxWidth: .infinity, minHeight: 40)
+                        Group { if key == "delete.left" { Image(systemName: key) } else { Text(key) } }.font(.title2.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 56)
                     }.buttonStyle(.plain).ledgerGlass(interactive: true, in: Circle())
                 }
             }
-        }.frame(maxWidth: 300)
+        }.frame(maxWidth: 350)
     }
 
     private var categoryPicker: some View {
@@ -108,8 +127,8 @@ struct TransactionEditorView: View {
             HStack(spacing: 10) {
                 ForEach(store.state.categories) { category in
                     Button { withAnimation(.snappy) { categoryID = category.id } } label: {
-                        VStack(spacing: 3) { Image(systemName: category.symbol).font(.body); Text(category.name).font(.caption.weight(.semibold)); Text(category.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
-                            .frame(width: 108, height: 68)
+                        VStack(spacing: 4) { Image(systemName: category.symbol).font(.title3); Text(category.name).font(.caption.weight(.semibold)); Text(category.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+                            .frame(width: 112, height: 78)
                             .foregroundStyle(categoryID == category.id ? LedgerPalette.category(category.id) : .primary)
                             .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     }.buttonStyle(.plain)

@@ -25,14 +25,16 @@ struct OverviewView: View {
         }
         .navigationTitle(selected?.account.name ?? "Overview")
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                GlassIconButton(systemName: "plus", label: "Add transaction", tint: LedgerPalette.coral) { showTransactionEditor = true }
-                AppSectionMenu(selection: $section)
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 14) {
+                    GlassIconButton(systemName: "plus", label: "Add transaction", tint: LedgerPalette.coral) { showTransactionEditor = true }
+                    LedgerBookMenu()
+                }
             }
         }
         .sheet(isPresented: $showAccountPicker) { AccountPickerView(selectedAccountID: $selectedAccountID) }
-        .sheet(isPresented: $showTransactionEditor) { TransactionEditorView() }
-        .sheet(item: $editingTransaction) { TransactionEditorView(transaction: $0) }
+        .fullScreenCover(isPresented: $showTransactionEditor) { TransactionEditorView() }
+        .fullScreenCover(item: $editingTransaction) { TransactionEditorView(transaction: $0) }
     }
 
     private var hero: some View {
@@ -42,17 +44,13 @@ struct OverviewView: View {
     }
 
     private var metrics: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 155), spacing: 12)], spacing: 12) {
-            MetricCard("Account Balance") {
-                Text(LedgerFormat.money(selected?.balance ?? LedgerCalculations.portfolioBalance(store.state), currency: selected?.account.currency ?? store.state.settings.baseCurrency))
-                    .font(.title2.bold()).minimumScaleFactor(0.65).lineLimit(1)
-                Text(selected == nil ? "Converted to \(store.state.settings.baseCurrency.rawValue)" : selected!.account.type.rawValue).font(.caption).foregroundStyle(.secondary)
-            }
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
             Button { section = .analytics } label: {
                 MetricCard("Weekly Activity") {
                     MiniActivityChart(buckets: summary.buckets)
                     Text(LedgerFormat.money(summary.total, currency: store.state.settings.baseCurrency, compact: true)).font(.headline.bold())
                 }
+                .frame(minHeight: 146)
             }
             .buttonStyle(.plain)
             .accessibilityHint("Opens Analytics")
@@ -61,6 +59,7 @@ struct OverviewView: View {
                 ProgressView(value: min(max(usage.ratio, 0), 1)).tint(usage.ratio > 1 ? .red : LedgerPalette.coral)
                 Text("\(Int(usage.ratio * 100))% of monthly budget used").font(.caption).foregroundStyle(.secondary)
             }
+            .frame(minHeight: 146)
         }
     }
 
@@ -97,9 +96,16 @@ private struct MiniActivityChart: View {
     let buckets: [AnalyticsBucket]
     var body: some View {
         let maximum = max(buckets.map(\.value).max() ?? 1, 1)
-        HStack(alignment: .bottom, spacing: 5) {
-            ForEach(buckets) { bucket in RoundedRectangle(cornerRadius: 3).fill(LedgerPalette.coral.gradient).frame(height: max(4, 34 * bucket.value / maximum)) }
-        }.frame(height: 36)
+        let labels = ["U", "M", "T", "W", "R", "F", "S"]
+        HStack(alignment: .bottom, spacing: 4) {
+            ForEach(Array(buckets.enumerated()), id: \.element.id) { index, bucket in
+                VStack(spacing: 3) {
+                    Spacer(minLength: 0)
+                    RoundedRectangle(cornerRadius: 3).fill(LedgerPalette.coral.gradient).frame(height: max(4, 30 * bucket.value / maximum))
+                    Text(labels[index % labels.count]).font(.system(size: 8, weight: .semibold)).foregroundStyle(.secondary)
+                }
+            }
+        }.frame(height: 45)
     }
 }
 

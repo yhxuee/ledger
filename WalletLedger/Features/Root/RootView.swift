@@ -8,22 +8,48 @@ enum AppSection: String, CaseIterable, Identifiable {
     }
 }
 
-struct AppSectionMenu: View {
-    @Binding var selection: AppSection
+struct LedgerBookMenu: View {
+    @EnvironmentObject private var store: LedgerStore
+    @State private var showingNewBook = false
 
     var body: some View {
         Menu {
-            ForEach(AppSection.allCases) { destination in
-                Button { selection = destination } label: {
-                    Label(destination.rawValue, systemImage: selection == destination ? "checkmark.circle.fill" : destination.symbol)
+            ForEach(store.books) { book in
+                Button { store.switchBook(to: book.id) } label: {
+                    Label(book.name, systemImage: store.activeBookID == book.id ? "checkmark.circle.fill" : "book.closed")
                 }
             }
+            Divider()
+            Button { showingNewBook = true } label: { Label("Add New Ledger", systemImage: "plus") }
         } label: {
             Image(systemName: "ellipsis")
-                .frame(width: 28, height: 28)
+                .font(.body.weight(.semibold))
+                .frame(width: 34, height: 34)
                 .contentShape(Circle())
         }
-        .accessibilityLabel("Choose page")
+        .buttonStyle(.plain)
+        .ledgerGlass(interactive: true, in: Circle())
+        .accessibilityLabel("Choose ledger")
+        .sheet(isPresented: $showingNewBook) { NewLedgerSheet() }
+    }
+}
+
+private struct NewLedgerSheet: View {
+    @EnvironmentObject private var store: LedgerStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+
+    var body: some View {
+        NavigationStack {
+            Form { TextField("Ledger name", text: $name) }
+                .navigationTitle("New Ledger")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) { Button("Add") { store.createBook(named: name); dismiss() } }
+                }
+        }
+        .presentationDetents([.medium])
     }
 }
 
@@ -37,6 +63,7 @@ struct RootView: View {
         ZStack { LedgerBackground(); content }
             .alert("Wallet Ledger", isPresented: Binding(get: { store.presentedError != nil }, set: { if !$0 { store.presentedError = nil } })) { Button("OK") { store.presentedError = nil } } message: { Text(store.presentedError ?? "") }
             .overlay(alignment: .bottom) { undoToast }
+            .onChange(of: store.activeBookID) { _, _ in selectedAccountID = nil }
     }
 
     @ViewBuilder private var content: some View {
@@ -65,10 +92,10 @@ struct RootView: View {
         } else {
             TabView(selection: $section) {
                 NavigationStack { OverviewView(section: $section, selectedAccountID: $selectedAccountID) }.tabItem { Label("Overview", systemImage: "house") }.tag(AppSection.overview)
-                NavigationStack { LedgerView(section: $section) }.tabItem { Label("Ledger", systemImage: "creditcard") }.tag(AppSection.ledger)
-                NavigationStack { AnalyticsView(section: $section) }.tabItem { Label("Analytics", systemImage: "chart.bar.xaxis") }.tag(AppSection.analytics)
-                NavigationStack { AccountsView(section: $section) }.tabItem { Label("Accounts", systemImage: "wallet.bifold") }.tag(AppSection.accounts)
-                NavigationStack { SettingsView(section: $section) }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(AppSection.settings)
+                NavigationStack { LedgerView() }.tabItem { Label("Ledger", systemImage: "creditcard") }.tag(AppSection.ledger)
+                NavigationStack { AnalyticsView() }.tabItem { Label("Analytics", systemImage: "chart.bar.xaxis") }.tag(AppSection.analytics)
+                NavigationStack { AccountsView() }.tabItem { Label("Accounts", systemImage: "wallet.bifold") }.tag(AppSection.accounts)
+                NavigationStack { SettingsView() }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(AppSection.settings)
             }
         }
     }
@@ -76,10 +103,10 @@ struct RootView: View {
     @ViewBuilder private var destination: some View {
         switch section {
         case .overview: OverviewView(section: $section, selectedAccountID: $selectedAccountID)
-        case .ledger: LedgerView(section: $section)
-        case .analytics: AnalyticsView(section: $section)
-        case .accounts: AccountsView(section: $section)
-        case .settings: SettingsView(section: $section)
+        case .ledger: LedgerView()
+        case .analytics: AnalyticsView()
+        case .accounts: AccountsView()
+        case .settings: SettingsView()
         }
     }
 

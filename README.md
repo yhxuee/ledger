@@ -2,7 +2,7 @@
 
 Native SwiftUI reconstruction of the `wallet-ledger-overview` personal-finance PWA. Open `WalletLedger.xcodeproj` in Xcode 26.
 
-Version 1.0.2 places the Ledger shortcut beside Latest Transactions and keeps the five-page ellipsis menu on every top-level screen. Weekly Activity opens Analytics, and the transaction keypad and category cards are condensed for smaller iPhone screens.
+Version 1.1.0 turns the ellipsis into a multi-ledger switcher. Existing data migrates into Ledger 1, while each newly created ledger owns an independent account and transaction graph. It also introduces a full-screen adaptive transaction editor, redesigned Overview metrics, account/category/custom-range filters, collision-safe Analytics axes, and a native daily calendar in Ledger.
 
 ## Requirements
 

@@ -63,43 +63,81 @@ enum LedgerCalculations {
         activeTransactions(state).filter { accountID == nil || $0.accountID == accountID || $0.destinationAccountID == accountID }.sorted { $0.occurredAt > $1.occurredAt }
     }
 
-    static func analytics(_ state: LedgerState, range: AnalyticsRange, categories: Set<LedgerCategoryID> = [], accountID: UUID? = nil, now: Date = .now) -> AnalyticsSummary {
+    static func analytics(_ state: LedgerState, range: AnalyticsRange, categories: Set<LedgerCategoryID> = [], accountID: UUID? = nil, accountIDs: Set<UUID> = [], customRange: ClosedRange<Date>? = nil, now: Date = .now) -> AnalyticsSummary {
         let calendar = Calendar.current
         let target = state.settings.baseCurrency
         let startOfToday = calendar.startOfDay(for: now)
         var buckets: [AnalyticsBucket] = []
         var start = startOfToday
+        var end = calendar.date(byAdding: .day, value: 1, to: startOfToday) ?? now
+        var bucketMode: AnalyticsBucketMode = .day
 
-        switch range {
-        case .week:
-            start = calendar.date(byAdding: .day, value: -6, to: startOfToday) ?? startOfToday
-            buckets = (0..<7).map { offset in
-                let date = calendar.date(byAdding: .day, value: offset, to: start) ?? start
-                return .init(id: dayKey(date), label: date.formatted(.dateTime.weekday(.abbreviated)), value: 0)
+        if let customRange {
+            start = calendar.startOfDay(for: customRange.lowerBound)
+            end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: customRange.upperBound)) ?? customRange.upperBound
+            let days = max(1, (calendar.dateComponents([.day], from: start, to: end).day ?? 1))
+            if days <= 14 {
+                bucketMode = .day
+                buckets = (0..<days).map { offset in
+                    let date = calendar.date(byAdding: .day, value: offset, to: start) ?? start
+                    return .init(id: dayKey(date), label: date.formatted(.dateTime.month(.defaultDigits).day()), value: 0)
+                }
+            } else if days <= 120 {
+                bucketMode = .customWeek
+                let count = (days + 6) / 7
+                buckets = (0..<count).map { offset in
+                    let date = calendar.date(byAdding: .day, value: offset * 7, to: start) ?? start
+                    return .init(id: "C\(offset)", label: date.formatted(.dateTime.month(.defaultDigits).day()), value: 0)
+                }
+            } else {
+                bucketMode = .month
+                let firstMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: start)) ?? start
+                let lastMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: customRange.upperBound)) ?? customRange.upperBound
+                let count = max(1, (calendar.dateComponents([.month], from: firstMonth, to: lastMonth).month ?? 0) + 1)
+                buckets = (0..<count).map { offset in
+                    let date = calendar.date(byAdding: .month, value: offset, to: firstMonth) ?? firstMonth
+                    return .init(id: monthKey(date), label: date.formatted(.dateTime.month(.abbreviated).year(.twoDigits)), value: 0)
+                }
             }
-        case .month:
-            start = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? startOfToday
-            buckets = (0..<4).map { .init(id: "\($0)", label: "W\($0 + 1)", value: 0) }
-        case .sixMonths, .year:
-            let count = range == .sixMonths ? 6 : 12
-            let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? startOfToday
-            start = calendar.date(byAdding: .month, value: -(count - 1), to: monthStart) ?? monthStart
-            buckets = (0..<count).map { offset in
-                let date = calendar.date(byAdding: .month, value: offset, to: start) ?? start
-                return .init(id: monthKey(date), label: date.formatted(.dateTime.month(.abbreviated)), value: 0)
+        } else {
+            switch range {
+            case .week:
+                bucketMode = .day
+                let weekday = calendar.component(.weekday, from: startOfToday)
+                start = calendar.date(byAdding: .day, value: -(weekday - 1), to: startOfToday) ?? startOfToday
+                let weekdayLabels = ["U", "M", "T", "W", "R", "F", "S"]
+                buckets = (0..<7).map { offset in
+                    let date = calendar.date(byAdding: .day, value: offset, to: start) ?? start
+                    return .init(id: dayKey(date), label: weekdayLabels[offset], value: 0)
+                }
+            case .month:
+                bucketMode = .weekOfMonth
+                start = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? startOfToday
+                buckets = (0..<4).map { .init(id: "\($0)", label: "W\($0 + 1)", value: 0) }
+            case .sixMonths, .year:
+                bucketMode = .month
+                let count = range == .sixMonths ? 6 : 12
+                let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? startOfToday
+                start = calendar.date(byAdding: .month, value: -(count - 1), to: monthStart) ?? monthStart
+                buckets = (0..<count).map { offset in
+                    let date = calendar.date(byAdding: .month, value: offset, to: start) ?? start
+                    return .init(id: monthKey(date), label: date.formatted(.dateTime.month(.abbreviated)), value: 0)
+                }
             }
         }
 
         var totals = Dictionary(uniqueKeysWithValues: LedgerCategoryID.allCases.map { ($0, 0.0) })
-        let end = calendar.date(byAdding: .day, value: 1, to: startOfToday) ?? now
-        for transaction in activeTransactions(state) where transaction.type == .expense && transaction.occurredAt >= start && transaction.occurredAt < end && (accountID == nil || transaction.accountID == accountID) {
+        for transaction in activeTransactions(state) where transaction.type == .expense && transaction.occurredAt >= start && transaction.occurredAt < end && (accountID == nil || transaction.accountID == accountID) && (accountIDs.isEmpty || accountIDs.contains(transaction.accountID)) {
             guard categories.isEmpty || categories.contains(transaction.categoryID) else { continue }
             let value = historical(transaction, to: target, rates: state.settings.rates)
             let key: String
-            switch range {
-            case .week: key = dayKey(transaction.occurredAt)
-            case .month: key = String(min(3, max(0, (calendar.component(.day, from: transaction.occurredAt) - 1) / 7)))
-            case .sixMonths, .year: key = monthKey(transaction.occurredAt)
+            switch bucketMode {
+            case .day: key = dayKey(transaction.occurredAt)
+            case .weekOfMonth: key = String(min(3, max(0, (calendar.component(.day, from: transaction.occurredAt) - 1) / 7)))
+            case .month: key = monthKey(transaction.occurredAt)
+            case .customWeek:
+                let days = calendar.dateComponents([.day], from: start, to: transaction.occurredAt).day ?? 0
+                key = "C\(max(0, days / 7))"
             }
             if let index = buckets.firstIndex(where: { $0.id == key }) { buckets[index].value += value }
             totals[transaction.categoryID, default: 0] += value
@@ -107,10 +145,14 @@ enum LedgerCalculations {
         let values = buckets.map(\.value)
         let total = values.reduce(0, +)
         let subtitle: String
-        switch range {
-        case .week: subtitle = "\(start.formatted(.dateTime.month(.abbreviated).day()))–\(now.formatted(.dateTime.month(.abbreviated).day().year()))"
-        case .month: subtitle = now.formatted(.dateTime.month(.wide).year())
-        case .sixMonths, .year: subtitle = "\(start.formatted(.dateTime.month(.abbreviated).year()))–\(now.formatted(.dateTime.month(.abbreviated).year()))"
+        if let customRange {
+            subtitle = "\(customRange.lowerBound.formatted(date: .abbreviated, time: .omitted))–\(customRange.upperBound.formatted(date: .abbreviated, time: .omitted))"
+        } else {
+            switch range {
+            case .week: subtitle = "\(start.formatted(.dateTime.month(.abbreviated).day()))–\(now.formatted(.dateTime.month(.abbreviated).day().year()))"
+            case .month: subtitle = now.formatted(.dateTime.month(.wide).year())
+            case .sixMonths, .year: subtitle = "\(start.formatted(.dateTime.month(.abbreviated).year()))–\(now.formatted(.dateTime.month(.abbreviated).year()))"
+            }
         }
         return .init(buckets: buckets, categoryTotals: totals, subtitle: subtitle, total: total, average: values.isEmpty ? 0 : total / Double(values.count), minimum: values.min() ?? 0, maximum: values.max() ?? 0)
     }
@@ -123,4 +165,6 @@ enum LedgerCalculations {
         let values = Calendar.current.dateComponents([.year, .month], from: date)
         return String(format: "%04d-%02d", values.year ?? 0, values.month ?? 0)
     }
+
+    private enum AnalyticsBucketMode { case day, weekOfMonth, month, customWeek }
 }

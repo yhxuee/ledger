@@ -4,18 +4,55 @@ import SwiftUI
 @MainActor
 final class LedgerStore: ObservableObject {
     @Published private(set) var state: LedgerState
+    @Published private(set) var books: [LedgerBook]
+    @Published private(set) var activeBookID: UUID
     @Published var presentedError: String?
     @Published var undoMessage: String?
     private var saveTask: Task<Void, Never>?
     private var undoTransaction: LedgerTransaction?
 
     init() {
-        if let saved = Self.loadLocal() { state = saved }
-        else { state = SeedData.make(); scheduleSave() }
+        if let library = Self.loadLibrary(), let active = library.books.first(where: { $0.id == library.activeBookID }) ?? library.books.first {
+            books = library.books
+            activeBookID = active.id
+            state = active.state
+        } else {
+            let initial = Self.loadLegacyState() ?? SeedData.make()
+            let book = LedgerBook(id: UUID(), name: "Ledger 1", state: initial, createdAt: .now, updatedAt: .now)
+            books = [book]
+            activeBookID = book.id
+            state = initial
+            scheduleSave()
+        }
     }
 
     var accounts: [AccountViewModel] { LedgerCalculations.accountViews(state) }
     var activeTransactions: [LedgerTransaction] { LedgerCalculations.activeTransactions(state).sorted { $0.occurredAt > $1.occurredAt } }
+    var activeBookName: String { books.first(where: { $0.id == activeBookID })?.name ?? "Ledger" }
+
+    func switchBook(to id: UUID) {
+        guard id != activeBookID else { return }
+        commitActiveBook()
+        guard let book = books.first(where: { $0.id == id }) else { return }
+        activeBookID = book.id
+        state = book.state
+        undoTransaction = nil
+        undoMessage = nil
+        scheduleSave()
+    }
+
+    func createBook(named rawName: String) {
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmed.isEmpty ? "Ledger \(books.count + 1)" : trimmed
+        commitActiveBook()
+        let book = LedgerBook(id: UUID(), name: name, state: SeedData.makeEmpty(), createdAt: .now, updatedAt: .now)
+        books.append(book)
+        activeBookID = book.id
+        state = book.state
+        undoTransaction = nil
+        undoMessage = nil
+        scheduleSave()
+    }
 
     func addTransaction(type: LedgerTransactionType, accountID: UUID, destinationAccountID: UUID?, amount: Double, currency: CurrencyCode, categoryID: LedgerCategoryID, occurredAt: Date, note: String?) {
         guard amount > 0, let source = state.accounts.first(where: { $0.id == accountID && $0.deletedAt == nil }) else { return }
@@ -119,29 +156,52 @@ final class LedgerStore: ObservableObject {
 
     private func scheduleSave() {
         saveTask?.cancel()
-        let snapshot = state
+        let snapshot = librarySnapshot()
         saveTask = Task {
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
-            do { try Self.writeLocal(snapshot) }
+            do { try Self.writeLibrary(snapshot) }
             catch { presentedError = "Local save failed: \(error.localizedDescription)" }
         }
     }
 
-    nonisolated private static var localURL: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appending(path: "WalletLedger", directoryHint: .isDirectory).appending(path: "ledger.json")
+    private func commitActiveBook() {
+        guard let index = books.firstIndex(where: { $0.id == activeBookID }) else { return }
+        books[index].state = state
+        books[index].updatedAt = .now
     }
 
-    private static func loadLocal() -> LedgerState? {
-        guard let data = try? Data(contentsOf: localURL), let state = try? BackupCodec.decoder().decode(LedgerState.self, from: data), (try? BackupCodec.validate(state)) != nil else { return nil }
+    private func librarySnapshot() -> LedgerLibrary {
+        var snapshotBooks = books
+        if let index = snapshotBooks.firstIndex(where: { $0.id == activeBookID }) {
+            snapshotBooks[index].state = state
+            snapshotBooks[index].updatedAt = .now
+        }
+        return LedgerLibrary(schemaVersion: 1, activeBookID: activeBookID, books: snapshotBooks)
+    }
+
+    nonisolated private static var storageFolder: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return base.appending(path: "WalletLedger", directoryHint: .isDirectory)
+    }
+
+    private static func loadLibrary() -> LedgerLibrary? {
+        let url = storageFolder.appending(path: "library.json")
+        guard let data = try? Data(contentsOf: url), let library = try? BackupCodec.decoder().decode(LedgerLibrary.self, from: data), !library.books.isEmpty else { return nil }
+        guard library.books.allSatisfy({ (try? BackupCodec.validate($0.state)) != nil }) else { return nil }
+        return library
+    }
+
+    private static func loadLegacyState() -> LedgerState? {
+        let url = storageFolder.appending(path: "ledger.json")
+        guard let data = try? Data(contentsOf: url), let state = try? BackupCodec.decoder().decode(LedgerState.self, from: data), (try? BackupCodec.validate(state)) != nil else { return nil }
         return state
     }
 
-    nonisolated private static func writeLocal(_ state: LedgerState) throws {
-        let url = localURL
+    nonisolated private static func writeLibrary(_ library: LedgerLibrary) throws {
+        let url = storageFolder.appending(path: "library.json")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
-        try BackupCodec.encoder().encode(state).write(to: url, options: [.atomic, .completeFileProtection])
+        try BackupCodec.encoder().encode(library).write(to: url, options: [.atomic, .completeFileProtection])
     }
 }
 
