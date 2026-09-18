@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AnalyticsView: View {
     @EnvironmentObject private var store: LedgerStore
+    @Binding var section: AppSection
     @State private var range: AnalyticsRange = .week
     @State private var selectedCategories = Set<LedgerCategoryID>()
     private var summary: AnalyticsSummary { LedgerCalculations.analytics(store.state, range: range, categories: selectedCategories) }
@@ -19,11 +20,12 @@ struct AnalyticsView: View {
         .background(LedgerBackground())
         .navigationTitle("Analytics")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
                 Menu {
                     ForEach(store.state.categories) { category in Toggle(category.name, isOn: Binding(get: { selectedCategories.contains(category.id) }, set: { enabled in if enabled { selectedCategories.insert(category.id) } else { selectedCategories.remove(category.id) } })) }
                     if !selectedCategories.isEmpty { Button("All Categories") { selectedCategories.removeAll() } }
                 } label: { Label("Filter", systemImage: "line.3.horizontal.decrease.circle") }
+                AppSectionMenu(selection: $section)
             }
         }
     }

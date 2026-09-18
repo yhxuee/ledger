@@ -25,23 +25,9 @@ struct OverviewView: View {
         }
         .navigationTitle(selected?.account.name ?? "Overview")
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                GlassIconButton(systemName: "line.3.horizontal", label: "Open Ledger") { section = .ledger }
-            }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 GlassIconButton(systemName: "plus", label: "Add transaction", tint: LedgerPalette.coral) { showTransactionEditor = true }
-                Menu {
-                    ForEach(AppSection.allCases) { destination in
-                        Button { section = destination } label: {
-                            Label(destination.rawValue, systemImage: destination.symbol)
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .frame(width: 28, height: 28)
-                        .contentShape(Circle())
-                }
-                .accessibilityLabel("Choose page")
+                AppSectionMenu(selection: $section)
             }
         }
         .sheet(isPresented: $showAccountPicker) { AccountPickerView(selectedAccountID: $selectedAccountID) }
@@ -80,7 +66,18 @@ struct OverviewView: View {
 
     private var latest: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Latest Transactions").font(.title2.bold())
+            HStack {
+                Text("Latest Transactions").font(.title2.bold())
+                Spacer()
+                Button { section = .ledger } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.headline.bold())
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open Ledger")
+            }
             LazyVStack(spacing: 0) {
                 ForEach(transactions.prefix(8)) { item in
                     Button { editingTransaction = item } label: { TransactionRow(transaction: item, category: category(item.categoryID)).padding(.horizontal, 15).padding(.vertical, 7) }

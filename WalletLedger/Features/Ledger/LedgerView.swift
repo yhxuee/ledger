@@ -9,6 +9,7 @@ struct LedgerView: View {
     }
 
     @EnvironmentObject private var store: LedgerStore
+    @Binding var section: AppSection
     @State private var query = ""
     @State private var selectedCategories = Set<LedgerCategoryID>()
     @State private var editing: LedgerTransaction?
@@ -43,11 +44,12 @@ struct LedgerView: View {
         .navigationTitle("Ledger")
         .searchable(text: $query, prompt: "Transactions")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
                 Menu {
                     ForEach(store.state.categories) { category in Toggle(category.name, isOn: Binding(get: { selectedCategories.contains(category.id) }, set: { enabled in if enabled { selectedCategories.insert(category.id) } else { selectedCategories.remove(category.id) } })) }
                     if !selectedCategories.isEmpty { Button("Clear Filters", role: .destructive) { selectedCategories.removeAll() } }
                 } label: { Label("Filter", systemImage: selectedCategories.isEmpty ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill") }
+                AppSectionMenu(selection: $section)
             }
         }
         .sheet(item: $editing) { TransactionEditorView(transaction: $0) }

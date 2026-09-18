@@ -8,6 +8,25 @@ enum AppSection: String, CaseIterable, Identifiable {
     }
 }
 
+struct AppSectionMenu: View {
+    @Binding var selection: AppSection
+
+    var body: some View {
+        Menu {
+            ForEach(AppSection.allCases) { destination in
+                Button { selection = destination } label: {
+                    Label(destination.rawValue, systemImage: selection == destination ? "checkmark.circle.fill" : destination.symbol)
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .frame(width: 28, height: 28)
+                .contentShape(Circle())
+        }
+        .accessibilityLabel("Choose page")
+    }
+}
+
 struct RootView: View {
     @EnvironmentObject private var store: LedgerStore
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -46,10 +65,10 @@ struct RootView: View {
         } else {
             TabView(selection: $section) {
                 NavigationStack { OverviewView(section: $section, selectedAccountID: $selectedAccountID) }.tabItem { Label("Overview", systemImage: "house") }.tag(AppSection.overview)
-                NavigationStack { LedgerView() }.tabItem { Label("Ledger", systemImage: "creditcard") }.tag(AppSection.ledger)
-                NavigationStack { AnalyticsView() }.tabItem { Label("Analytics", systemImage: "chart.bar.xaxis") }.tag(AppSection.analytics)
-                NavigationStack { AccountsView() }.tabItem { Label("Accounts", systemImage: "wallet.bifold") }.tag(AppSection.accounts)
-                NavigationStack { SettingsView() }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(AppSection.settings)
+                NavigationStack { LedgerView(section: $section) }.tabItem { Label("Ledger", systemImage: "creditcard") }.tag(AppSection.ledger)
+                NavigationStack { AnalyticsView(section: $section) }.tabItem { Label("Analytics", systemImage: "chart.bar.xaxis") }.tag(AppSection.analytics)
+                NavigationStack { AccountsView(section: $section) }.tabItem { Label("Accounts", systemImage: "wallet.bifold") }.tag(AppSection.accounts)
+                NavigationStack { SettingsView(section: $section) }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(AppSection.settings)
             }
         }
     }
@@ -57,10 +76,10 @@ struct RootView: View {
     @ViewBuilder private var destination: some View {
         switch section {
         case .overview: OverviewView(section: $section, selectedAccountID: $selectedAccountID)
-        case .ledger: LedgerView()
-        case .analytics: AnalyticsView()
-        case .accounts: AccountsView()
-        case .settings: SettingsView()
+        case .ledger: LedgerView(section: $section)
+        case .analytics: AnalyticsView(section: $section)
+        case .accounts: AccountsView(section: $section)
+        case .settings: SettingsView(section: $section)
         }
     }
 

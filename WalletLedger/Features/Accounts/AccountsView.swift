@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AccountsView: View {
     @EnvironmentObject private var store: LedgerStore
+    @Binding var section: AppSection
     @State private var editing: AccountViewModel?
     @State private var creating = false
     @State private var deleting: LedgerAccount?
@@ -27,7 +28,12 @@ struct AccountsView: View {
         }
         .background(LedgerBackground())
         .navigationTitle("Accounts")
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { GlassIconButton(systemName: "plus", label: "Add account", prominent: true) { creating = true } } }
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                GlassIconButton(systemName: "plus", label: "Add account", prominent: true) { creating = true }
+                AppSectionMenu(selection: $section)
+            }
+        }
         .sheet(item: $editing) { item in AccountEditorView(item: item) { deleting = $0 } }
         .sheet(isPresented: $creating) { AccountEditorView(item: nil) { deleting = $0 } }
         .confirmationDialog("Delete \(deleting?.name ?? "account")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
