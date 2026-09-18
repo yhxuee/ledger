@@ -25,20 +25,21 @@ struct GlassIconButton: View {
     let systemName: String
     let label: String
     var prominent = false
+    var tint: Color = .primary
     let action: () -> Void
     @ViewBuilder
     var body: some View {
         if #available(iOS 26.0, *) {
             if prominent {
-                Button(action: action) { Image(systemName: systemName).frame(width: 28, height: 28) }.buttonStyle(.glassProminent).accessibilityLabel(label)
+                Button(action: action) { Image(systemName: systemName).frame(width: 28, height: 28) }.buttonStyle(.glassProminent).tint(tint).accessibilityLabel(label)
             } else {
-                Button(action: action) { Image(systemName: systemName).frame(width: 28, height: 28) }.buttonStyle(.glass).accessibilityLabel(label)
+                Button(action: action) { Image(systemName: systemName).frame(width: 28, height: 28) }.buttonStyle(.glass).foregroundStyle(tint).accessibilityLabel(label)
             }
         } else {
             if prominent {
-                Button(action: action) { Image(systemName: systemName).frame(width: 28, height: 28) }.buttonStyle(.borderedProminent).buttonBorderShape(.circle).accessibilityLabel(label)
+                Button(action: action) { Image(systemName: systemName).frame(width: 28, height: 28) }.buttonStyle(.borderedProminent).tint(tint).buttonBorderShape(.circle).accessibilityLabel(label)
             } else {
-                Button(action: action) { Image(systemName: systemName).frame(width: 28, height: 28) }.buttonStyle(.bordered).buttonBorderShape(.circle).accessibilityLabel(label)
+                Button(action: action) { Image(systemName: systemName).frame(width: 28, height: 28) }.buttonStyle(.bordered).foregroundStyle(tint).buttonBorderShape(.circle).accessibilityLabel(label)
             }
         }
     }

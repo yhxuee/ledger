@@ -45,7 +45,7 @@ struct RootView: View {
             }
         } else {
             TabView(selection: $section) {
-                NavigationStack { OverviewView(selectedAccountID: $selectedAccountID) }.tabItem { Label("Overview", systemImage: "house") }.tag(AppSection.overview)
+                NavigationStack { OverviewView(section: $section, selectedAccountID: $selectedAccountID) }.tabItem { Label("Overview", systemImage: "house") }.tag(AppSection.overview)
                 NavigationStack { LedgerView() }.tabItem { Label("Ledger", systemImage: "creditcard") }.tag(AppSection.ledger)
                 NavigationStack { AnalyticsView() }.tabItem { Label("Analytics", systemImage: "chart.bar.xaxis") }.tag(AppSection.analytics)
                 NavigationStack { AccountsView() }.tabItem { Label("Accounts", systemImage: "wallet.bifold") }.tag(AppSection.accounts)
@@ -56,7 +56,7 @@ struct RootView: View {
 
     @ViewBuilder private var destination: some View {
         switch section {
-        case .overview: OverviewView(selectedAccountID: $selectedAccountID)
+        case .overview: OverviewView(section: $section, selectedAccountID: $selectedAccountID)
         case .ledger: LedgerView()
         case .analytics: AnalyticsView()
         case .accounts: AccountsView()

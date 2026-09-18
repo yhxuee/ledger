@@ -33,7 +33,7 @@ struct TransactionEditorView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 18) {
+                VStack(spacing: 10) {
                     Picker("Transaction type", selection: $type) { ForEach(LedgerTransactionType.allCases) { Text($0.title).tag($0) } }
                         .pickerStyle(.segmented)
                     amountPanel
@@ -43,7 +43,7 @@ struct TransactionEditorView: View {
                     if original != nil {
                         Button("Delete Transaction", role: .destructive) { showDeleteConfirmation = true }.frame(maxWidth: .infinity).padding(.top, 4)
                     }
-                }.padding()
+                }.padding(.horizontal, 14).padding(.vertical, 10)
             }
             .background(LedgerBackground())
             .navigationTitle(original == nil ? "Add Transaction" : "Edit Transaction")
@@ -64,16 +64,16 @@ struct TransactionEditorView: View {
     }
 
     private var amountPanel: some View {
-        VStack(spacing: 13) {
+        VStack(spacing: 6) {
             Picker("Currency", selection: $currency) { ForEach(CurrencyCode.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu)
-            Text(LedgerFormat.money(amount, currency: currency)).font(.system(size: 52, weight: .bold, design: .rounded)).minimumScaleFactor(0.55).lineLimit(1)
+            Text(LedgerFormat.money(amount, currency: currency)).font(.system(size: 42, weight: .bold, design: .rounded)).minimumScaleFactor(0.55).lineLimit(1)
             TextField("Add a note", text: $note).textFieldStyle(.roundedBorder).multilineTextAlignment(.center)
             DatePicker("Date", selection: $occurredAt, displayedComponents: [.date, .hourAndMinute]).labelsHidden()
-        }.frame(maxWidth: .infinity).padding(20).ledgerGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        }.frame(maxWidth: .infinity).padding(.horizontal, 14).padding(.vertical, 10).ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private var accountPanel: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 6) {
             Picker(type == .transfer ? "From Account" : "Account", selection: $accountID) {
                 ForEach(activeAccounts) { Text($0.name).tag(Optional($0.id)) }
             }
@@ -87,20 +87,20 @@ struct TransactionEditorView: View {
                     ForEach(activeAccounts.filter { $0.id != accountID }) { Text($0.name).tag(Optional($0.id)) }
                 }
             }
-        }.padding(17).ledgerGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }.padding(.horizontal, 14).padding(.vertical, 9).ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private var keypad: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 3), spacing: 12) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 5) {
             ForEach(["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "delete.left"], id: \.self) { key in
-                if key.isEmpty { Color.clear.frame(height: 54) }
+                if key.isEmpty { Color.clear.frame(height: 40) }
                 else {
                     Button { press(key) } label: {
-                        Group { if key == "delete.left" { Image(systemName: key) } else { Text(key) } }.font(.title2.weight(.medium)).frame(maxWidth: .infinity, minHeight: 54)
+                        Group { if key == "delete.left" { Image(systemName: key) } else { Text(key) } }.font(.title3.weight(.medium)).frame(maxWidth: .infinity, minHeight: 40)
                     }.buttonStyle(.plain).ledgerGlass(interactive: true, in: Circle())
                 }
             }
-        }.frame(maxWidth: 360)
+        }.frame(maxWidth: 300)
     }
 
     private var categoryPicker: some View {
@@ -108,8 +108,8 @@ struct TransactionEditorView: View {
             HStack(spacing: 10) {
                 ForEach(store.state.categories) { category in
                     Button { withAnimation(.snappy) { categoryID = category.id } } label: {
-                        VStack(spacing: 7) { Image(systemName: category.symbol).font(.title3); Text(category.name).font(.caption.weight(.semibold)); Text(category.detail).font(.caption2).foregroundStyle(.secondary) }
-                            .frame(width: 118, height: 92)
+                        VStack(spacing: 3) { Image(systemName: category.symbol).font(.body); Text(category.name).font(.caption.weight(.semibold)); Text(category.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+                            .frame(width: 108, height: 68)
                             .foregroundStyle(categoryID == category.id ? LedgerPalette.category(category.id) : .primary)
                             .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     }.buttonStyle(.plain)

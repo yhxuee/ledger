@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OverviewView: View {
     @EnvironmentObject private var store: LedgerStore
+    @Binding var section: AppSection
     @Binding var selectedAccountID: UUID?
     @State private var showAccountPicker = false
     @State private var showTransactionEditor = false
@@ -24,9 +25,23 @@ struct OverviewView: View {
         }
         .navigationTitle(selected?.account.name ?? "Overview")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                GlassIconButton(systemName: "line.3.horizontal", label: "Open Ledger") { section = .ledger }
+            }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                GlassIconButton(systemName: "plus", label: "Add transaction", prominent: true) { showTransactionEditor = true }
-                GlassIconButton(systemName: "ellipsis", label: "Choose account") { showAccountPicker = true }
+                GlassIconButton(systemName: "plus", label: "Add transaction", tint: LedgerPalette.coral) { showTransactionEditor = true }
+                Menu {
+                    ForEach(AppSection.allCases) { destination in
+                        Button { section = destination } label: {
+                            Label(destination.rawValue, systemImage: destination.symbol)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 28, height: 28)
+                        .contentShape(Circle())
+                }
+                .accessibilityLabel("Choose page")
             }
         }
         .sheet(isPresented: $showAccountPicker) { AccountPickerView(selectedAccountID: $selectedAccountID) }
@@ -47,10 +62,14 @@ struct OverviewView: View {
                     .font(.title2.bold()).minimumScaleFactor(0.65).lineLimit(1)
                 Text(selected == nil ? "Converted to \(store.state.settings.baseCurrency.rawValue)" : selected!.account.type.rawValue).font(.caption).foregroundStyle(.secondary)
             }
-            MetricCard("Weekly Activity") {
-                MiniActivityChart(buckets: summary.buckets)
-                Text(LedgerFormat.money(summary.total, currency: store.state.settings.baseCurrency, compact: true)).font(.headline.bold())
+            Button { section = .analytics } label: {
+                MetricCard("Weekly Activity") {
+                    MiniActivityChart(buckets: summary.buckets)
+                    Text(LedgerFormat.money(summary.total, currency: store.state.settings.baseCurrency, compact: true)).font(.headline.bold())
+                }
             }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens Analytics")
             MetricCard("Budget / Remain") {
                 Text(LedgerFormat.money(usage.budget - usage.spent, currency: usageCurrency)).font(.title2.bold()).minimumScaleFactor(0.65).lineLimit(1)
                 ProgressView(value: min(max(usage.ratio, 0), 1)).tint(usage.ratio > 1 ? .red : LedgerPalette.coral)
