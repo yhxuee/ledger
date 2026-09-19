@@ -166,7 +166,11 @@ struct LedgerView: View {
             .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
-        .onLongPressGesture { withAnimation(.snappy) { expandedPurchaseIDs.insert(session.id) } }
+        .onLongPressGesture {
+            withAnimation(.snappy) {
+                _ = expandedPurchaseIDs.insert(session.id)
+            }
+        }
         .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
         .listRowBackground(EmptyView())
         .listRowSeparator(.hidden)
