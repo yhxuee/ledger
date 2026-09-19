@@ -439,7 +439,7 @@ struct OverviewMetricDetailSheet: View {
 }
 
 private struct CardHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 200
+    static let defaultValue: CGFloat = 200
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         let next = nextValue()
         if next > 0 { value = next }
