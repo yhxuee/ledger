@@ -7,13 +7,25 @@ enum SeedData {
         .EUR: 9.22, .GBP: 10.61, .JPY: 0.052
     ]
 
-    static let categories: [LedgerCategory] = [
-        .init(id: .food, name: "Food", detail: "Meals & drinks", symbol: "fork.knife", colorHex: "F05E4F"),
-        .init(id: .transport, name: "Transport", detail: "Travel & transit", symbol: "car.fill", colorHex: "36A7C9"),
-        .init(id: .shopping, name: "Shopping", detail: "Retail & purchases", symbol: "bag.fill", colorHex: "F3A11F"),
-        .init(id: .utilities, name: "Utilities", detail: "Bills & services", symbol: "lightbulb.fill", colorHex: "B54AC6"),
-        .init(id: .other, name: "Other", detail: "Everything else", symbol: "dollarsign.circle.fill", colorHex: "62B28F")
+    static let expenseCategories: [LedgerCategory] = [
+        .init(id: .food, name: "Food", detail: "Meals & drinks", symbol: "fork.knife", colorHex: "F05E4F", kind: .expense),
+        .init(id: .transport, name: "Transport", detail: "Travel & transit", symbol: "car.fill", colorHex: "36A7C9", kind: .expense),
+        .init(id: .shopping, name: "Shopping", detail: "Retail & purchases", symbol: "bag.fill", colorHex: "F3A11F", kind: .expense),
+        .init(id: .utilities, name: "Utilities", detail: "Bills & services", symbol: "lightbulb.fill", colorHex: "B54AC6", kind: .expense),
+        .init(id: .other, name: "Other", detail: "Everything else", symbol: "dollarsign.circle.fill", colorHex: "62B28F", kind: .expense)
     ]
+
+    static let incomeCategories: [LedgerCategory] = [
+        .init(id: .salary, name: "Salary", detail: "Wages & earnings", symbol: "banknote.fill", colorHex: "2E7D32", kind: .income),
+        .init(id: .dividends, name: "Dividends", detail: "Stock & fund payouts", symbol: "chart.line.uptrend.xyaxis", colorHex: "1976D2", kind: .income),
+        .init(id: .interest, name: "Interest", detail: "Savings & deposits", symbol: "percent", colorHex: "7B1FA2", kind: .income),
+        .init(id: .bonus, name: "Bonus", detail: "Incentives & rewards", symbol: "gift.fill", colorHex: "F57C00", kind: .income),
+        .init(id: .otherIncome, name: "Other Income", detail: "Miscellaneous incoming", symbol: "arrow.down.left.circle.fill", colorHex: "00897B", kind: .income)
+    ]
+
+    static var categories: [LedgerCategory] {
+        expenseCategories + incomeCategories
+    }
 
     static func make() -> LedgerState {
         let now = Date()

@@ -33,8 +33,18 @@ struct OverviewView: View {
             ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() }
         }
         .sheet(isPresented: $showAccountPicker) { AccountPickerView(selectedAccountID: $selectedAccountID) }
-        .fullScreenCover(isPresented: $showTransactionEditor) { TransactionEditorView() }
-        .fullScreenCover(item: $editingTransaction) { TransactionEditorView(transaction: $0) }
+        .sheet(isPresented: $showTransactionEditor) {
+            TransactionEditorView()
+                .presentationDetents([.fraction(0.92)])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
+        }
+        .sheet(item: $editingTransaction) {
+            TransactionEditorView(transaction: $0)
+                .presentationDetents([.fraction(0.92)])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
+        }
         .sheet(isPresented: $showingBudgetDetail) { BudgetDetailView() }
     }
 
@@ -120,15 +130,52 @@ private struct AccountPickerView: View {
         LedgerPalette.primaryAction(for: colorScheme)
     }
     @Binding var selectedAccountID: UUID?
+    @State private var draggedID: UUID?
+    @State private var hoverTargetID: UUID?
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: -36) {
-                    Button { selectedAccountID = nil; dismiss() } label: { AccountCardView(account: nil, portfolioBalance: LedgerCalculations.portfolioBalance(store.state), baseCurrency: store.state.settings.baseCurrency, compact: true) }.buttonStyle(.plain)
-                    ForEach(store.accounts) { item in Button { selectedAccountID = item.id; dismiss() } label: { AccountCardView(account: item, baseCurrency: store.state.settings.baseCurrency, compact: true) }.buttonStyle(.plain) }
+                    Button { selectedAccountID = nil; dismiss() } label: {
+                        AccountCardView(account: nil, portfolioBalance: LedgerCalculations.portfolioBalance(store.state), baseCurrency: store.state.settings.baseCurrency, compact: true)
+                    }
+                    .buttonStyle(.plain)
+
+                    ForEach(store.accounts) { item in
+                        Button {
+                            selectedAccountID = item.id
+                            dismiss()
+                        } label: {
+                            AccountCardView(account: item, baseCurrency: store.state.settings.baseCurrency, compact: true)
+                        }
+                        .buttonStyle(.plain)
+                        .scaleEffect(draggedID == item.id ? 1.04 : (hoverTargetID == item.id ? 0.98 : 1.0))
+                        .shadow(color: draggedID == item.id ? .black.opacity(0.2) : .clear, radius: 10, y: 5)
+                        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: draggedID)
+                        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: hoverTargetID)
+                        .draggable(item.id.uuidString) {
+                            AccountCardView(account: item, baseCurrency: store.state.settings.baseCurrency, compact: true)
+                                .frame(width: 320)
+                                .onAppear { draggedID = item.id }
+                        }
+                        .dropDestination(for: String.self) { items, _ in
+                            defer {
+                                draggedID = nil
+                                hoverTargetID = nil
+                            }
+                            guard let first = items.first, let sourceID = UUID(uuidString: first) else { return false }
+                            withAnimation(.snappy) {
+                                store.moveAccount(from: sourceID, to: item.id)
+                            }
+                            return true
+                        } isTargeted: { targeted in
+                            hoverTargetID = targeted ? item.id : nil
+                        }
+                    }
                 }.padding()
             }
-            .navigationTitle("Wallet")
+            .navigationTitle("Accounts")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

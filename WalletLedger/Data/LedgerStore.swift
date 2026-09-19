@@ -411,6 +411,15 @@ final class LedgerStore: ObservableObject {
         scheduleSave()
     }
 
+    func moveAccount(from sourceID: UUID, to destinationID: UUID) {
+        guard sourceID != destinationID else { return }
+        guard let sourceIndex = state.accounts.firstIndex(where: { $0.id == sourceID }),
+              let destIndex = state.accounts.firstIndex(where: { $0.id == destinationID }) else { return }
+        let account = state.accounts.remove(at: sourceIndex)
+        state.accounts.insert(account, at: destIndex)
+        scheduleSave()
+    }
+
     func updateSettings(_ change: (inout LedgerSettings) -> Void) {
         change(&state.settings)
         state.settings.rates = CurrencyRates.mirroringUSDAliases(state.settings.rates)
@@ -484,11 +493,11 @@ final class LedgerStore: ObservableObject {
     }
 
     @discardableResult
-    func addCategory(name rawName: String, detail rawDetail: String, symbol: String, colorHex: String) -> LedgerCategoryID? {
+    func addCategory(name rawName: String, detail rawDetail: String, symbol: String, colorHex: String, kind: LedgerCategoryKind = .expense) -> LedgerCategoryID? {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !symbol.isEmpty else { return nil }
         let id = LedgerCategoryID(rawValue: "custom-\(UUID().uuidString.lowercased())")
-        state.categories.append(.init(id: id, name: name, detail: rawDetail.trimmingCharacters(in: .whitespacesAndNewlines), symbol: symbol, colorHex: colorHex))
+        state.categories.append(.init(id: id, name: name, detail: rawDetail.trimmingCharacters(in: .whitespacesAndNewlines), symbol: symbol, colorHex: colorHex, kind: kind))
         scheduleSave()
         return id
     }

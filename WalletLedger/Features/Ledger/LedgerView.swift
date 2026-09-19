@@ -98,7 +98,12 @@ struct LedgerView: View {
                 LedgerBookMenu()
             }
         }
-        .fullScreenCover(item: $editing) { TransactionEditorView(transaction: $0) }
+        .sheet(item: $editing) {
+            TransactionEditorView(transaction: $0)
+                .presentationDetents([.fraction(0.92)])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
+        }
         .sheet(isPresented: $showingRangePicker) {
             DateRangePickerSheet(start: rangeStart, end: rangeEnd) { start, end in rangeStart = start; rangeEnd = end; hasCustomRange = true; hasCalendarDay = false }
         }

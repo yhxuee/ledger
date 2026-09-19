@@ -8,6 +8,8 @@ struct AccountsView: View {
     @State private var editing: AccountViewModel?
     @State private var creating = false
     @State private var deleting: LedgerAccount?
+    @State private var draggedID: UUID?
+    @State private var hoverTargetID: UUID?
     private var portfolio: (netWorth: Double, assets: Double, liabilities: Double) { LedgerCalculations.portfolioSummary(store.state) }
 
     var body: some View {
@@ -20,21 +22,31 @@ struct AccountsView: View {
                 LazyVStack(spacing: 10) {
                     ForEach(store.accounts) { item in
                         Button { editing = item } label: {
-                            VStack(alignment: .leading, spacing: 12) {
-                                HStack(spacing: 14) {
-                                    Text(item.account.logo).font(.caption.bold()).frame(width: 42, height: 42).background(LinearGradient(colors: [Color(hex: item.account.cardStyle.startHex), Color(hex: item.account.cardStyle.endHex)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 12))
-                                    VStack(alignment: .leading) { Text(item.account.name).font(.headline).lineLimit(1); Text(item.account.metadataLine).font(.caption).foregroundStyle(.secondary) }
-                                    Spacer()
-                                    SensitiveMoneyText(amount: item.balance, currency: item.account.currency, maxIntegerDigits: 4).font(.headline.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.85)
-                                        .frame(minWidth: LedgerAmountWidth.row, alignment: .trailing)
-                                        .layoutPriority(1)
-                                    Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
-                                }
-                                if item.account.type == .stocks, let stock = item.account.stockMetadata {
-                                    StockValuationView(stock: stock).font(.subheadline)
-                                }
-                            }.padding(15).ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                        }.buttonStyle(.plain)
+                            accountRowContent(item)
+                        }
+                        .buttonStyle(.plain)
+                        .scaleEffect(draggedID == item.id ? 1.03 : (hoverTargetID == item.id ? 0.98 : 1.0))
+                        .shadow(color: draggedID == item.id ? .black.opacity(0.18) : .clear, radius: 8, y: 4)
+                        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: draggedID)
+                        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: hoverTargetID)
+                        .draggable(item.id.uuidString) {
+                            accountRowContent(item)
+                                .frame(width: 320)
+                                .onAppear { draggedID = item.id }
+                        }
+                        .dropDestination(for: String.self) { items, _ in
+                            defer {
+                                draggedID = nil
+                                hoverTargetID = nil
+                            }
+                            guard let first = items.first, let sourceID = UUID(uuidString: first) else { return false }
+                            withAnimation(.snappy) {
+                                store.moveAccount(from: sourceID, to: item.id)
+                            }
+                            return true
+                        } isTargeted: { targeted in
+                            hoverTargetID = targeted ? item.id : nil
+                        }
                     }
                 }
             }.padding()
@@ -51,6 +63,23 @@ struct AccountsView: View {
         .confirmationDialog("Delete \(deleting?.name ?? "account")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
             Button("Delete Account and Linked Transactions", role: .destructive) { if let deleting { store.deleteAccount(deleting) }; deleting = nil }
         } message: { Text("The account and linked transactions will be soft-deleted and excluded from all totals.") }
+    }
+
+    private func accountRowContent(_ item: AccountViewModel) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 14) {
+                Text(item.account.logo).font(.caption.bold()).frame(width: 42, height: 42).background(LinearGradient(colors: [Color(hex: item.account.cardStyle.startHex), Color(hex: item.account.cardStyle.endHex)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading) { Text(item.account.name).font(.headline).lineLimit(1); Text(item.account.metadataLine).font(.caption).foregroundStyle(.secondary) }
+                Spacer()
+                SensitiveMoneyText(amount: item.balance, currency: item.account.currency, maxIntegerDigits: 4).font(.headline.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.85)
+                    .frame(minWidth: LedgerAmountWidth.row, alignment: .trailing)
+                    .layoutPriority(1)
+                Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
+            }
+            if item.account.type == .stocks, let stock = item.account.stockMetadata {
+                StockValuationView(stock: stock).font(.subheadline)
+            }
+        }.padding(15).ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 

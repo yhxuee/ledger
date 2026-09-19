@@ -18,6 +18,7 @@ struct TransactionEditorView: View {
     @State private var occurredAt: Date
     @State private var note: String
     @State private var minorUnits: String
+    @State private var isNegative: Bool
     @State private var showingCategoryEditor = false
     @State private var accountExplicitlyOverridden: Bool
     @State private var applyingDefaultAccount = false
@@ -33,7 +34,6 @@ struct TransactionEditorView: View {
     @State private var sourceSuggestion: Double = 0
     @State private var destinationSuggestion: Double = 0
     @State private var showingDatePicker = false
-    @State private var showingNoteEditor = false
     @State private var showingCamera = false
     @State private var noteImage: UIImage?
     @State private var noteImageChanged = false
@@ -44,31 +44,40 @@ struct TransactionEditorView: View {
 
     init(transaction: LedgerTransaction? = nil) {
         original = transaction
-        _type = State(initialValue: transaction?.type ?? .expense)
+        let initialType = transaction?.type ?? .expense
+        _type = State(initialValue: initialType)
         _accountID = State(initialValue: transaction?.accountID)
         _destinationID = State(initialValue: transaction?.destinationAccountID)
         _currency = State(initialValue: transaction?.currency ?? .HKD)
-        _categoryID = State(initialValue: transaction?.categoryID ?? .food)
+        let defaultCat: LedgerCategoryID = (initialType == .income) ? .salary : .food
+        _categoryID = State(initialValue: transaction?.categoryID ?? defaultCat)
         _occurredAt = State(initialValue: transaction?.occurredAt ?? .now)
         _note = State(initialValue: transaction?.note ?? "")
-        _minorUnits = State(initialValue: String(Int(((transaction?.amount ?? 0) * 100).rounded())))
+        let rawAmount = transaction?.amount ?? 0
+        _isNegative = State(initialValue: rawAmount < 0)
+        _minorUnits = State(initialValue: String(Int((abs(rawAmount) * 100).rounded())))
         _accountExplicitlyOverridden = State(initialValue: transaction != nil)
         _accountPocket = State(initialValue: transaction?.accountCurrency)
         _destinationPocket = State(initialValue: transaction?.destinationAccountCurrency)
         _accountAmountText = State(initialValue: transaction?.accountAmount.map(Self.amountText) ?? "")
         _destinationAmountText = State(initialValue: transaction?.destinationAmount.map(Self.amountText) ?? "")
-        _showingNoteEditor = State(initialValue: false)
         _noteAttachmentID = State(initialValue: transaction?.noteAttachmentID)
     }
 
     private static func amountText(_ value: Double) -> String { String(format: "%.2f", value) }
 
-    private var amount: Double { (Double(minorUnits) ?? 0) / 100 }
+    private var amount: Double {
+        let val = (Double(minorUnits) ?? 0) / 100
+        return isNegative ? -val : val
+    }
     private var activeAccounts: [LedgerAccount] { store.accounts.map(\.account) }
-    private var canSave: Bool { amount > 0 && accountID != nil && (type != .transfer || (destinationID != nil && destinationID != accountID)) }
+    private var canSave: Bool { abs(amount) > 0 && accountID != nil && (type != .transfer || (destinationID != nil && destinationID != accountID)) }
 
     private var sourceAccount: LedgerAccount? { accountID.flatMap { id in activeAccounts.first { $0.id == id } } }
     private var destinationAccount: LedgerAccount? { destinationID.flatMap { id in activeAccounts.first { $0.id == id } } }
+
+    private var activeKind: LedgerCategoryKind { type == .income ? .income : .expense }
+    private var availableCategories: [LedgerCategory] { store.state.categories.filter { $0.kind == activeKind } }
 
     /// Pocket actually used on the source account. Defaults to the transaction currency when the
     /// account already holds it, otherwise to the account's primary currency.
@@ -89,24 +98,17 @@ struct TransactionEditorView: View {
     /// The account-side amount is only editable when it is not simply the transaction amount.
     private var showsSourceAmount: Bool { sourcePocket != currency }
     private var showsDestinationAmount: Bool { type == .transfer && targetPocket != currency }
-    private var estimatedSourceAmount: Double { LedgerCalculations.convert(amount, from: currency, to: sourcePocket, rates: store.state.settings.rates) }
-    private var estimatedDestinationAmount: Double { LedgerCalculations.convert(amount, from: currency, to: targetPocket, rates: store.state.settings.rates) }
-    private var sourcePostingValue: Double { showsSourceAmount ? (Double(accountAmountText) ?? estimatedSourceAmount) : amount }
-    private var destinationPostingValue: Double { showsDestinationAmount ? (Double(destinationAmountText) ?? estimatedDestinationAmount) : amount }
+    private var estimatedSourceAmount: Double { LedgerCalculations.convert(abs(amount), from: currency, to: sourcePocket, rates: store.state.settings.rates) }
+    private var estimatedDestinationAmount: Double { LedgerCalculations.convert(abs(amount), from: currency, to: targetPocket, rates: store.state.settings.rates) }
+    private var sourcePostingValue: Double { (showsSourceAmount ? (Double(accountAmountText) ?? estimatedSourceAmount) : abs(amount)) * (isNegative ? -1 : 1) }
+    private var destinationPostingValue: Double { (showsDestinationAmount ? (Double(destinationAmountText) ?? estimatedDestinationAmount) : abs(amount)) * (isNegative ? -1 : 1) }
 
     var body: some View {
         NavigationStack {
             GeometryReader { geometry in
                 ScrollView {
                     VStack(spacing: 12) {
-                        Picker("Transaction type", selection: $type) { ForEach(LedgerTransactionType.allCases) { Text($0.title).tag($0) } }
-                            .pickerStyle(.segmented)
-                        amountPanel
-                        transactionToolbar
-                        if showingNoteEditor { noteEditor }
-                        detailsPanel
-                        keypad
-                        if type != .transfer { categoryPicker }
+                        editorContent
                     }
                     .frame(minHeight: max(0, geometry.size.height - 20), alignment: .top)
                     .padding(.horizontal, 16).padding(.vertical, 10)
@@ -145,7 +147,6 @@ struct TransactionEditorView: View {
                         Spacer()
                         Button("Done") {
                             noteFocused = false
-                            withAnimation(.snappy) { showingNoteEditor = false }
                         }
                     }
                 }
@@ -159,8 +160,21 @@ struct TransactionEditorView: View {
                 Task { noteImage = await AttachmentStore.shared.loadTransactionNote(identifier: identifier) }
             }
         }
-        .onChange(of: categoryID) { _, category in if type == .expense && !accountExplicitlyOverridden { applyDefaultAccount(for: category) } }
-        .onChange(of: type) { _, value in if value == .expense && !accountExplicitlyOverridden { applyDefaultAccount(for: categoryID) } }
+        .onChange(of: categoryID) { _, category in
+            if (type == .expense || type == .income) && !accountExplicitlyOverridden {
+                applyDefaultAccount(for: category)
+            }
+        }
+        .onChange(of: type) { _, newType in
+            let newKind: LedgerCategoryKind = (newType == .income) ? .income : .expense
+            let matching = store.state.categories.filter { $0.kind == newKind }
+            if !matching.contains(where: { $0.id == categoryID }) {
+                if let first = matching.first { categoryID = first.id }
+            }
+            if (newType == .expense || newType == .income) && !accountExplicitlyOverridden {
+                applyDefaultAccount(for: categoryID)
+            }
+        }
         .onChange(of: currency) { _, _ in
             // The pocket default depends on the denomination, so re-resolve it and drop stale guesses.
             accountPocket = nil
@@ -171,12 +185,41 @@ struct TransactionEditorView: View {
         }
         .onChange(of: amount) { _, _ in syncAmountFields() }
         .sheet(isPresented: $showingCategoryEditor) {
-            CategoryEditorSheet { id in categoryID = id }
+            CategoryEditorSheet(initialKind: activeKind) { id in categoryID = id }
         }
         .sheet(isPresented: $showingDatePicker) { datePickerSheet }
         .fullScreenCover(isPresented: $showingCamera) {
             TransactionNoteCamera(image: $noteImage, imageChanged: $noteImageChanged)
                 .ignoresSafeArea()
+        }
+    }
+
+    @ViewBuilder private var editorContent: some View {
+        Picker("Transaction type", selection: $type) {
+            ForEach(LedgerTransactionType.allCases) { Text($0.title).tag($0) }
+        }
+        .pickerStyle(.segmented)
+
+        if preferences.value.transactionLayout == .categoryFirst && type != .transfer {
+            categoryPicker
+            amountPanel
+            accountAndDateRow
+            detailsPanel
+            noteEditor
+            keypad
+        } else {
+            amountPanel
+            if type == .transfer {
+                transferRow
+            } else {
+                accountAndDateRow
+            }
+            detailsPanel
+            if type != .transfer {
+                categoryPicker
+            }
+            noteEditor
+            keypad
         }
     }
 
@@ -187,59 +230,97 @@ struct TransactionEditorView: View {
         }.frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 12).ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
-    private var transactionToolbar: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Label(type == .transfer ? "From Account" : "Account", systemImage: "creditcard")
-                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                    AccountSelectorMenu(accounts: activeAccounts, selection: $accountID,
-                                        title: type == .transfer ? "From Account" : "Account",
-                                        visibleCharacters: 11, valueAlignment: .trailing)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 12).padding(.trailing, 10)
-                .onChange(of: accountID) { _, newValue in
-                    if !applyingDefaultAccount { accountExplicitlyOverridden = true }
-                    accountPocket = nil
-                    accountAmountOverridden = false
-                    if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
-                    if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
-                    syncAmountFields()
-                }
-
-                Divider().frame(height: 38)
-
-                Button { showingDatePicker = true } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Label("Date", systemImage: "calendar")
-                            .font(.caption2).foregroundStyle(.secondary)
-                        Text(preferences.value.dateFormat.compactString(from: occurredAt))
-                            .font(.subheadline).lineLimit(1)
-                    }
-                    .frame(width: 76, alignment: .leading)
-                    .padding(.horizontal, 11)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+    private var accountAndDateRow: some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 3) {
+                Label("Account", systemImage: "creditcard")
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                AccountSelectorMenu(accounts: activeAccounts, selection: $accountID,
+                                    title: "Account",
+                                    visibleCharacters: 11, valueAlignment: .trailing)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 7)
-            .ledgerGlass(in: Capsule())
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 12).padding(.trailing, 10)
+            .onChange(of: accountID) { _, newValue in
+                if !applyingDefaultAccount { accountExplicitlyOverridden = true }
+                accountPocket = nil
+                accountAmountOverridden = false
+                if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
+                if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
+                syncAmountFields()
+            }
 
-            Button {
-                withAnimation(.snappy) { showingNoteEditor = true }
-                DispatchQueue.main.async { noteFocused = true }
-            } label: {
-                Image(systemName: note.isEmpty && noteImage == nil && noteAttachmentID == nil ? "square.and.pencil" : "square.and.pencil.circle.fill")
-                    .font(.title3)
-                    .frame(width: 52, height: 52)
-                    .contentShape(Rectangle())
+            Divider().frame(height: 38)
+
+            Button { showingDatePicker = true } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Label("Date", systemImage: "calendar")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Text(preferences.value.dateFormat.compactString(from: occurredAt))
+                        .font(.subheadline).lineLimit(1)
+                }
+                .frame(width: 80, alignment: .leading)
+                .padding(.horizontal, 11)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .ledgerGlass(interactive: true, in: Circle())
-            .accessibilityLabel(note.isEmpty && noteImage == nil && noteAttachmentID == nil ? "Add Note" : "Edit Note")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 7)
+        .ledgerGlass(in: Capsule())
+    }
+
+    private var transferRow: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                Label("From", systemImage: "creditcard")
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                AccountSelectorMenu(accounts: activeAccounts, selection: $accountID,
+                                    title: "From Account",
+                                    visibleCharacters: 8, valueAlignment: .trailing)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .ledgerGlass(in: Capsule())
+            .onChange(of: accountID) { _, newValue in
+                if !applyingDefaultAccount { accountExplicitlyOverridden = true }
+                accountPocket = nil
+                accountAmountOverridden = false
+                if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
+                if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
+                syncAmountFields()
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Label("To", systemImage: "arrow.right.circle")
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                AccountSelectorMenu(accounts: activeAccounts.filter { $0.id != accountID }, selection: $destinationID,
+                                    title: "To Account",
+                                    visibleCharacters: 8, valueAlignment: .trailing)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .ledgerGlass(in: Capsule())
+            .onChange(of: destinationID) { _, _ in
+                destinationPocket = nil
+                destinationAmountOverridden = false
+                syncAmountFields()
+            }
+
+            Button { showingDatePicker = true } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Label("Date", systemImage: "calendar")
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Text(preferences.value.dateFormat.compactString(from: occurredAt))
+                        .font(.subheadline).lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .ledgerGlass(in: Capsule())
         }
         .frame(maxWidth: .infinity)
     }
@@ -272,31 +353,21 @@ struct TransactionEditorView: View {
     }
 
     @ViewBuilder private var detailsPanel: some View {
-        if showsSourcePocket || showsSourceAmount || type == .transfer {
+        if showsSourcePocket || showsSourceAmount || showsDestinationPocket || showsDestinationAmount {
             VStack(spacing: 0) {
-            if showsSourcePocket {
-                LabeledContent(type == .transfer ? "From Account Currency" : "Account Currency") {
-                    AccountPocketPicker(account: sourceAccount ?? activeAccountPlaceholder, selection: sourcePocketBinding, title: "Account Currency")
+                if showsSourcePocket {
+                    LabeledContent(type == .transfer ? "From Account Currency" : "Account Currency") {
+                        AccountPocketPicker(account: sourceAccount ?? activeAccountPlaceholder, selection: sourcePocketBinding, title: "Account Currency")
+                    }
                 }
-            }
-            if showsSourceAmount {
-                Divider()
-                accountAmountRow(title: type == .transfer ? "From Account Amount" : "Account Amount",
-                                 pocket: sourcePocket,
-                                 text: $accountAmountText,
-                                 overridden: $accountAmountOverridden,
-                                 suggestion: $sourceSuggestion,
-                                 estimated: estimatedSourceAmount)
-            }
-            if type == .transfer {
-                Divider()
-                LabeledContent("To Account") {
-                    AccountSelectorMenu(accounts: activeAccounts.filter { $0.id != accountID }, selection: $destinationID, title: "To Account")
-                }
-                .onChange(of: destinationID) { _, _ in
-                    destinationPocket = nil
-                    destinationAmountOverridden = false
-                    syncAmountFields()
+                if showsSourceAmount {
+                    if showsSourcePocket { Divider() }
+                    accountAmountRow(title: type == .transfer ? "From Account Amount" : "Account Amount",
+                                     pocket: sourcePocket,
+                                     text: $accountAmountText,
+                                     overridden: $accountAmountOverridden,
+                                     suggestion: $sourceSuggestion,
+                                     estimated: estimatedSourceAmount)
                 }
                 if showsDestinationPocket {
                     Divider()
@@ -313,7 +384,6 @@ struct TransactionEditorView: View {
                                      suggestion: $destinationSuggestion,
                                      estimated: estimatedDestinationAmount)
                 }
-            }
             }
             .padding(.horizontal, 16).padding(.vertical, 4)
             .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -443,28 +513,41 @@ struct TransactionEditorView: View {
     }
 
     private var keypad: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 3), spacing: 9) {
-            ForEach(["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "delete.left"], id: \.self) { key in
-                if key.isEmpty { Color.clear.frame(height: 68) }
-                else {
-                    Button { press(key) } label: {
-                        Group { if key == "delete.left" { Image(systemName: key) } else { Text(key) } }.font(.title.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 68)
-                    }.buttonStyle(.plain).ledgerGlass(interactive: true, in: Circle())
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+            ForEach(["1", "2", "3", "4", "5", "6", "7", "8", "9", "±", "0", "delete.left"], id: \.self) { key in
+                Button { press(key) } label: {
+                    Group {
+                        if key == "delete.left" {
+                            Image(systemName: key)
+                        } else {
+                            Text(key)
+                        }
+                    }
+                    .font(.title2.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 76)
                 }
+                .buttonStyle(.plain)
+                .ledgerGlass(interactive: true, in: Circle())
             }
-        }.frame(maxWidth: 380)
+        }
+        .frame(maxWidth: 380)
     }
 
     private var categoryPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
-                ForEach(store.state.categories) { category in
+                ForEach(availableCategories) { category in
                     Button { withAnimation(.snappy) { categoryID = category.id } } label: {
-                        VStack(spacing: 4) { CategoryIcon(category: category, font: .title3); Text(category.name).font(.caption.weight(.semibold)); Text(category.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
-                            .frame(width: 112, height: 78)
-                            .foregroundStyle(categoryID == category.id ? Color(hex: category.colorHex) : Color.primary)
-                            .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    }.buttonStyle(.plain)
+                        VStack(spacing: 4) {
+                            CategoryIcon(category: category, font: .title3)
+                            Text(category.name).font(.caption.weight(.semibold))
+                            Text(category.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        .frame(width: 112, height: 78)
+                        .foregroundStyle(categoryID == category.id ? Color(hex: category.colorHex) : Color.primary)
+                        .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
                 }
                 Button { showingCategoryEditor = true } label: {
                     VStack(spacing: 6) {
@@ -475,14 +558,18 @@ struct TransactionEditorView: View {
                     .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
                 .buttonStyle(.plain)
-            }.padding(.vertical, 4)
+            }
+            .padding(.vertical, 4)
         }
     }
 
     private func press(_ key: String) {
         HapticFeedback.selection(enabled: preferences.value.hapticFeedbackEnabled)
-        if key == "delete.left" { minorUnits = minorUnits.count <= 1 ? "0" : String(minorUnits.dropLast()) }
-        else {
+        if key == "±" {
+            isNegative.toggle()
+        } else if key == "delete.left" {
+            minorUnits = minorUnits.count <= 1 ? "0" : String(minorUnits.dropLast())
+        } else {
             let next = minorUnits == "0" ? key : minorUnits + key
             if next.count <= 11 { minorUnits = next }
         }
@@ -572,18 +659,29 @@ private struct CategoryEditorSheet: View {
     }
     @State private var name = ""
     @State private var detail = ""
+    @State private var kind: LedgerCategoryKind
     @State private var mode = 0
     @State private var emoji = "🍽️"
     @State private var selectedSymbol = "cup.and.saucer.fill"
     @State private var color = LedgerPalette.coral
     let onAdd: (LedgerCategoryID) -> Void
 
-    private let symbols = ["cup.and.saucer.fill", "cart.fill", "house.fill", "heart.fill", "gift.fill", "airplane", "gamecontroller.fill", "cross.case.fill", "graduationcap.fill", "pawprint.fill", "figure.run", "ellipsis.circle.fill"]
+    init(initialKind: LedgerCategoryKind = .expense, onAdd: @escaping (LedgerCategoryID) -> Void) {
+        _kind = State(initialValue: initialKind)
+        self.onAdd = onAdd
+    }
+
+    private let symbols = ["cup.and.saucer.fill", "cart.fill", "house.fill", "heart.fill", "gift.fill", "airplane", "gamecontroller.fill", "cross.case.fill", "graduationcap.fill", "pawprint.fill", "figure.run", "ellipsis.circle.fill", "banknote.fill", "chart.line.uptrend.xyaxis", "percent"]
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Category") {
+                    Picker("Category Type", selection: $kind) {
+                        Text("Expense").tag(LedgerCategoryKind.expense)
+                        Text("Income").tag(LedgerCategoryKind.income)
+                    }
+                    .pickerStyle(.segmented)
                     TextField("Name", text: $name)
                     TextField("Description", text: $detail)
                     ColorPicker("Color", selection: $color)
@@ -618,7 +716,7 @@ private struct CategoryEditorSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         let value = mode == 0 ? "emoji:\(String(emoji.prefix(1)))" : selectedSymbol
-                        if let id = store.addCategory(name: name, detail: detail, symbol: value, colorHex: color.rgbHex) { onAdd(id); dismiss() }
+                        if let id = store.addCategory(name: name, detail: detail, symbol: value, colorHex: color.rgbHex, kind: kind) { onAdd(id); dismiss() }
                     } label: {
                         Image(systemName: "checkmark")
                             .fontWeight(.semibold)

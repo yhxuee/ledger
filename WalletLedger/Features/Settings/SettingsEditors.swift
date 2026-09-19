@@ -2,21 +2,41 @@ import SwiftUI
 
 struct DefaultExpenseAccountsView: View {
     @EnvironmentObject private var store: LedgerStore
+
+    private var expenseCategories: [LedgerCategory] {
+        store.state.categories.filter { $0.kind == .expense }
+    }
+    private var incomeCategories: [LedgerCategory] {
+        store.state.categories.filter { $0.kind == .income }
+    }
+
     var body: some View {
         List {
-            Section {
-                ForEach(store.state.categories) { category in
-                    Picker(selection: mappingBinding(category.id)) {
-                        Text("No Default").tag(Optional<UUID>.none)
-                        ForEach(store.accounts) { item in Text(item.account.name).tag(Optional(item.id)) }
-                    } label: {
-                        HStack { CategoryIcon(category: category); Text(category.name) }
+            Section("Expense Categories") {
+                ForEach(expenseCategories) { category in
+                    categoryRow(category)
+                }
+            }
+            if !incomeCategories.isEmpty {
+                Section("Income Categories") {
+                    ForEach(incomeCategories) { category in
+                        categoryRow(category)
                     }
                 }
-            } footer: { Text("New expenses automatically use the mapped account until you explicitly choose another account in that edit.") }
+            }
         }
         .navigationTitle("Default Accounts").navigationBarTitleDisplayMode(.inline)
     }
+
+    private func categoryRow(_ category: LedgerCategory) -> some View {
+        Picker(selection: mappingBinding(category.id)) {
+            Text("No Default").tag(Optional<UUID>.none)
+            ForEach(store.accounts) { item in Text(item.account.name).tag(Optional(item.id)) }
+        } label: {
+            HStack { CategoryIcon(category: category); Text(category.name) }
+        }
+    }
+
     private func mappingBinding(_ categoryID: LedgerCategoryID) -> Binding<UUID?> {
         Binding(get: { store.state.settings.defaultExpenseAccountByCategory[categoryID] }, set: { accountID in
             store.updateSettings { $0.defaultExpenseAccountByCategory[categoryID] = accountID }
@@ -97,7 +117,7 @@ struct BudgetEditorView: View {
             } footer: { Text("Category and account allocations are stored separately. Switching modes does not reinterpret identifiers or discard the other mode’s values.") }
             if store.state.settings.budgetPlan.mode == .category {
                 Section("Monthly Category Budgets") {
-                    ForEach(store.state.categories) { category in
+                    ForEach(store.state.categories.filter { $0.kind == .expense }) { category in
                         LabeledContent { amountField(categoryAllocation(category.id), currency: store.state.settings.baseCurrency) } label: { HStack { CategoryIcon(category: category); Text(category.name) } }
                     }
                 }

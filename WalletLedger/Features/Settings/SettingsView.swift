@@ -20,25 +20,68 @@ struct SettingsView: View {
         ScrollView {
             VStack(spacing: 16) {
                 SettingsGlassSection("Basic") {
-                    NavigationLink { DefaultExpenseAccountsView() } label: { SettingsLinkRow("Default Expense Accounts", systemImage: "arrow.triangle.branch", detail: "By category") }.foregroundStyle(.primary)
+                    NavigationLink { DefaultExpenseAccountsView() } label: { SettingsLinkRow("Default Accounts", systemImage: "arrow.triangle.branch", detail: "By category") }.foregroundStyle(.primary)
                     Divider()
-                    SettingsLinkRow("Language", systemImage: "globe", detail: "English · Not configurable yet")
-                    Divider()
-                    LabeledContent("Date Format") {
-                        Picker("Date Format", selection: dateFormatBinding) {
-                            ForEach(AppDateFormat.allCases) { format in Text(format.title).tag(format) }
+                    LabeledContent {
+                        Menu {
+                            ForEach(TransactionEditorLayout.allCases) { layout in
+                                Button {
+                                    layoutBinding.wrappedValue = layout
+                                } label: {
+                                    if layoutBinding.wrappedValue == layout {
+                                        Label(layout.title, systemImage: "checkmark")
+                                    } else {
+                                        Text(layout.title)
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(layoutBinding.wrappedValue.title)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
                         .foregroundStyle(.primary)
+                    } label: {
+                        Label("Layout", systemImage: "rectangle.3.group")
+                    }
+                    Divider()
+                    LabeledContent {
+                        Menu {
+                            ForEach(AppDateFormat.allCases) { format in
+                                Button {
+                                    dateFormatBinding.wrappedValue = format
+                                } label: {
+                                    if dateFormatBinding.wrappedValue == format {
+                                        Label(format.title, systemImage: "checkmark")
+                                    } else {
+                                        Text(format.title)
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(dateFormatBinding.wrappedValue.title)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                    } label: {
+                        Label("Date Format", systemImage: "calendar")
                     }
                 }
                 SettingsGlassSection("Functions") {
-                    LabeledContent("Base Currency") {
+                    LabeledContent {
                         CurrencyMenuButton(selection: Binding(get: { store.state.settings.baseCurrency },
                                                               set: { code in store.updateSettings { $0.baseCurrency = code } }),
                                            codes: CurrencySelection.common, title: "Base Currency",
                                            showsOther: true, showsStablecoinNames: false)
+                    } label: {
+                        Label("Base Currency", systemImage: "coloncurrencysign.circle")
                     }
                     Divider()
                     NavigationLink { ExchangeRateEditorView() } label: { SettingsLinkRow("Exchange Rates", systemImage: "arrow.left.arrow.right", detail: store.state.settings.automaticRates ? "Automatic" : "Manual") }.foregroundStyle(.primary)
@@ -99,6 +142,9 @@ struct SettingsView: View {
 
     private func preferenceBinding(_ keyPath: WritableKeyPath<AppPreferences, Bool>) -> Binding<Bool> {
         Binding(get: { preferences.value[keyPath: keyPath] }, set: { value in preferences.update { $0[keyPath: keyPath] = value } })
+    }
+    private var layoutBinding: Binding<TransactionEditorLayout> {
+        Binding(get: { preferences.value.transactionLayout }, set: { value in preferences.update { $0.transactionLayout = value } })
     }
     private var dateFormatBinding: Binding<AppDateFormat> {
         Binding(get: { preferences.value.dateFormat }, set: { value in preferences.update { $0.dateFormat = value } })
@@ -163,6 +209,9 @@ struct SettingsLinkRow: View {
             Label(title, systemImage: systemImage)
             Spacer()
             if let detail { Text(detail).font(.subheadline).foregroundStyle(.secondary) }
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
         }.contentShape(Rectangle())
     }
 }

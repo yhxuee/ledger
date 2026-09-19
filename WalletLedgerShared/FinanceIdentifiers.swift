@@ -104,7 +104,16 @@ struct LedgerCategoryID: RawRepresentable, Codable, Hashable, Identifiable, Send
     static let shopping = Self(rawValue: "shopping")
     static let utilities = Self(rawValue: "utilities")
     static let other = Self(rawValue: "other")
-    static let builtIns: [Self] = [.food, .transport, .shopping, .utilities, .other]
+
+    static let salary = Self(rawValue: "salary")
+    static let dividends = Self(rawValue: "dividends")
+    static let interest = Self(rawValue: "interest")
+    static let bonus = Self(rawValue: "bonus")
+    static let otherIncome = Self(rawValue: "other_income")
+
+    static let expenseBuiltIns: [Self] = [.food, .transport, .shopping, .utilities, .other]
+    static let incomeBuiltIns: [Self] = [.salary, .dividends, .interest, .bonus, .otherIncome]
+    static let builtIns: [Self] = expenseBuiltIns + incomeBuiltIns
 }
 
 enum SyncStatus: String, Codable, Sendable { case synced, pending, conflict }

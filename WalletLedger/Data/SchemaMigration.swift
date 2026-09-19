@@ -80,6 +80,12 @@ enum SchemaMigration {
     /// - A pocket referenced by an active posting is re-created, otherwise that money would silently
     ///   disappear from the account total.
     static func normalize(_ state: inout LedgerState) {
+        let existingCategoryIDs = Set(state.categories.map(\.id))
+        for category in SeedData.incomeCategories {
+            if !existingCategoryIDs.contains(category.id) {
+                state.categories.append(category)
+            }
+        }
         for index in state.accounts.indices {
             var account = state.accounts[index]
             guard account.usesCurrencyPockets else {

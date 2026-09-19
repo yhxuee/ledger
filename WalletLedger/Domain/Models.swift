@@ -356,16 +356,55 @@ struct RecurringRule: Identifiable, Codable, Hashable, Sendable {
     var effectiveAmountKind: RecurringAmountKind { amountKind ?? .fixed }
 }
 
+enum LedgerCategoryKind: String, Codable, CaseIterable, Sendable {
+    case expense
+    case income
+}
+
 struct LedgerCategory: Identifiable, Codable, Hashable, Sendable {
     var id: LedgerCategoryID
     var name: String
     var detail: String
     var symbol: String
     var colorHex: String
+    var kind: LedgerCategoryKind = .expense
 
     var emoji: String? {
         guard symbol.hasPrefix("emoji:") else { return nil }
         return String(symbol.dropFirst(6))
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, detail, symbol, colorHex, kind
+    }
+
+    init(id: LedgerCategoryID, name: String, detail: String, symbol: String, colorHex: String, kind: LedgerCategoryKind = .expense) {
+        self.id = id
+        self.name = name
+        self.detail = detail
+        self.symbol = symbol
+        self.colorHex = colorHex
+        self.kind = kind
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(LedgerCategoryID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        detail = try container.decode(String.self, forKey: .detail)
+        symbol = try container.decode(String.self, forKey: .symbol)
+        colorHex = try container.decode(String.self, forKey: .colorHex)
+        kind = try container.decodeIfPresent(LedgerCategoryKind.self, forKey: .kind) ?? .expense
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(detail, forKey: .detail)
+        try container.encode(symbol, forKey: .symbol)
+        try container.encode(colorHex, forKey: .colorHex)
+        try container.encode(kind, forKey: .kind)
     }
 }
 
