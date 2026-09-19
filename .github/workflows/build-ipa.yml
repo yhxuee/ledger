@@ -35,6 +35,17 @@ jobs:
             -resultBundlePath AnalyticsRendering.xcresult \
             CODE_SIGNING_ALLOWED=NO
 
+      - name: Export simulator screenshots and diagnostics
+        if: always()
+        run: xcrun xcresulttool export attachments --path AnalyticsRendering.xcresult --output-path TestScreenshots || true
+
+      - name: Upload simulator screenshots and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Simulator-Screenshots-And-Diagnostics
+          path: TestScreenshots
+
       - name: Upload Analytics test results
         if: always()
         uses: actions/upload-artifact@v4

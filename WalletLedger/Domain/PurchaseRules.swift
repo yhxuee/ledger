@@ -26,6 +26,12 @@ enum PurchaseRules {
                 if accounts.count == 1 { sessions[index].accountID = accounts.first }
                 if sessions[index].accountID == nil && sessions[index].status != .completed { sessions[index].status = .draft }
             }
+            if sessions[index].status == .active || sessions[index].status == .awaitingSummary {
+                let id = sessions[index].accountID
+                if !state.accounts.contains(where: { $0.id == id && $0.deletedAt == nil }) {
+                    sessions[index].status = .draft
+                }
+            }
             sessions[index].requiresCurrencyMigration = false
             sessions[index].requiresPaymentMigration = false
             sessions[index].normalizeSections()

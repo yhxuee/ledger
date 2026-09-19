@@ -24,6 +24,7 @@ struct PurchaseModeView: View {
                 if store.purchaseSessions.isEmpty { ContentUnavailableView("No Purchase Lists", systemImage: "cart", description: Text("Create a reusable shopping-style purchase list.")) }
             }
             .navigationTitle("Purchase Mode").navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom) { PurchaseStatusNotice() }
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }; ToolbarItem(placement: .primaryAction) { Button { creating = true } label: { Image(systemName: "plus") } } }
             .sheet(isPresented: $creating) { PurchaseSessionEditorView(session: nil) }
             .sheet(item: $selected) { PurchaseSessionFlowView(sessionID: $0.id) }
@@ -59,6 +60,7 @@ struct PurchaseSessionEditorView: View {
     @State private var session: PurchaseSession
     @State private var initialized = false
     @State private var starting = false
+    @State private var startedSessionID: UUID?
     @FocusState private var focusedItem: UUID?
     private let isNew: Bool
 
@@ -68,6 +70,11 @@ struct PurchaseSessionEditorView: View {
     }
 
     var body: some View {
+        if let startedSessionID { PurchaseSessionFlowView(sessionID: startedSessionID) }
+        else { editor }
+    }
+
+    private var editor: some View {
         NavigationStack {
             List {
                 Section {
@@ -125,6 +132,7 @@ struct PurchaseSessionEditorView: View {
             .background(LedgerBackground())
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle(isNew ? "New Purchase" : "Edit Purchase").navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom) { PurchaseStatusNotice() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { saveDraft(); dismiss() } }
                 ToolbarItem(placement: .primaryAction) { EditButton() }
@@ -220,7 +228,7 @@ struct PurchaseSessionEditorView: View {
         store.savePurchaseSession(session)
         starting = true
         defer { starting = false }
-        do { _ = try await store.startPurchaseSession(session.id); dismiss() }
+        do { _ = try await store.startPurchaseSession(session.id); startedSessionID = session.id }
         catch { store.presentedError = error.localizedDescription }
     }
 }
@@ -267,6 +275,7 @@ struct ActivePurchaseView: View {
                 }
             }
             .navigationTitle(session?.name ?? "Purchase").navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom) { PurchaseStatusNotice() }
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
         }
     }

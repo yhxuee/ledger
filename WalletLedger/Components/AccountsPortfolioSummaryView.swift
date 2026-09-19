@@ -5,13 +5,15 @@ struct AccountsPortfolioSummaryView: View {
     let assets: Double
     let liabilities: Double
     let currency: CurrencyCode
+    @ScaledMetric(relativeTo: .largeTitle) private var netWorthSize = 42.0
+    @ScaledMetric(relativeTo: .title2) private var detailSize = 24.0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("NET WORTH").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 SensitiveMoneyText(amount: netWorth, currency: currency)
-                    .font(.system(size: 42, weight: .bold, design: .rounded)).monospacedDigit()
+                    .font(.system(size: netWorthSize, weight: .bold, design: .rounded)).monospacedDigit()
                     .lineLimit(1).minimumScaleFactor(0.5)
             }.frame(maxWidth: .infinity, alignment: .leading)
             Divider()
@@ -28,7 +30,7 @@ struct AccountsPortfolioSummaryView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label).font(.caption).foregroundStyle(.secondary)
             SensitiveMoneyText(amount: value, currency: currency)
-                .font(.system(size: 24, weight: .semibold, design: .rounded)).monospacedDigit()
+                .font(.system(size: detailSize, weight: .semibold, design: .rounded)).monospacedDigit()
                 .foregroundStyle(liability ? Color.red : Color.primary)
                 .lineLimit(1).minimumScaleFactor(0.5)
         }.frame(maxWidth: .infinity, alignment: .leading)

@@ -384,6 +384,7 @@ final class LedgerStore: ObservableObject {
     }
 
     func setPurchaseItem(_ itemID: UUID, in sessionID: UUID, completed: Bool) -> PurchaseSession? {
+        if persistenceEnabled { reconcileSharedActivePurchases() }
         guard var session = purchaseSessions.first(where: { $0.id == sessionID }),
               session.status == .active || session.status == .awaitingSummary,
               let index = session.items.firstIndex(where: { $0.id == itemID }) else { return nil }

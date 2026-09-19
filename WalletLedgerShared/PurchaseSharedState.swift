@@ -85,9 +85,27 @@ enum PurchaseSharedStateError: LocalizedError {
 }
 
 private extension JSONEncoder {
-    static var purchaseShared: JSONEncoder { let coder = JSONEncoder(); coder.dateEncodingStrategy = .iso8601; return coder }
+    static var purchaseShared: JSONEncoder {
+        let coder = JSONEncoder()
+        // Preserve subsecond item updates so rapid in-app/intent completions reconcile correctly.
+        coder.dateEncodingStrategy = .millisecondsSince1970
+        return coder
+    }
 }
 
 private extension JSONDecoder {
-    static var purchaseShared: JSONDecoder { let coder = JSONDecoder(); coder.dateDecodingStrategy = .iso8601; return coder }
+    static var purchaseShared: JSONDecoder {
+        let coder = JSONDecoder()
+        coder.dateDecodingStrategy = .custom { decoder in
+            let value = try decoder.singleValueContainer()
+            if let milliseconds = try? value.decode(Double.self) { return Date(timeIntervalSince1970: milliseconds / 1000) }
+            let text = try value.decode(String.self)
+            let format = ISO8601DateFormatter()
+            if let date = format.date(from: text) { return date }
+            format.formatOptions.insert(.withFractionalSeconds)
+            if let date = format.date(from: text) { return date }
+            throw DecodingError.dataCorruptedError(in: value, debugDescription: "Invalid purchase timestamp")
+        }
+        return coder
+    }
 }

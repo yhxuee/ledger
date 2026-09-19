@@ -34,6 +34,7 @@ struct CloudPurchaseSessionHeader: Codable, Hashable {
     var currency: CurrencyCode? = nil
     var accountID: UUID? = nil
     var updatedAt: Date? = nil
+    var itemIDs: [UUID]? = nil
 }
 
 enum CloudRecordMapper {
@@ -52,7 +53,7 @@ enum CloudRecordMapper {
         records.append(try record(type: CloudRecordType.budget, name: "budget", value: book.state.settings.budgetPlan, zoneID: zone, updatedAt: book.state.settings.updatedAt, version: 1))
         records += try (book.state.recurringRules ?? []).map { try record(type: CloudRecordType.recurring, name: "recurring-\($0.id.uuidString)", value: $0, zoneID: zone, updatedAt: $0.updatedAt, version: 1) }
         for session in book.state.purchaseSessions ?? [] {
-            let header = CloudPurchaseSessionHeader(id: session.id, ledgerBookID: session.ledgerBookID, name: session.name, status: session.status, sections: session.sections, createdAt: session.createdAt, startedAt: session.startedAt, completedAt: session.completedAt, receiptAttachmentID: session.receiptAttachmentID, currency: session.currency, accountID: session.accountID, updatedAt: session.updatedAt)
+            let header = CloudPurchaseSessionHeader(id: session.id, ledgerBookID: session.ledgerBookID, name: session.name, status: session.status, sections: session.sections, createdAt: session.createdAt, startedAt: session.startedAt, completedAt: session.completedAt, receiptAttachmentID: session.receiptAttachmentID, currency: session.currency, accountID: session.accountID, updatedAt: session.updatedAt, itemIDs: session.items.map(\.id))
             let sessionRecord = try record(type: CloudRecordType.purchaseSession, name: "purchase-\(session.id.uuidString)", value: header, zoneID: zone, updatedAt: session.updatedAt ?? session.completedAt ?? session.startedAt ?? session.createdAt, version: 1)
             if let identifier = session.receiptAttachmentID, let folder = attachmentFolder {
                 let file = folder.appending(path: identifier)
@@ -80,7 +81,7 @@ enum CloudRecordMapper {
         let sessions = headers.map { header in
             let items = allItems.filter { item in
                 guard let record = itemRecordByID[item.id], let parent = record.parent else { return false }
-                return parent.recordID.recordName == "purchase-\(header.id.uuidString)"
+                return parent.recordID.recordName == "purchase-\(header.id.uuidString)" && (header.itemIDs?.contains(item.id) ?? true)
             }
             var receiptIdentifier = header.receiptAttachmentID
             if let attachmentFolder,

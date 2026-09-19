@@ -94,6 +94,23 @@ final class CurrencyPurchaseTests: XCTestCase {
         XCTAssertEqual(cloud.state.purchaseSessions?.first?.orderedItems.map(\.id), session.orderedItems.map(\.id))
     }
 
+    func testCloudHeaderExcludesDeletedDraftItemsFromOldCachedRecords() throws {
+        var state = SeedData.makeEmpty()
+        var session = makeSession(accountID: state.accounts[0].id)
+        session.normalizeSections()
+        state.purchaseSessions = [session]
+        var book = LedgerBook(id: session.ledgerBookID, name: "Shared", state: state, createdAt: .now, updatedAt: .now)
+        let originalRecords = try CloudRecordMapper.records(for: book)
+        let removed = session.items.removeLast()
+        session.normalizeSections()
+        book.state.purchaseSessions = [session]
+        var refreshed = try CloudRecordMapper.records(for: book)
+        refreshed += originalRecords.filter { $0.recordID.recordName == "purchase-item-\(removed.id.uuidString)" }
+        let decoded = try CloudRecordMapper.decodeBook(from: refreshed, participant: false)
+        XCTAssertEqual(decoded.state.purchaseSessions?.first?.items.count, 2)
+        XCTAssertFalse(decoded.state.purchaseSessions?.first?.items.contains { $0.id == removed.id } ?? true)
+    }
+
     func testFinalizationUsesSessionCurrencyAndOneAccountNotItemDefaults() throws {
         var state = SeedData.make()
         state.transactions = []
@@ -115,6 +132,8 @@ final class CurrencyPurchaseTests: XCTestCase {
         XCTAssertEqual(store.state.transactions.reduce(0) { $0 + ($1.accountAmount ?? 0) }, 100, accuracy: 0.001)
         XCTAssertEqual(LedgerCalculations.analytics(store.state, range: .week).total, 780, accuracy: 0.001)
         XCTAssertEqual(store.purchaseSessions.first?.currency, .USDT)
+        store.updateSettings { $0.baseCurrency = .EUR; $0.rates[.USD] = 9 }
+        XCTAssertEqual(PurchaseLedgerPresentation.displayedTotal(store.state.transactions, session: session, rates: store.state.settings.rates), 100)
     }
 
     func testCategoryGroupingMovesItemsAndDropsEmptyGroupsDeterministically() {

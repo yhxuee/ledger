@@ -39,6 +39,7 @@ struct PurchaseSummaryView: View {
                 }
             }
             .navigationTitle("Purchase Summary").navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom) { PurchaseStatusNotice() }
             .toolbar { ToolbarItem(placement: .cancellationAction) { if readOnly { Button("Done") { dismiss() } } } }
         }
         .sheet(isPresented: $showingCamera) { CameraPicker(image: $receiptImage) }

@@ -157,7 +157,7 @@ struct LedgerView: View {
                     Text("\(children.count) items · Purchase").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                SensitiveMoneyText(amount: children.reduce(0) { $0 + ($1.currency == session.currency ? $1.amount : LedgerCalculations.historical($1, to: session.currency, rates: store.state.settings.rates)) }, currency: session.currency)
+                SensitiveMoneyText(amount: PurchaseLedgerPresentation.displayedTotal(children, session: session, rates: store.state.settings.rates), currency: session.currency)
                     .font(.subheadline.monospacedDigit().weight(.semibold))
                 Image(systemName: expandedPurchaseIDs.contains(session.id) ? "chevron.down" : "chevron.right")
                     .font(.caption.bold()).foregroundStyle(.tertiary)

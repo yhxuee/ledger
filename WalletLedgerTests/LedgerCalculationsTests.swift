@@ -59,7 +59,8 @@ final class LedgerCalculationsTests: XCTestCase {
         let decoded = try BackupCodec.decode(data, sourceName: "test.walletledger")
         XCTAssertEqual(decoded.envelope.data.accounts.count, state.accounts.count)
         XCTAssertEqual(decoded.envelope.data.transactions.count, state.transactions.count)
-        XCTAssertEqual(decoded.envelope.data.recurringRules, state.recurringRules)
+        // Native backup dates are ISO-8601 seconds; compare the complete serialized finance models.
+        XCTAssertEqual(try BackupCodec.encoder().encode(decoded.envelope.data.recurringRules), try BackupCodec.encoder().encode(state.recurringRules))
         XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("\"HKD\""), "Currency-keyed rate dictionaries must remain compatible with v1 JSON objects.")
     }
 
@@ -264,7 +265,7 @@ final class LedgerCalculationsTests: XCTestCase {
     }
 
     func testPurchasePresentationExpandsChildrenWhenFiltering() throws {
-        var state = SeedData.makeEmpty()
+        let state = SeedData.makeEmpty()
         let account = state.accounts[0]
         let sessionID = UUID()
         var first = makeTransaction(type: .expense, source: account, amount: 10)
@@ -285,7 +286,7 @@ final class LedgerCalculationsTests: XCTestCase {
         XCTAssertNotNil(records.first(where: { $0.recordType == CloudRecordType.budget }))
         let decoded = try CloudRecordMapper.decodeBook(from: records, participant: false)
         XCTAssertEqual(decoded.id, book.id)
-        XCTAssertEqual(decoded.state.accounts, state.accounts)
+        XCTAssertEqual(try BackupCodec.encoder().encode(decoded.state.accounts), try BackupCodec.encoder().encode(state.accounts))
         XCTAssertEqual(decoded.state.transactions, state.transactions)
         XCTAssertEqual(decoded.effectiveStorageKind, .cloudOwner)
     }

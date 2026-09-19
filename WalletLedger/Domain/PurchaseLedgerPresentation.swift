@@ -20,6 +20,15 @@ enum PurchaseLedgerEntry: Identifiable, Hashable, Sendable {
 }
 
 enum PurchaseLedgerPresentation {
+    /// Show original purchase units; current base-currency settings do not redenominate a purchase.
+    static func displayedTotal(_ transactions: [LedgerTransaction], session: PurchaseSession, rates: [CurrencyCode: Double]) -> Double {
+        transactions.filter { $0.deletedAt == nil }.reduce(0) { total, transaction in
+            total + (transaction.currency == session.currency
+                ? transaction.amount
+                : LedgerCalculations.historical(transaction, to: session.currency, rates: rates))
+        }
+    }
+
     /// Aggregation is presentation-only. Calculations continue to consume the underlying transactions.
     static func entries(
         transactions: [LedgerTransaction],
