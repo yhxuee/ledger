@@ -13,6 +13,18 @@ struct AccountTagView: View {
         isDarkOverride ?? envCardIsDark
     }
 
+    private var textColor: Color {
+        isDark ? Color.white : Color.black.opacity(0.82)
+    }
+
+    private var capsuleBackground: Color {
+        isDark ? Color.white.opacity(0.20) : Color.black.opacity(0.10)
+    }
+
+    private var strokeColor: Color {
+        isDark ? Color.white.opacity(0.14) : Color.black.opacity(0.12)
+    }
+
     var body: some View {
         Text(tag)
             .font(font)
@@ -20,14 +32,11 @@ struct AccountTagView: View {
             .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .foregroundStyle(isDark ? Color.white : Color.black.opacity(0.82))
-            .background(
-                isDark ? Color.white.opacity(0.20) : Color.black.opacity(0.10),
-                in: Capsule()
-            )
+            .foregroundStyle(textColor)
+            .background(capsuleBackground, in: Capsule())
             .overlay(
                 Capsule()
-                    .stroke(isDark ? Color.white.opacity(0.14) : Color.black.opacity(0.12), lineWidth: 0.7)
+                    .stroke(strokeColor, lineWidth: 0.7)
             )
     }
 }
