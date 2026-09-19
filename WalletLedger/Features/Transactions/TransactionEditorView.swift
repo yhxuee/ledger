@@ -695,11 +695,12 @@ struct TransactionEditorView: View {
                     Group {
                         if key == "delete.left" {
                             Image(systemName: key)
+                                .font(.system(size: 27, weight: .semibold))
                         } else {
                             Text(key)
+                                .font(.system(size: 32, weight: .semibold, design: .rounded))
                         }
                     }
-                    .font(.title2.weight(.semibold))
                     .frame(maxWidth: .infinity, minHeight: 76)
                 }
                 .buttonStyle(.plain)

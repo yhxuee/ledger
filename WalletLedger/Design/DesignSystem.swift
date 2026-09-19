@@ -113,15 +113,20 @@ struct LedgerBackground: View {
 
 struct MetricCard<Content: View>: View {
     let title: String
+    var compact: Bool = false
     let content: Content
-    init(_ title: String, @ViewBuilder content: () -> Content) { self.title = title; self.content = content() }
+    init(_ title: String, compact: Bool = false, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.compact = compact
+        self.content = content()
+    }
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title.uppercased()).font(.caption.weight(.semibold)).foregroundStyle(.secondary).tracking(0.7)
+        VStack(alignment: .leading, spacing: compact ? 6 : 10) {
+            Text(title.uppercased()).font((compact ? Font.caption2 : .caption).weight(.semibold)).foregroundStyle(.secondary).tracking(0.7)
             content
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .frame(maxWidth: .infinity, maxHeight: compact ? .infinity : nil, alignment: .leading)
+        .padding(compact ? 12 : 18)
+        .ledgerGlass(in: RoundedRectangle(cornerRadius: compact ? 20 : 24, style: .continuous))
     }
 }

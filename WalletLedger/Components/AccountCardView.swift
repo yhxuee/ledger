@@ -47,7 +47,7 @@ struct AccountCardView: View {
                 SensitiveMoneyText(amount: account?.balance ?? portfolioBalance,
                                    currency: account?.account.currency ?? baseCurrency,
                                    maxIntegerDigits: layout == .portrait ? 4 : 7)
-                    .font(.system(size: compact ? 24 : 34, weight: .bold, design: .rounded))
+                    .font(.system(size: compact ? 24 : (layout == .portrait ? 28 : 34), weight: .bold, design: .rounded))
                     .lineLimit(1)
                     .minimumScaleFactor(layout == .portrait ? 0.65 : 0.75)
                 if let account {
@@ -63,7 +63,7 @@ struct AccountCardView: View {
                 }
             }
         }
-        .padding(compact ? 16 : (layout == .portrait ? 24 : 22))
+        .padding(compact ? 16 : (layout == .portrait ? 20 : 22))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .cardArtwork(data: account?.account.cardImageData, fallback: background, layout: layout)
         .aspectRatio(layout == .portrait ? (53.98 / 85.60) : (85.60 / 53.98), contentMode: .fit)

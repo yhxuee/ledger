@@ -87,27 +87,83 @@ struct OverviewView: View {
         }
     }
 
+enum OverviewMetricLayout: Sendable {
+    case horizontalGrid
+    case portraitSideColumn
+}
+
+struct VerticalOverviewHeroLayout: Layout {
+    var spacing: CGFloat = 12
+    var cardFraction: CGFloat = 0.47
+    var maxCardWidth: CGFloat = 280
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let width = proposal.width, width > 0, !subviews.isEmpty else {
+            return .zero
+        }
+        let usableWidth = max(0, width - spacing)
+        let cardWidth = min(maxCardWidth, usableWidth * cardFraction)
+        let cardHeight = cardWidth * (85.60 / 53.98)
+        return CGSize(width: width, height: cardHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard !subviews.isEmpty else { return }
+        let usableWidth = max(0, bounds.width - spacing)
+        let cardWidth = min(maxCardWidth, usableWidth * cardFraction)
+        let cardHeight = cardWidth * (85.60 / 53.98)
+        let metricWidth = max(0, usableWidth - cardWidth)
+        let metricHeight = max(0, (cardHeight - spacing) / 2)
+
+        // Subview 0: Portrait Card
+        subviews[0].place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: cardWidth, height: cardHeight)
+        )
+
+        // Metrics on the right
+        if subviews.count == 2 {
+            subviews[1].place(
+                at: CGPoint(x: bounds.minX + cardWidth + spacing, y: bounds.minY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: metricWidth, height: cardHeight)
+            )
+        } else if subviews.count >= 3 {
+            subviews[1].place(
+                at: CGPoint(x: bounds.minX + cardWidth + spacing, y: bounds.minY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: metricWidth, height: metricHeight)
+            )
+            subviews[2].place(
+                at: CGPoint(x: bounds.minX + cardWidth + spacing, y: bounds.minY + metricHeight + spacing),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: metricWidth, height: metricHeight)
+            )
+        }
+    }
+}
+
     @ViewBuilder
     private var topSection: some View {
         let configured = preferences.value.overviewMetrics.prefix(2)
         switch preferences.value.overviewCardLayout {
         case .portrait:
-            HStack(alignment: .top, spacing: 12) {
+            VerticalOverviewHeroLayout(spacing: 12, cardFraction: 0.47, maxCardWidth: 280) {
                 OverviewAccountPickerButton(selectedAccountID: $selectedAccountID, layout: .portrait)
-                    .frame(maxWidth: .infinity)
-                VStack(spacing: 12) {
-                    ForEach(Array(configured)) { kind in
-                        metricCard(for: kind)
-                    }
+                if let first = configured.first {
+                    metricCard(for: first, layout: .portraitSideColumn)
                 }
-                .frame(maxWidth: .infinity)
+                if configured.count > 1 {
+                    metricCard(for: configured[1], layout: .portraitSideColumn)
+                }
             }
         case .horizontal:
             VStack(spacing: 16) {
                 OverviewAccountPickerButton(selectedAccountID: $selectedAccountID, layout: .horizontal)
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                     ForEach(Array(configured)) { kind in
-                        metricCard(for: kind)
+                        metricCard(for: kind, layout: .horizontalGrid)
                     }
                 }
             }
@@ -115,70 +171,85 @@ struct OverviewView: View {
     }
 
     @ViewBuilder
-    private func metricCard(for kind: OverviewMetricKind) -> some View {
+    private func metricCard(for kind: OverviewMetricKind, layout: OverviewMetricLayout = .horizontalGrid) -> some View {
+        let isSideColumn = (layout == .portraitSideColumn)
         switch kind {
         case .weeklyActivity:
             Button { activeDetailMetric = .weeklyActivity } label: {
-                MetricCard("Weekly Activity") {
-                    MiniActivityChart(buckets: weeklySummary.buckets)
+                MetricCard("Weekly Activity", compact: isSideColumn) {
+                    MiniActivityChart(buckets: weeklySummary.buckets, height: isSideColumn ? 32 : 45)
                     SensitiveMoneyText(amount: weeklySummary.total, currency: store.state.settings.baseCurrency, compact: true)
-                        .font(.headline.bold())
+                        .font((isSideColumn ? Font.subheadline : .headline).bold())
+                        .minimumScaleFactor(0.7)
+                        .lineLimit(1)
                 }
-                .frame(minHeight: 146)
+                .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil, minHeight: isSideColumn ? nil : 146)
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil)
 
         case .budget:
             Button { showingBudgetDetail = true } label: {
-                MetricCard("Budget / Remain") {
+                MetricCard("Budget / Remain", compact: isSideColumn) {
                     SensitiveMoneyText(amount: usage.budget - usage.spent, currency: usageCurrency, maxIntegerDigits: 6)
-                        .font(.title2.bold())
-                        .minimumScaleFactor(0.75)
+                        .font((isSideColumn ? Font.title3 : .title2).bold())
+                        .minimumScaleFactor(0.65)
                         .lineLimit(1)
                     ProgressView(value: privacy.isLocked ? 0 : min(max(usage.ratio, 0), 1))
                         .tint(usage.ratio > 1 ? .red : LedgerPalette.coral)
                     SensitiveValueText("\(Int(usage.ratio * 100))% of monthly budget used", maskLength: 8)
-                        .font(.caption)
+                        .font(isSideColumn ? .caption2 : .caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                .frame(minHeight: 146)
+                .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil, minHeight: isSideColumn ? nil : 146)
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil)
 
         case .todayExpensePie:
             Button { activeDetailMetric = .todayExpensePie } label: {
-                MetricCard("Today Expense") {
-                    MiniPieChart(segments: categorySegments(from: todaySummary))
+                MetricCard("Today Expense", compact: isSideColumn) {
+                    MiniPieChart(segments: categorySegments(from: todaySummary), height: isSideColumn ? 32 : 45)
                     SensitiveMoneyText(amount: todaySummary.total, currency: store.state.settings.baseCurrency, compact: true)
-                        .font(.headline.bold())
+                        .font((isSideColumn ? Font.subheadline : .headline).bold())
+                        .minimumScaleFactor(0.7)
+                        .lineLimit(1)
                 }
-                .frame(minHeight: 146)
+                .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil, minHeight: isSideColumn ? nil : 146)
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil)
 
         case .weekExpensePie:
             Button { activeDetailMetric = .weekExpensePie } label: {
-                MetricCard("This Week Expense") {
-                    MiniPieChart(segments: categorySegments(from: weeklySummary))
+                MetricCard("This Week Expense", compact: isSideColumn) {
+                    MiniPieChart(segments: categorySegments(from: weeklySummary), height: isSideColumn ? 32 : 45)
                     SensitiveMoneyText(amount: weeklySummary.total, currency: store.state.settings.baseCurrency, compact: true)
-                        .font(.headline.bold())
+                        .font((isSideColumn ? Font.subheadline : .headline).bold())
+                        .minimumScaleFactor(0.7)
+                        .lineLimit(1)
                 }
-                .frame(minHeight: 146)
+                .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil, minHeight: isSideColumn ? nil : 146)
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil)
 
         case .sixMonthTrend:
             Button { activeDetailMetric = .sixMonthTrend } label: {
-                MetricCard("6M Trends") {
+                MetricCard("6M Trends", compact: isSideColumn) {
                     SixMonthTrendChart(buckets: sixMonthsSummary.buckets)
                         .chartXAxis(.hidden)
-                        .frame(height: 45)
+                        .frame(height: isSideColumn ? 32 : 45)
                     SensitiveMoneyText(amount: sixMonthsSummary.total, currency: store.state.settings.baseCurrency, compact: true)
-                        .font(.headline.bold())
+                        .font((isSideColumn ? Font.subheadline : .headline).bold())
+                        .minimumScaleFactor(0.7)
+                        .lineLimit(1)
                 }
-                .frame(minHeight: 146)
+                .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil, minHeight: isSideColumn ? nil : 146)
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil)
         }
     }
 
@@ -234,19 +305,21 @@ struct CategorySegmentData: Identifiable {
 
 private struct MiniPieChart: View {
     let segments: [CategorySegmentData]
+    var height: CGFloat = 45
+
     var body: some View {
         if segments.isEmpty {
             Image(systemName: "chart.pie")
-                .font(.system(size: 26))
+                .font(.system(size: max(16, height * 0.58)))
                 .foregroundStyle(.secondary)
-                .frame(height: 45)
+                .frame(height: height)
         } else {
             Chart(segments) { segment in
                 SectorMark(angle: .value("Spent", segment.value), innerRadius: .ratio(0.55), angularInset: 1.0)
                     .foregroundStyle(Color(hex: segment.category.colorHex))
             }
             .chartLegend(.hidden)
-            .frame(height: 45)
+            .frame(height: height)
         }
     }
 }
@@ -275,21 +348,24 @@ private struct SixMonthTrendChart: View {
 private struct MiniActivityChart: View {
     @EnvironmentObject private var privacy: PrivacyController
     let buckets: [AnalyticsBucket]
+    var height: CGFloat = 45
+
     var body: some View {
         let maximum = max(buckets.map(\.value).max() ?? 1, 1)
+        let barMax = max(4, height - 14)
         HStack(alignment: .bottom, spacing: 4) {
             ForEach(buckets) { bucket in
-                VStack(spacing: 3) {
+                VStack(spacing: 2) {
                     Spacer(minLength: 0)
                     RoundedRectangle(cornerRadius: 3)
                         .fill(LedgerPalette.coral.gradient)
-                        .frame(height: privacy.isLocked ? 4 : max(4, 30 * bucket.value / maximum))
+                        .frame(height: privacy.isLocked ? 4 : max(4, barMax * bucket.value / maximum))
                     Text(bucket.label.prefix(2))
                         .font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
             }
-        }.frame(height: 45)
+        }.frame(height: height)
     }
 }
 
@@ -492,8 +568,10 @@ private struct OverviewAccountPickerButton: View {
                             portfolioBalance: portfolioBalance,
                             baseCurrency: store.state.settings.baseCurrency,
                             layout: layout)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sheet(isPresented: $showingPicker) {
             AccountPickerView(selectedAccountID: $selectedAccountID, cards: cards,
                               portfolioBalance: portfolioBalance,
