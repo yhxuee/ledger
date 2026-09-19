@@ -130,7 +130,7 @@ struct LedgerView: View {
         }
         .buttonStyle(.plain)
         .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
-        .listRowBackground(Color.black.opacity(0))
+        .listRowBackground(Color.black.hidden())
         .listRowSeparator(.hidden)
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if preferences.value.swipeActionOrientation == .refundLeadingDeleteTrailing { refundButton(item) }
@@ -168,7 +168,7 @@ struct LedgerView: View {
         .buttonStyle(.plain)
         .onLongPressGesture { withAnimation(.snappy) { expandedPurchaseIDs.insert(session.id) } }
         .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
-        .listRowBackground(Color.black.opacity(0))
+        .listRowBackground(Color.black.hidden())
         .listRowSeparator(.hidden)
         .accessibilityHint("Expands the individual purchase transactions")
     }
