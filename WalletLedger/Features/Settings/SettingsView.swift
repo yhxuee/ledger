@@ -26,7 +26,7 @@ struct SettingsView: View {
                 }
                 SettingsGlassSection("Functions") {
                     LabeledContent("Base Currency") {
-                        CurrencyMenuPicker(selection: Binding(get: { store.state.settings.baseCurrency },
+                        CurrencyMenuButton(selection: Binding(get: { store.state.settings.baseCurrency },
                                                               set: { code in store.updateSettings { $0.baseCurrency = code } }),
                                            codes: CurrencySelection.common, title: "Base Currency",
                                            showsOther: true, showsStablecoinNames: false)

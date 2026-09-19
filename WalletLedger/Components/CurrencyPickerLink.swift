@@ -6,7 +6,7 @@ struct CurrencyPickerLink: View {
 
     var body: some View {
         LabeledContent("Currency") {
-            CurrencyMenuPicker(selection: $selection, codes: CurrencySelection.common,
+            CurrencyMenuButton(selection: $selection, codes: CurrencySelection.common,
                                showsOther: true, showsStablecoinNames: stablecoinDescriptions)
         }
     }

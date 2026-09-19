@@ -5,7 +5,7 @@ struct TransactionCurrencyPicker: View {
     var title = "Currency"
 
     var body: some View {
-        CurrencyMenuPicker(selection: $selection, codes: CurrencySelection.common,
+        CurrencyMenuButton(selection: $selection, codes: CurrencySelection.common,
                            title: title, showsOther: true)
     }
 }
@@ -17,7 +17,7 @@ struct AccountPocketPicker: View {
     var title: String
 
     var body: some View {
-        CurrencyMenuPicker(selection: $selection, codes: account.pocketCurrencies,
+        CurrencyMenuButton(selection: $selection, codes: account.pocketCurrencies,
                            title: title, requiresConfiguredRate: false)
     }
 }

@@ -233,7 +233,7 @@ private struct AccountEditorView: View {
                         }
                         if account.usesCurrencyPockets {
                             LabeledContent("Primary Currency") {
-                                CurrencyMenuPicker(selection: $account.currency, codes: account.pocketCurrencies,
+                                CurrencyMenuButton(selection: $account.currency, codes: account.pocketCurrencies,
                                                    title: "Primary Currency", requiresConfiguredRate: false)
                             }
                             ForEach(account.normalizedPockets) { pocket in
@@ -242,7 +242,7 @@ private struct AccountEditorView: View {
                                 }
                             }
                             .onDelete(perform: removePockets)
-                            CurrencyPocketAddPicker(codes: CurrencySelection.addable(excluding: account.pocketCurrencies),
+                            CurrencyMenuButton(adding: CurrencySelection.addable(excluding: account.pocketCurrencies),
                                                     otherCodes: store.availableCurrencies.filter { !account.pocketCurrencies.contains($0) },
                                                     onSelect: addPocket)
                         } else {

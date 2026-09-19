@@ -54,7 +54,7 @@ Source and project target changes are included, but these account-bound steps mu
 
 ### Currency controls and market data
 
-- `CurrencyMenuPicker` uses a native SwiftUI Picker with `.labelsHidden()` and `.pickerStyle(.menu)`. Only the currency code is the picker control; an adjacent Other button opens the searchable currency sheet. Pocket pickers list existing pockets, and Add Currency uses a native menu picker for new pockets.
+- `CurrencyMenuButton` uses native SwiftUI `Menu` and `Button` actions, matching the Account selector. The collapsed control shows the selected currency code. Other is inside the menu and opens the existing searchable currency sheet. Pocket menus list existing pockets without Other; Add Currency uses the same component to add a pocket without changing the primary currency.
 - Settings > Market Data stores the Alpha Vantage key in a non-synchronizing, device-only Keychain item. Requests use an ephemeral URL session. The key is not a field of any ledger, preferences, CloudKit record, App Group snapshot, or exported backup.
 - Stocks use market-derived settlement currency, cost price and quantity. Account and portfolio values use the cached quote, or cost basis when unavailable. Legacy stock metadata decodes with zero cost and quantity; enter holdings to establish its valuation. No trades or P/L transactions are generated.
 - Symbol search waits 500 ms and requires two characters. Requests and results are shared across market filters. Provider symbols are retained verbatim; manual HK/CN codes require selection of a provider result before quotes can be fetched, because exchange suffixes are never guessed.

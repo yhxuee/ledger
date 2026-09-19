@@ -218,7 +218,7 @@ struct RecurringRuleEditorView: View {
                     if type == .transfer { Picker("To Account", selection: $destinationID) { ForEach(accounts.filter { $0.id != accountID }) { Text($0.name).tag(Optional($0.id)) } } }
                     LabeledContent("Amount") { SensitiveValueContent { TextField("0", value: $amount, format: .number.precision(.fractionLength(2))).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($amountFocused) } }
                     LabeledContent("Currency") {
-                        CurrencyMenuPicker(selection: $currency, codes: CurrencySelection.common, showsOther: true)
+                        CurrencyMenuButton(selection: $currency, codes: CurrencySelection.common, showsOther: true)
                     }
                     if let sourceAccount, sourceAccount.hasMultiplePockets {
                         LabeledContent(type == .transfer ? "From Account Currency" : "Account Currency") {
