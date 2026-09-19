@@ -47,7 +47,16 @@ enum CloudRecordMapper {
         var records: [CKRecord] = []
         records.append(try record(type: CloudRecordType.book, name: "book-\(book.id.uuidString)", value: CloudBookMetadata(id: book.id, name: book.name, createdAt: book.createdAt, updatedAt: book.updatedAt, schemaVersion: book.state.schemaVersion), zoneID: zone, updatedAt: book.updatedAt, version: 1))
         records += try book.state.accounts.map { try record(type: CloudRecordType.account, name: "account-\($0.id.uuidString)", value: $0, zoneID: zone, updatedAt: $0.updatedAt, version: $0.version) }
-        records += try book.state.transactions.map { try record(type: CloudRecordType.transaction, name: "transaction-\($0.id.uuidString)", value: $0, zoneID: zone, updatedAt: $0.updatedAt, version: $0.version) }
+        for transaction in book.state.transactions {
+            let transactionRecord = try record(type: CloudRecordType.transaction, name: "transaction-\(transaction.id.uuidString)", value: transaction, zoneID: zone, updatedAt: transaction.updatedAt, version: transaction.version)
+            if let identifier = transaction.noteAttachmentID, let folder = attachmentFolder {
+                let file = folder.appending(path: identifier)
+                if FileManager.default.fileExists(atPath: file.path) {
+                    transactionRecord["noteAttachment"] = CKAsset(fileURL: file)
+                }
+            }
+            records.append(transactionRecord)
+        }
         records += try book.state.categories.map { try record(type: CloudRecordType.category, name: "category-\($0.id.rawValue)", value: $0, zoneID: zone, updatedAt: book.state.settings.updatedAt, version: 1) }
         records.append(try record(type: CloudRecordType.settings, name: "settings", value: book.state.settings, zoneID: zone, updatedAt: book.state.settings.updatedAt, version: 1))
         records.append(try record(type: CloudRecordType.budget, name: "budget", value: book.state.settings.budgetPlan, zoneID: zone, updatedAt: book.state.settings.updatedAt, version: 1))
@@ -68,7 +77,27 @@ enum CloudRecordMapper {
     static func decodeBook(from records: [CKRecord], participant: Bool, attachmentFolder: URL? = nil) throws -> LedgerBook {
         guard let metadataRecord = records.first(where: { $0.recordType == CloudRecordType.book }), let metadata: CloudBookMetadata = try decode(metadataRecord) else { throw CloudMappingError.missingBook }
         let accounts: [LedgerAccount] = try decodeAll(CloudRecordType.account, records)
-        let transactions: [LedgerTransaction] = try decodeAll(CloudRecordType.transaction, records)
+        var transactions: [LedgerTransaction] = try decodeAll(CloudRecordType.transaction, records)
+        if let attachmentFolder {
+            let recordsByID = Dictionary(uniqueKeysWithValues: records.filter { $0.recordType == CloudRecordType.transaction }.compactMap { record -> (UUID, CKRecord)? in
+                guard let value: LedgerTransaction = try? decode(record) else { return nil }
+                return (value.id, record)
+            })
+            for index in transactions.indices {
+                guard let record = recordsByID[transactions[index].id],
+                      let asset = record["noteAttachment"] as? CKAsset,
+                      let sourceURL = asset.fileURL else { continue }
+                let identifier = transactions[index].noteAttachmentID ?? "transaction-note-cloud-\(transactions[index].id.uuidString).jpg"
+                let destination = attachmentFolder.appending(path: identifier)
+                try? FileManager.default.createDirectory(at: attachmentFolder, withIntermediateDirectories: true)
+                if !FileManager.default.fileExists(atPath: destination.path) {
+                    try? FileManager.default.copyItem(at: sourceURL, to: destination)
+                }
+                if FileManager.default.fileExists(atPath: destination.path) {
+                    transactions[index].noteAttachmentID = identifier
+                }
+            }
+        }
         let categories: [LedgerCategory] = try decodeAll(CloudRecordType.category, records)
         guard let settingsRecord = records.first(where: { $0.recordType == CloudRecordType.settings }), var settings: LedgerSettings = try decode(settingsRecord) else { throw CloudMappingError.missingSettings }
         if let budgetRecord = records.first(where: { $0.recordType == CloudRecordType.budget }), let budget: BudgetPlan = try decode(budgetRecord) { settings.budgetPlan = budget }

@@ -307,6 +307,7 @@ struct LedgerTransaction: Identifiable, Codable, Hashable, Sendable {
     var categoryID: LedgerCategoryID
     var occurredAt: Date
     var note: String?
+    var noteAttachmentID: String? = nil
     /// Canonical HKD-reference units for one unit of `currency` at entry time.
     var exchangeRateAtTransaction: Double
     var reversalOfTransactionID: UUID? = nil

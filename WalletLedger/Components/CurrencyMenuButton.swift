@@ -67,6 +67,7 @@ struct CurrencyMenuButton: View {
             }
             .contentShape(Rectangle())
         }
+        .foregroundStyle(.primary)
         .accessibilityLabel(title)
         .accessibilityValue(selection?.rawValue ?? title)
         .sheet(isPresented: $showingAllCurrencies) {

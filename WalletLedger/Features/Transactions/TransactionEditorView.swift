@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct TransactionEditorView: View {
     @EnvironmentObject private var store: LedgerStore
@@ -27,6 +28,15 @@ struct TransactionEditorView: View {
     @State private var destinationAmountOverridden = false
     @State private var sourceSuggestion: Double = 0
     @State private var destinationSuggestion: Double = 0
+    @State private var showingDatePicker = false
+    @State private var showingNoteEditor = false
+    @State private var showingCamera = false
+    @State private var noteImage: UIImage?
+    @State private var noteImageChanged = false
+    @State private var noteAttachmentID: String?
+    @State private var removedAttachmentID: String?
+    @State private var saving = false
+    @FocusState private var noteFocused: Bool
 
     init(transaction: LedgerTransaction? = nil) {
         original = transaction
@@ -43,6 +53,8 @@ struct TransactionEditorView: View {
         _destinationPocket = State(initialValue: transaction?.destinationAccountCurrency)
         _accountAmountText = State(initialValue: transaction?.accountAmount.map(Self.amountText) ?? "")
         _destinationAmountText = State(initialValue: transaction?.destinationAmount.map(Self.amountText) ?? "")
+        _showingNoteEditor = State(initialValue: transaction?.note?.isEmpty == false || transaction?.noteAttachmentID != nil)
+        _noteAttachmentID = State(initialValue: transaction?.noteAttachmentID)
     }
 
     private static func amountText(_ value: Double) -> String { String(format: "%.2f", value) }
@@ -86,6 +98,8 @@ struct TransactionEditorView: View {
                         Picker("Transaction type", selection: $type) { ForEach(LedgerTransactionType.allCases) { Text($0.title).tag($0) } }
                             .pickerStyle(.segmented)
                         amountPanel
+                        transactionToolbar
+                        if showingNoteEditor { noteEditor }
                         detailsPanel
                         keypad
                         if type != .transfer { categoryPicker }
@@ -99,13 +113,28 @@ struct TransactionEditorView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("Save", action: save).disabled(!canSave).fontWeight(.semibold) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { Task { await save() } }
+                        .disabled(!canSave || saving).fontWeight(.semibold)
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    if noteFocused {
+                        Spacer()
+                        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                            Button { noteFocused = false; showingCamera = true } label: { Image(systemName: "camera") }
+                        }
+                        Button("Done") { noteFocused = false }
+                    }
+                }
             }
         }
         .onAppear {
             if accountID == nil { applyDefaultAccount(for: categoryID) }
             if destinationID == nil { destinationID = activeAccounts.first(where: { $0.id != accountID })?.id }
             if original == nil { syncAmountFields() } else { prefillStoredAmounts() }
+            if let identifier = noteAttachmentID {
+                Task { noteImage = await AttachmentStore.shared.loadTransactionNote(identifier: identifier) }
+            }
         }
         .onChange(of: categoryID) { _, category in if type == .expense && !accountExplicitlyOverridden { applyDefaultAccount(for: category) } }
         .onChange(of: type) { _, value in if value == .expense && !accountExplicitlyOverridden { applyDefaultAccount(for: categoryID) } }
@@ -121,6 +150,11 @@ struct TransactionEditorView: View {
         .sheet(isPresented: $showingCategoryEditor) {
             CategoryEditorSheet { id in categoryID = id }
         }
+        .sheet(isPresented: $showingDatePicker) { datePickerSheet }
+        .fullScreenCover(isPresented: $showingCamera) {
+            TransactionNoteCamera(image: $noteImage, imageChanged: $noteImageChanged)
+                .ignoresSafeArea()
+        }
     }
 
     private var amountPanel: some View {
@@ -130,11 +164,17 @@ struct TransactionEditorView: View {
         }.frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 12).ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
-    private var detailsPanel: some View {
-        VStack(spacing: 0) {
-            LabeledContent(type == .transfer ? "From Account" : "Account") {
-                AccountSelectorMenu(accounts: activeAccounts, selection: $accountID, title: type == .transfer ? "From Account" : "Account")
+    private var transactionToolbar: some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 3) {
+                Label(type == .transfer ? "From Account" : "Account", systemImage: "creditcard")
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                AccountSelectorMenu(accounts: activeAccounts, selection: $accountID,
+                                    title: type == .transfer ? "From Account" : "Account",
+                                    visibleCharacters: 11)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
             .onChange(of: accountID) { _, newValue in
                 if !applyingDefaultAccount { accountExplicitlyOverridden = true }
                 accountPocket = nil
@@ -143,8 +183,72 @@ struct TransactionEditorView: View {
                 if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
                 syncAmountFields()
             }
+
+            Divider().frame(height: 38)
+
+            Button { showingDatePicker = true } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Label("Date", systemImage: "calendar")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Text(preferences.value.dateFormat.compactString(from: occurredAt))
+                        .font(.subheadline).lineLimit(1)
+                }
+                .frame(width: 82, alignment: .leading)
+                .padding(.horizontal, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Divider().frame(height: 38)
+
+            Button {
+                withAnimation(.snappy) { showingNoteEditor = true }
+                DispatchQueue.main.async { noteFocused = true }
+            } label: {
+                Image(systemName: note.isEmpty && noteImage == nil && noteAttachmentID == nil ? "square.and.pencil" : "square.and.pencil.circle.fill")
+                    .font(.title3)
+                    .frame(width: 48, height: 48)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(note.isEmpty && noteImage == nil && noteAttachmentID == nil ? "Add Note" : "Edit Note")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 7)
+        .ledgerGlass(in: Capsule())
+    }
+
+    private var noteEditor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("Note (optional)", text: $note, axis: .vertical)
+                .lineLimit(1...3)
+                .textFieldStyle(.plain)
+                .focused($noteFocused)
+            if let noteImage {
+                ZStack(alignment: .topTrailing) {
+                    Image(uiImage: noteImage)
+                        .resizable().scaledToFill()
+                        .frame(width: 88, height: 64)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    Button { removeNotePhoto() } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .black.opacity(0.65))
+                    }
+                    .buttonStyle(.plain)
+                    .offset(x: 7, y: -7)
+                    .accessibilityLabel("Remove note photo")
+                }
+            }
+        }
+        .padding(14)
+        .ledgerGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    @ViewBuilder private var detailsPanel: some View {
+        if showsSourcePocket || showsSourceAmount || type == .transfer {
+            VStack(spacing: 0) {
             if showsSourcePocket {
-                Divider()
                 LabeledContent(type == .transfer ? "From Account Currency" : "Account Currency") {
                     AccountPocketPicker(account: sourceAccount ?? activeAccountPlaceholder, selection: sourcePocketBinding, title: "Account Currency")
                 }
@@ -184,17 +288,47 @@ struct TransactionEditorView: View {
                                      estimated: estimatedDestinationAmount)
                 }
             }
-            Divider()
-            HStack(spacing: 10) {
-                Image(systemName: "note.text").foregroundStyle(.secondary)
-                TextField("Note (optional)", text: $note).textFieldStyle(.plain)
             }
-            .padding(.vertical, 12)
-            Divider()
-            DatePicker("Date", selection: $occurredAt, displayedComponents: [.date, .hourAndMinute])
+            .padding(.horizontal, 16).padding(.vertical, 4)
+            .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
-        .padding(.horizontal, 16).padding(.vertical, 4)
-        .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private var datePickerSheet: some View {
+        NavigationStack {
+            DatePicker("Date", selection: dateOnlyBinding, displayedComponents: .date)
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                .padding(.horizontal)
+                .navigationTitle("Date")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showingDatePicker = false }
+                    }
+                }
+        }
+        .presentationDetents([.height(330)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var dateOnlyBinding: Binding<Date> {
+        Binding(get: { occurredAt }, set: { newDate in
+            let calendar = Calendar.current
+            let day = calendar.dateComponents([.year, .month, .day], from: newDate)
+            let time = calendar.dateComponents([.hour, .minute, .second, .nanosecond], from: occurredAt)
+            var merged = DateComponents()
+            merged.year = day.year; merged.month = day.month; merged.day = day.day
+            merged.hour = time.hour; merged.minute = time.minute; merged.second = time.second; merged.nanosecond = time.nanosecond
+            if let value = calendar.date(from: merged) { occurredAt = value }
+        })
+    }
+
+    private func removeNotePhoto() {
+        if let noteAttachmentID { removedAttachmentID = noteAttachmentID }
+        noteAttachmentID = nil
+        noteImage = nil
+        noteImageChanged = false
     }
 
     /// Editable actual account-side amount. Prefilled from the cached FX rate, but a value the user
@@ -324,14 +458,26 @@ struct TransactionEditorView: View {
         DispatchQueue.main.async { applyingDefaultAccount = false }
     }
 
-    private func save() {
+    @MainActor private func save() async {
         guard let accountID, let sourceAccount else { return }
+        saving = true
+        defer { saving = false }
         let sourceAccountCurrency = sourceAccount.usesCurrencyPockets ? sourcePocket : nil
         let destinationAccountCurrency = (type == .transfer && destinationAccount?.usesCurrencyPockets == true) ? targetPocket : nil
+        var savedAttachmentID = noteAttachmentID
+        do {
+            if noteImageChanged, let noteImage {
+                savedAttachmentID = try await AttachmentStore.shared.saveTransactionNote(noteImage)
+            }
+        } catch {
+            store.presentedError = error.localizedDescription
+            return
+        }
         if var original {
             original.type = type; original.accountID = accountID; original.destinationAccountID = type == .transfer ? destinationID : nil
             original.amount = amount; original.currency = currency; original.categoryID = type == .transfer ? .other : categoryID
             original.occurredAt = occurredAt; original.note = note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : note
+            original.noteAttachmentID = savedAttachmentID
             // Actual account-side postings. A manually edited value is stored as-is.
             original.accountCurrency = sourceAccountCurrency
             original.accountAmount = sourcePostingValue
@@ -339,9 +485,42 @@ struct TransactionEditorView: View {
             original.destinationAmount = type == .transfer ? destinationPostingValue : nil
             store.updateTransaction(original)
         } else {
-            store.addTransaction(type: type, accountID: accountID, destinationAccountID: destinationID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, accountCurrency: sourceAccountCurrency, accountAmount: sourcePostingValue, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: type == .transfer ? destinationPostingValue : nil)
+            guard store.addTransaction(type: type, accountID: accountID, destinationAccountID: destinationID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: savedAttachmentID, accountCurrency: sourceAccountCurrency, accountAmount: sourcePostingValue, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: type == .transfer ? destinationPostingValue : nil) != nil else {
+                if noteImageChanged, let savedAttachmentID { try? await AttachmentStore.shared.delete(identifier: savedAttachmentID) }
+                store.presentedError = "The transaction could not be saved."
+                return
+            }
+        }
+        if let oldIdentifier = removedAttachmentID ?? (noteImageChanged ? noteAttachmentID : nil), oldIdentifier != savedAttachmentID {
+            try? await AttachmentStore.shared.delete(identifier: oldIdentifier)
         }
         dismiss()
+    }
+}
+
+private struct TransactionNoteCamera: UIViewControllerRepresentable {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var image: UIImage?
+    @Binding var imageChanged: Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        var parent: TransactionNoteCamera
+        init(parent: TransactionNoteCamera) { self.parent = parent }
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            parent.image = info[.originalImage] as? UIImage
+            parent.imageChanged = parent.image != nil
+            parent.dismiss()
+        }
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
     }
 }
 

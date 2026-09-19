@@ -20,9 +20,18 @@ struct SettingsView: View {
         ScrollView {
             VStack(spacing: 16) {
                 SettingsGlassSection("Basic") {
-                    NavigationLink { DefaultExpenseAccountsView() } label: { SettingsLinkRow("Default Expense Accounts", systemImage: "arrow.triangle.branch", detail: "By category") }
+                    NavigationLink { DefaultExpenseAccountsView() } label: { SettingsLinkRow("Default Expense Accounts", systemImage: "arrow.triangle.branch", detail: "By category") }.foregroundStyle(.primary)
                     Divider()
-                    SettingsLinkRow("Language", systemImage: "globe", detail: "English · Not configurable yet").foregroundStyle(.secondary)
+                    SettingsLinkRow("Language", systemImage: "globe", detail: "English · Not configurable yet")
+                    Divider()
+                    LabeledContent("Date Format") {
+                        Picker("Date Format", selection: dateFormatBinding) {
+                            ForEach(AppDateFormat.allCases) { format in Text(format.title).tag(format) }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .foregroundStyle(.primary)
+                    }
                 }
                 SettingsGlassSection("Functions") {
                     LabeledContent("Base Currency") {
@@ -32,18 +41,17 @@ struct SettingsView: View {
                                            showsOther: true, showsStablecoinNames: false)
                     }
                     Divider()
-                    NavigationLink { ExchangeRateEditorView() } label: { SettingsLinkRow("Exchange Rates", systemImage: "arrow.left.arrow.right", detail: store.state.settings.automaticRates ? "Automatic" : "Manual") }
+                    NavigationLink { ExchangeRateEditorView() } label: { SettingsLinkRow("Exchange Rates", systemImage: "arrow.left.arrow.right", detail: store.state.settings.automaticRates ? "Automatic" : "Manual") }.foregroundStyle(.primary)
                     Divider()
-                    NavigationLink { BudgetEditorView() } label: { SettingsLinkRow("Budget", systemImage: "chart.pie", detail: store.state.settings.budgetPlan.mode.title) }
+                    NavigationLink { BudgetEditorView() } label: { SettingsLinkRow("Budget", systemImage: "chart.pie", detail: store.state.settings.budgetPlan.mode.title) }.foregroundStyle(.primary)
                     Divider()
-                    NavigationLink { RecurringTransactionsView() } label: { SettingsLinkRow("Recurring Transactions", systemImage: "calendar.badge.clock", detail: "\(store.recurringRules.count)") }
+                    NavigationLink { RecurringTransactionsView() } label: { SettingsLinkRow("Recurring Transactions", systemImage: "calendar.badge.clock", detail: "\(store.recurringRules.count)") }.foregroundStyle(.primary)
                     Divider()
-                    NavigationLink { SwipeActionsEditorView() } label: { SettingsLinkRow("Swipe Actions", systemImage: "hand.draw", detail: nil) }
+                    NavigationLink { SwipeActionsEditorView() } label: { SettingsLinkRow("Swipe Actions", systemImage: "hand.draw", detail: nil) }.foregroundStyle(.primary)
                     Divider()
                     Toggle(isOn: preferenceBinding(\.hapticFeedbackEnabled)) { Label("Haptic Feedback", systemImage: "waveform") }
-                }
-                SettingsGlassSection("Market Data") {
-                    NavigationLink { MarketDataSettingsView() } label: { SettingsLinkRow("Alpha Vantage API Key", systemImage: "key", detail: nil) }
+                    Divider()
+                    NavigationLink { MarketDataSettingsView() } label: { SettingsLinkRow("Alpha Vantage API Key", systemImage: "key", detail: nil) }.foregroundStyle(.primary)
                 }
                 SettingsGlassSection("Privacy") {
                     Toggle(isOn: biometricBinding) { Label("Face ID / Touch ID", systemImage: "faceid") }
@@ -52,15 +60,15 @@ struct SettingsView: View {
                     Text("Sensitive values are protected on this device only. This preference is never included in ledger backups.").font(.caption).foregroundStyle(.secondary)
                 }
                 SettingsGlassSection("Share & Backup") {
-                    Button { Task { await shareLedger() } } label: { Label(store.activeBook.effectiveStorageKind == .local ? "Share Ledger" : "Manage Sharing", systemImage: "person.2.badge.gearshape").frame(maxWidth: .infinity, alignment: .leading) }.disabled(working)
+                    Button { Task { await shareLedger() } } label: { Label(store.activeBook.effectiveStorageKind == .local ? "Share Ledger" : "Manage Sharing", systemImage: "person.2.badge.gearshape").frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(.primary).disabled(working)
                     Divider()
-                    Button { Task { await backupToICloud() } } label: { Label("Back Up Now", systemImage: "icloud.and.arrow.up").frame(maxWidth: .infinity, alignment: .leading) }.disabled(working)
+                    Button { Task { await backupToICloud() } } label: { Label("Back Up Now", systemImage: "icloud.and.arrow.up").frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(.primary).disabled(working)
                     Divider()
-                    Button { Task { await restoreFromICloud() } } label: { Label("Restore", systemImage: "icloud.and.arrow.down").frame(maxWidth: .infinity, alignment: .leading) }.disabled(working)
+                    Button { Task { await restoreFromICloud() } } label: { Label("Restore", systemImage: "icloud.and.arrow.down").frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(.primary).disabled(working)
                     Divider()
-                    Button { exportDocument = BackupDocument(envelope: store.backupEnvelope()); showingExporter = true } label: { Label("Export Backup", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity, alignment: .leading) }
+                    Button { exportDocument = BackupDocument(envelope: store.backupEnvelope()); showingExporter = true } label: { Label("Export Backup", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(.primary)
                     Divider()
-                    Button { showingImporter = true } label: { Label("Import Backup", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity, alignment: .leading) }
+                    Button { showingImporter = true } label: { Label("Import Backup", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(.primary)
                     Divider()
                     Toggle("Backup Reminders", isOn: remindersBinding)
                     LabeledContent("Last Backup", value: store.state.settings.lastBackupAt?.formatted(date: .abbreviated, time: .shortened) ?? "Never")
@@ -91,6 +99,9 @@ struct SettingsView: View {
 
     private func preferenceBinding(_ keyPath: WritableKeyPath<AppPreferences, Bool>) -> Binding<Bool> {
         Binding(get: { preferences.value[keyPath: keyPath] }, set: { value in preferences.update { $0[keyPath: keyPath] = value } })
+    }
+    private var dateFormatBinding: Binding<AppDateFormat> {
+        Binding(get: { preferences.value.dateFormat }, set: { value in preferences.update { $0.dateFormat = value } })
     }
     private var biometricBinding: Binding<Bool> {
         Binding(get: { preferences.value.biometricLockEnabled }, set: { enabled in

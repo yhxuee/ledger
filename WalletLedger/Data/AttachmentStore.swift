@@ -10,7 +10,15 @@ actor AttachmentStore {
     nonisolated static func url(for identifier: String) -> URL { folderURL.appending(path: identifier) }
 
     func saveReceipt(_ image: UIImage) throws -> String {
-        let identifier = "receipt-\(UUID().uuidString).jpg"
+        try save(image, prefix: "receipt")
+    }
+
+    func saveTransactionNote(_ image: UIImage) throws -> String {
+        try save(image, prefix: "transaction-note")
+    }
+
+    private func save(_ image: UIImage, prefix: String) throws -> String {
+        let identifier = "\(prefix)-\(UUID().uuidString).jpg"
         let folder = Self.folderURL
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: nil)
         let maximum: CGFloat = 1_600
@@ -23,6 +31,12 @@ actor AttachmentStore {
     }
 
     func loadReceipt(identifier: String) -> UIImage? { UIImage(contentsOfFile: Self.url(for: identifier).path) }
+    func loadTransactionNote(identifier: String) -> UIImage? { UIImage(contentsOfFile: Self.url(for: identifier).path) }
+    func delete(identifier: String) throws {
+        let url = Self.url(for: identifier)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        try FileManager.default.removeItem(at: url)
+    }
 }
 
-enum AttachmentError: LocalizedError { case encodingFailed; var errorDescription: String? { "The receipt photo could not be encoded." } }
+enum AttachmentError: LocalizedError { case encodingFailed; var errorDescription: String? { "The photo could not be encoded." } }
