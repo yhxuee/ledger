@@ -14,6 +14,7 @@ struct MarqueeText: View {
     var pointsPerSecond: Double = 34
     /// Spacing between the outgoing and the returning copy of the value.
     var gap: CGFloat = 26
+    var alignment: Alignment = .leading
 
     @State private var containerWidth: CGFloat = 0
     @State private var textWidth: CGFloat = 0
@@ -25,7 +26,7 @@ struct MarqueeText: View {
 
     var body: some View {
         content
-            .frame(minWidth: reservedWidth, maxWidth: .infinity, alignment: .leading)
+            .frame(minWidth: reservedWidth, maxWidth: .infinity, alignment: scrolls ? .leading : alignment)
             .clipped()
             .background(measurements)
             .accessibilityElement(children: .ignore)
@@ -45,7 +46,7 @@ struct MarqueeText: View {
             if scrolls { label }
         }
         .offset(x: offset)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: scrolls ? .leading : alignment)
     }
 
     /// Invisible measurements: the available width plus the natural widths of the value and of the

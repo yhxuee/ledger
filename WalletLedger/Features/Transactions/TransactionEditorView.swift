@@ -5,6 +5,7 @@ struct TransactionEditorView: View {
     @EnvironmentObject private var store: LedgerStore
     @EnvironmentObject private var preferences: AppPreferencesStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     private let original: LedgerTransaction?
     @State private var type: LedgerTransactionType
     @State private var accountID: UUID?
@@ -53,7 +54,7 @@ struct TransactionEditorView: View {
         _destinationPocket = State(initialValue: transaction?.destinationAccountCurrency)
         _accountAmountText = State(initialValue: transaction?.accountAmount.map(Self.amountText) ?? "")
         _destinationAmountText = State(initialValue: transaction?.destinationAmount.map(Self.amountText) ?? "")
-        _showingNoteEditor = State(initialValue: transaction?.note?.isEmpty == false || transaction?.noteAttachmentID != nil)
+        _showingNoteEditor = State(initialValue: false)
         _noteAttachmentID = State(initialValue: transaction?.noteAttachmentID)
     }
 
@@ -115,15 +116,25 @@ struct TransactionEditorView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { Task { await save() } }
-                        .disabled(!canSave || saving).fontWeight(.semibold)
+                        .buttonStyle(.plain)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(colorScheme == .dark ? LedgerPalette.amber : Color.blue, in: Capsule())
+                        .opacity(canSave && !saving ? 1 : 0.45)
+                        .disabled(!canSave || saving)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     if noteFocused {
-                        Spacer()
                         if UIImagePickerController.isSourceTypeAvailable(.camera) {
                             Button { noteFocused = false; showingCamera = true } label: { Image(systemName: "camera") }
                         }
-                        Button("Done") { noteFocused = false }
+                        Spacer()
+                        Button("Done") {
+                            noteFocused = false
+                            withAnimation(.snappy) { showingNoteEditor = false }
+                        }
                     }
                 }
             }
@@ -165,41 +176,45 @@ struct TransactionEditorView: View {
     }
 
     private var transactionToolbar: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 3) {
-                Label(type == .transfer ? "From Account" : "Account", systemImage: "creditcard")
-                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                AccountSelectorMenu(accounts: activeAccounts, selection: $accountID,
-                                    title: type == .transfer ? "From Account" : "Account",
-                                    visibleCharacters: 11)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .onChange(of: accountID) { _, newValue in
-                if !applyingDefaultAccount { accountExplicitlyOverridden = true }
-                accountPocket = nil
-                accountAmountOverridden = false
-                if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
-                if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
-                syncAmountFields()
-            }
-
-            Divider().frame(height: 38)
-
-            Button { showingDatePicker = true } label: {
+        HStack(spacing: 10) {
+            HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Label("Date", systemImage: "calendar")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    Text(preferences.value.dateFormat.compactString(from: occurredAt))
-                        .font(.subheadline).lineLimit(1)
+                    Label(type == .transfer ? "From Account" : "Account", systemImage: "creditcard")
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    AccountSelectorMenu(accounts: activeAccounts, selection: $accountID,
+                                        title: type == .transfer ? "From Account" : "Account",
+                                        visibleCharacters: 11, valueAlignment: .trailing)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
-                .frame(width: 82, alignment: .leading)
-                .padding(.horizontal, 12)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 12).padding(.trailing, 10)
+                .onChange(of: accountID) { _, newValue in
+                    if !applyingDefaultAccount { accountExplicitlyOverridden = true }
+                    accountPocket = nil
+                    accountAmountOverridden = false
+                    if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
+                    if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
+                    syncAmountFields()
+                }
 
-            Divider().frame(height: 38)
+                Divider().frame(height: 38)
+
+                Button { showingDatePicker = true } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Label("Date", systemImage: "calendar")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Text(preferences.value.dateFormat.compactString(from: occurredAt))
+                            .font(.subheadline).lineLimit(1)
+                    }
+                    .frame(width: 76, alignment: .leading)
+                    .padding(.horizontal, 11)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 7)
+            .ledgerGlass(in: Capsule())
 
             Button {
                 withAnimation(.snappy) { showingNoteEditor = true }
@@ -207,15 +222,14 @@ struct TransactionEditorView: View {
             } label: {
                 Image(systemName: note.isEmpty && noteImage == nil && noteAttachmentID == nil ? "square.and.pencil" : "square.and.pencil.circle.fill")
                     .font(.title3)
-                    .frame(width: 48, height: 48)
+                    .frame(width: 52, height: 52)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .ledgerGlass(interactive: true, in: Circle())
             .accessibilityLabel(note.isEmpty && noteImage == nil && noteAttachmentID == nil ? "Add Note" : "Edit Note")
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 7)
-        .ledgerGlass(in: Capsule())
     }
 
     private var noteEditor: some View {
@@ -338,13 +352,17 @@ struct TransactionEditorView: View {
             HStack(spacing: 10) {
                 Text(title)
                 Spacer(minLength: 8)
-                Text(pocket.rawValue).font(.caption).foregroundStyle(.secondary)
-                SensitiveValueContent(maskLength: 8) {
-                    TextField("0.00", text: text)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 110)
+                HStack(spacing: 6) {
+                    Text(pocket.rawValue).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    SensitiveValueContent(maskLength: 8) {
+                        TextField("0.00", text: text)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 96)
+                    }
                 }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(Color.primary.opacity(0.06), in: Capsule())
             }
             if overridden.wrappedValue {
                 Button {

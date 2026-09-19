@@ -11,6 +11,7 @@ struct AccountSelectorMenu: View {
     var placeholder = "Select Account"
     /// Visible width reserved for roughly this many English characters.
     var visibleCharacters = 15
+    var valueAlignment: Alignment = .leading
 
     private var selectedName: String {
         accounts.first { $0.id == selection }?.name ?? placeholder
@@ -28,14 +29,16 @@ struct AccountSelectorMenu: View {
             }
         } label: {
             HStack(spacing: 6) {
-                MarqueeText(text: selectedName, font: .body, visibleCharacters: visibleCharacters)
+                MarqueeText(text: selectedName, font: .body, visibleCharacters: visibleCharacters, alignment: valueAlignment)
                     .foregroundStyle(selection == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: .infinity, alignment: valueAlignment)
             .contentShape(Rectangle())
         }
+        .foregroundStyle(.primary)
         .accessibilityLabel(title)
         .accessibilityValue(selectedName)
     }
