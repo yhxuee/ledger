@@ -233,17 +233,8 @@ private struct AccountEditorView: View {
                         }
                         if account.usesCurrencyPockets {
                             LabeledContent("Primary Currency") {
-                                PopupSelectionButton(title: "Primary Currency",
-                                                         codes: account.pocketCurrencies,
-                                                         selection: account.currency,
-                                                         showsStablecoinNames: false,
-                                                         requiresConfiguredRate: false,
-                                                         onSelect: { account.currency = $0 }) {
-                                    HStack(spacing: 6) {
-                                        Text(account.currency.rawValue).foregroundStyle(.secondary)
-                                        Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
-                                    }
-                                }
+                                CurrencyMenuPicker(selection: $account.currency, codes: account.pocketCurrencies,
+                                                   title: "Primary Currency", requiresConfiguredRate: false)
                             }
                             ForEach(account.normalizedPockets) { pocket in
                                 LabeledContent(pocket.currency.rawValue) {
@@ -251,15 +242,9 @@ private struct AccountEditorView: View {
                                 }
                             }
                             .onDelete(perform: removePockets)
-                            PopupSelectionButton(title: "Add Currency",
-                                                     codes: CurrencySelection.addable(excluding: account.pocketCurrencies),
-                                                     selection: account.currency,
-                                                     otherCurrencies: true,
-                                                     otherPageCodes: store.availableCurrencies.filter { !account.pocketCurrencies.contains($0) },
-                                                     showsStablecoinNames: false,
-                                                     onSelect: { addPocket($0) }) {
-                                Label("Add Currency", systemImage: "plus")
-                            }
+                            CurrencyPocketAddPicker(codes: CurrencySelection.addable(excluding: account.pocketCurrencies),
+                                                    otherCodes: store.availableCurrencies.filter { !account.pocketCurrencies.contains($0) },
+                                                    onSelect: addPocket)
                         } else {
                             CurrencyPickerLink(selection: $account.currency)
                                 .onChange(of: account.currency) { oldValue, newValue in
@@ -321,7 +306,6 @@ private struct AccountEditorView: View {
                 }
             }
         }
-        .anchoredCurrencyDropdownLayer()
     }
 
     private func resizeCardImage(_ data: Data) -> Data? {

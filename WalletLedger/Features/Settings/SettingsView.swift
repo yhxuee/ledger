@@ -26,17 +26,10 @@ struct SettingsView: View {
                 }
                 SettingsGlassSection("Functions") {
                     LabeledContent("Base Currency") {
-                        PopupSelectionButton(title: "Base Currency",
-                                                 codes: CurrencySelection.common,
-                                                 selection: store.state.settings.baseCurrency,
-                                                 otherCurrencies: true,
-                                                 showsStablecoinNames: false,
-                                                 onSelect: { code in store.updateSettings { $0.baseCurrency = code } }) {
-                            HStack(spacing: 6) {
-                                Text(store.state.settings.baseCurrency.rawValue)
-                                Image(systemName: "chevron.down").font(.caption2)
-                            }
-                        }
+                        CurrencyMenuPicker(selection: Binding(get: { store.state.settings.baseCurrency },
+                                                              set: { code in store.updateSettings { $0.baseCurrency = code } }),
+                                           codes: CurrencySelection.common, title: "Base Currency",
+                                           showsOther: true, showsStablecoinNames: false)
                     }
                     Divider()
                     NavigationLink { ExchangeRateEditorView() } label: { SettingsLinkRow("Exchange Rates", systemImage: "arrow.left.arrow.right", detail: store.state.settings.automaticRates ? "Automatic" : "Manual") }

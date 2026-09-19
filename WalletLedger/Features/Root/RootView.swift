@@ -63,7 +63,6 @@ struct RootView: View {
 
     var body: some View {
         ZStack { LedgerBackground(); content }
-            .anchoredCurrencyDropdownLayer()
             .alert("Wallet Ledger", isPresented: Binding(get: { store.presentedError != nil }, set: { if !$0 { store.presentedError = nil } })) { Button("OK") { store.presentedError = nil } } message: { Text(store.presentedError ?? "") }
             .overlay(alignment: .bottom) { undoToast }
             .onChange(of: store.activeBookID) { _, _ in selectedAccountID = nil }

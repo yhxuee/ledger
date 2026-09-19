@@ -102,7 +102,6 @@ struct TransactionEditorView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Save", action: save).disabled(!canSave).fontWeight(.semibold) }
             }
         }
-        .anchoredCurrencyDropdownLayer()
         .onAppear {
             if accountID == nil { applyDefaultAccount(for: categoryID) }
             if destinationID == nil { destinationID = activeAccounts.first(where: { $0.id != accountID })?.id }
