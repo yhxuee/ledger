@@ -664,7 +664,8 @@ private struct OverviewPortraitAccountCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .cardArtwork(data: account?.cardImageData, fallback: LinearGradient(
             colors: [Color(hex: style.startHex), Color(hex: style.endHex)],
-            startPoint: .topLeading, endPoint: .bottomTrailing))
+            startPoint: .topLeading, endPoint: .bottomTrailing),
+            context: .portrait)
         .accessibilityElement(children: .combine)
     }
 }

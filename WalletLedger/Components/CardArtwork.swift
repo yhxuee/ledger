@@ -2,6 +2,11 @@ import SwiftUI
 import UIKit
 import ImageIO
 
+enum CardArtworkLayoutContext: Sendable {
+    case horizontal
+    case portrait
+}
+
 /// Decode and classify once per uploaded image, not while the carousel scrolls.
 // Immutable after construction. UIImage/UIColor are only read by rendering after
 // publication; decoding and analysis finish before crossing back to the main actor.
@@ -15,6 +20,8 @@ final class CardArtwork: @unchecked Sendable {
     let image: UIImage
     let surface: Surface
     let foreground: Color
+    let isDarkArtwork: Bool
+    let averageLuminance: CGFloat
     @MainActor private static let cache: NSCache<NSData, CardArtwork> = {
         let cache = NSCache<NSData, CardArtwork>()
         cache.totalCostLimit = 32 * 1_024 * 1_024
@@ -59,33 +66,58 @@ final class CardArtwork: @unchecked Sendable {
         let ratio = image.size.width / image.size.height
         let matchesCardRatio = abs(ratio / cardRatio - 1) <= 0.02
 
+        self.averageLuminance = sample.overallLuminance
+
         if sample.transparent {
             surface = .glass
+            isDarkArtwork = false
         } else if matchesCardRatio {
             surface = .fullBleed
+            isDarkArtwork = sample.centerLuminance * 0.75 < 0.55
         } else {
             surface = .opaque(sample.background)
+            let effectiveLuminance = 0.55 * sample.bgLuminance + 0.45 * sample.centerLuminance
+            isDarkArtwork = effectiveLuminance < 0.5
         }
-        foreground = Self.foreground(for: surface)
+        self.foreground = isDarkArtwork ? .white : .black.opacity(0.86)
     }
 
-    private static func foreground(for surface: Surface) -> Color {
+    func isDark(for colorScheme: ColorScheme) -> Bool {
         switch surface {
-        case .fullBleed: return .white
-        case .glass: return .primary
-        case .opaque(let color):
-            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-            color.getRed(&r, green: &g, blue: &b, alpha: &a)
-            return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5 ? .white : .black.opacity(0.84)
+        case .fullBleed, .opaque:
+            return isDarkArtwork
+        case .glass:
+            if colorScheme == .dark {
+                return true
+            } else {
+                return averageLuminance < 0.25
+            }
         }
     }
 
-    /// A small RGBA sample detects real transparency and the dominant border color.
-    /// Quantized border colors favor the background rather than a central logo.
-    private static func sample(_ image: UIImage) -> (transparent: Bool, background: UIColor) {
+    func foregroundStyles(for colorScheme: ColorScheme) -> (primary: Color, secondary: Color) {
+        if isDark(for: colorScheme) {
+            return (Color.white, Color.white.opacity(0.72))
+        } else {
+            return (Color.black.opacity(0.86), Color.black.opacity(0.56))
+        }
+    }
+
+    private struct AnalysisResult {
+        let transparent: Bool
+        let background: UIColor
+        let bgLuminance: CGFloat
+        let centerLuminance: CGFloat
+        let overallLuminance: CGFloat
+    }
+
+    /// A small RGBA sample detects real transparency, average luminance, and dominant border color.
+    private static func sample(_ image: UIImage) -> AnalysisResult {
         let side = 48
         var pixels = [UInt8](repeating: 0, count: side * side * 4)
-        guard let source = image.cgImage else { return (true, .clear) }
+        guard let source = image.cgImage else {
+            return AnalysisResult(transparent: true, background: .clear, bgLuminance: 0.5, centerLuminance: 0.5, overallLuminance: 0.5)
+        }
         let rendered = pixels.withUnsafeMutableBytes { bytes -> Bool in
             guard let context = CGContext(data: bytes.baseAddress, width: side, height: side,
                                           bitsPerComponent: 8, bytesPerRow: side * 4,
@@ -94,24 +126,64 @@ final class CardArtwork: @unchecked Sendable {
             context.draw(source, in: CGRect(x: 0, y: 0, width: CGFloat(side), height: CGFloat(side)))
             return true
         }
-        guard rendered else { return (true, .clear) }
+        guard rendered else {
+            return AnalysisResult(transparent: true, background: .clear, bgLuminance: 0.5, centerLuminance: 0.5, overallLuminance: 0.5)
+        }
+
+        var hasTransparency = false
         var colors: [Int: (count: Int, red: Int, green: Int, blue: Int)] = [:]
+        var totalLuminance: CGFloat = 0
+        var visibleCount: CGFloat = 0
+        var centerLuminance: CGFloat = 0
+        var centerCount: CGFloat = 0
+
         for y in 0..<side {
             for x in 0..<side {
                 let offset = (y * side + x) * 4
-                if pixels[offset + 3] < 255 { return (true, .clear) }
-                guard x < 3 || y < 3 || x >= side - 3 || y >= side - 3 else { continue }
-                let r = Int(pixels[offset]), g = Int(pixels[offset + 1]), b = Int(pixels[offset + 2])
-                let key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4)
-                let previous = colors[key] ?? (0, 0, 0, 0)
-                colors[key] = (previous.count + 1, previous.red + r, previous.green + g, previous.blue + b)
+                let alpha = pixels[offset + 3]
+                if alpha < 255 {
+                    hasTransparency = true
+                }
+                if alpha > 32 {
+                    let aFloat = CGFloat(alpha)
+                    let r = CGFloat(pixels[offset]) / aFloat
+                    let g = CGFloat(pixels[offset + 1]) / aFloat
+                    let b = CGFloat(pixels[offset + 2]) / aFloat
+                    let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                    totalLuminance += lum
+                    visibleCount += 1
+                    if x >= 8 && x <= 39 && y >= 8 && y <= 39 {
+                        centerLuminance += lum
+                        centerCount += 1
+                    }
+                }
+                if alpha == 255 && (x < 3 || y < 3 || x >= side - 3 || y >= side - 3) {
+                    let r = Int(pixels[offset]), g = Int(pixels[offset + 1]), b = Int(pixels[offset + 2])
+                    let key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4)
+                    let previous = colors[key] ?? (0, 0, 0, 0)
+                    colors[key] = (previous.count + 1, previous.red + r, previous.green + g, previous.blue + b)
+                }
             }
         }
-        guard let dominant = colors.max(by: { $0.value.count < $1.value.count })?.value else { return (false, .gray) }
+
+        let overall = visibleCount > 0 ? totalLuminance / visibleCount : 0.5
+        let center = centerCount > 0 ? centerLuminance / centerCount : overall
+
+        if hasTransparency {
+            return AnalysisResult(transparent: true, background: .clear, bgLuminance: 0.5, centerLuminance: center, overallLuminance: overall)
+        }
+
+        guard let dominant = colors.max(by: { $0.value.count < $1.value.count })?.value else {
+            return AnalysisResult(transparent: false, background: .gray, bgLuminance: 0.5, centerLuminance: center, overallLuminance: overall)
+        }
         let divisor = CGFloat(dominant.count) * 255
-        return (false, UIColor(red: CGFloat(dominant.red) / divisor,
-                               green: CGFloat(dominant.green) / divisor,
-                               blue: CGFloat(dominant.blue) / divisor, alpha: 1))
+        let bgR = CGFloat(dominant.red) / divisor
+        let bgG = CGFloat(dominant.green) / divisor
+        let bgB = CGFloat(dominant.blue) / divisor
+        let bgLum = 0.2126 * bgR + 0.7152 * bgG + 0.0722 * bgB
+        let bgColor = UIColor(red: bgR, green: bgG, blue: bgB, alpha: 1)
+
+        return AnalysisResult(transparent: false, background: bgColor, bgLuminance: bgLum, centerLuminance: center, overallLuminance: overall)
     }
 }
 
@@ -125,9 +197,23 @@ private struct CardInformationBounds: PreferenceKey {
 private struct CardArtworkModifier: ViewModifier {
     let artwork: CardArtwork?
     let fallback: LinearGradient
+    let context: CardArtworkLayoutContext
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var isDark: Bool {
+        artwork?.isDark(for: colorScheme) ?? false
+    }
+
+    private var foregroundStyles: (primary: Color, secondary: Color) {
+        artwork?.foregroundStyles(for: colorScheme) ?? (Color.black.opacity(0.84), Color.black.opacity(0.56))
+    }
 
     func body(content: Content) -> some View {
+        let (primary, secondary) = foregroundStyles
         content
+            .foregroundStyle(primary, secondary)
+            .shadow(color: artwork != nil ? (isDark ? Color.black.opacity(0.30) : Color.white.opacity(0.40)) : .clear,
+                    radius: 1.5, x: 0, y: 1)
             .backgroundPreferenceValue(CardInformationBounds.self) { anchors in
                 GeometryReader { geometry in
                     surface(size: geometry.size, regions: anchors.map { geometry[$0] })
@@ -146,7 +232,6 @@ private struct CardArtworkModifier: ViewModifier {
                 .accessibilityHidden(true)
             }
             .clipShape(RoundedRectangle(cornerRadius: 25, style: .continuous))
-            .foregroundStyle(artwork?.foreground ?? Color.black.opacity(0.84))
     }
 
     @ViewBuilder private func surface(size: CGSize, regions: [CGRect]) -> some View {
@@ -175,37 +260,52 @@ private struct CardArtworkModifier: ViewModifier {
         }
     }
 
-    private func centeredArtwork(_ image: UIImage, size: CGSize, regions: [CGRect]) -> some View {
+    @ViewBuilder private func centeredArtwork(_ image: UIImage, size: CGSize, regions: [CGRect]) -> some View {
         let horizontalInset = size.width * 0.16
         let availableWidth = max(0, size.width - horizontalInset * 2)
-        let centerY = size.height / 2
-        let baseMaxHeight = size.height * 0.50
 
-        let clearance = regions.reduce(baseMaxHeight / 2) { clearance, rect in
-            let distance = max(0, max(rect.minY - centerY, centerY - rect.maxY) - 10)
-            return min(clearance, distance)
+        switch context {
+        case .horizontal:
+            let availableHeight = size.height * 0.68
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: availableWidth, maxHeight: availableHeight)
+                .position(x: size.width / 2, y: size.height / 2)
+
+        case .portrait:
+            let centerY = size.height / 2
+            let baseMaxHeight = size.height * 0.50
+
+            let clearance = regions.reduce(baseMaxHeight / 2) { clearance, rect in
+                let distance = max(0, max(rect.minY - centerY, centerY - rect.maxY) - 10)
+                return min(clearance, distance)
+            }
+            let safeHeight = regions.isEmpty ? baseMaxHeight : max(0, clearance * 2)
+            let availableHeight = min(baseMaxHeight, safeHeight)
+
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: availableWidth, maxHeight: availableHeight)
+                .position(x: size.width / 2, y: centerY)
         }
-        let safeHeight = regions.isEmpty ? baseMaxHeight : max(0, clearance * 2)
-        let availableHeight = min(baseMaxHeight, safeHeight)
-
-        return Image(uiImage: image)
-            .resizable()
-            .scaledToFit()
-            .frame(maxWidth: availableWidth, maxHeight: availableHeight)
-            .position(x: size.width / 2, y: centerY)
     }
 }
 
 private struct AsyncCardArtworkModifier: ViewModifier {
     let data: Data?
     let fallback: LinearGradient
+    let context: CardArtworkLayoutContext
     @State private var loaded: CardArtwork?
     @State private var loadedData: Data?
 
     func body(content: Content) -> some View {
         content
             .modifier(CardArtworkModifier(
-                artwork: loadedData == data ? loaded : CardArtwork.cached(data), fallback: fallback))
+                artwork: loadedData == data ? loaded : CardArtwork.cached(data),
+                fallback: fallback,
+                context: context))
             .task(id: data) {
                 let result = await CardArtwork.load(data)
                 guard !Task.isCancelled else { return }
@@ -220,7 +320,7 @@ extension View {
         anchorPreference(key: CardInformationBounds.self, value: .bounds) { [$0] }
     }
 
-    func cardArtwork(data: Data?, fallback: LinearGradient) -> some View {
-        modifier(AsyncCardArtworkModifier(data: data, fallback: fallback))
+    func cardArtwork(data: Data?, fallback: LinearGradient, context: CardArtworkLayoutContext = .horizontal) -> some View {
+        modifier(AsyncCardArtworkModifier(data: data, fallback: fallback, context: context))
     }
 }
