@@ -1,41 +1,53 @@
 import ActivityKit
 import Foundation
 
-enum PurchaseActivityResult: Equatable, Sendable {
-    case started(activityID: String), updated, ended, notRunning
-    case liveActivitiesDisabled
-    case sharedStateFailed(String)
-    case requestFailed(String)
-    /// The ActivityKit request succeeded but the App Group snapshot could not be written.
-    case startedWithoutSharedState(activityID: String, detail: String)
-
-    var userMessage: String? {
-        switch self {
-        case .started, .updated, .ended, .notRunning: nil
-        case .liveActivitiesDisabled:
-            "Your purchase is active in the app. Live Activities are unavailable or disabled. Enable Live Activities for Wallet Ledger in Settings to show shopping progress on the Lock Screen."
-        case .sharedStateFailed(let detail):
-            "Your purchase is saved. Live Activity shared storage is unavailable: \(detail)"
-        case .requestFailed(let detail):
-            "Your purchase is active in the app, but the Live Activity could not start: \(detail)"
-        case .startedWithoutSharedState(_, let detail):
-            "Your purchase is active and the Live Activity started, but shared purchase storage is unavailable: \(detail) Items checked from the Lock Screen may not sync until the App Group is available."
-        }
+/// Outcome of the App Group / ActivityKit bridge for one PurchaseSession action.
+///
+/// The local `PurchaseSession` is always committed to Wallet Ledger storage *before* this
+/// runs, so no case here represents purchase failure. `interactive` reports whether the
+/// App Group bridge accepted the snapshot, which is what enables Lock Screen / Dynamic
+/// Island item controls. `warning` carries a nonfatal infrastructure notice for inline display.
+struct PurchaseActivityOutcome: Equatable, Sendable {
+    enum Activity: Equatable, Sendable {
+        case started(activityID: String)
+        case updated
+        case ended
+        case notRunning
+        case liveActivitiesDisabled
+        case requestFailed(String)
     }
+
+    var activity: Activity
+    /// True when the shared container accepted the snapshot.
+    var interactive: Bool
+    /// Nonfatal notice; nil when the whole bridge worked.
+    var warning: String?
 }
 
 protocol PurchaseActivityStarting: Sendable {
-    func start(session: PurchaseSession) async -> PurchaseActivityResult
+    /// Mirrors a committed session into App Group storage and refreshes the Live Activity.
+    /// Implementations never throw: bridge problems are reported through `warning`.
+    func publish(session: PurchaseSession, categoryColors: [String: String], requestActivityIfNeeded: Bool) async -> PurchaseActivityOutcome
+}
+
+extension PurchaseActivityStarting {
+    func start(session: PurchaseSession, categoryColors: [String: String] = [:]) async -> PurchaseActivityOutcome {
+        await publish(session: session, categoryColors: categoryColors, requestActivityIfNeeded: true)
+    }
+
+    func update(session: PurchaseSession, categoryColors: [String: String] = [:]) async -> PurchaseActivityOutcome {
+        await publish(session: session, categoryColors: categoryColors, requestActivityIfNeeded: false)
+    }
 }
 
 actor PurchaseLiveActivityController: PurchaseActivityStarting {
     static let shared = PurchaseLiveActivityController()
-    private let snapshotWriter: @Sendable (PurchaseSession) throws -> Void
+    private let snapshotWriter: @Sendable (PurchaseSession, [String: String]) throws -> Void
     private let activitiesEnabled: @Sendable () -> Bool
     private let requestActivity: @Sendable (PurchaseActivityAttributes, PurchaseActivityAttributes.ContentState) throws -> String
 
     init(
-        snapshotWriter: @escaping @Sendable (PurchaseSession) throws -> Void = { try PurchaseSharedStateStore.write(session: $0) },
+        snapshotWriter: @escaping @Sendable (PurchaseSession, [String: String]) throws -> Void = { try PurchaseSharedStateStore.write(session: $0, categoryColors: $1) },
         activitiesEnabled: @escaping @Sendable () -> Bool = { ActivityAuthorizationInfo().areActivitiesEnabled },
         requestActivity: @escaping @Sendable (PurchaseActivityAttributes, PurchaseActivityAttributes.ContentState) throws -> String = {
             try Activity.request(attributes: $0, content: ActivityContent(state: $1, staleDate: nil), pushType: nil).id
@@ -46,53 +58,54 @@ actor PurchaseLiveActivityController: PurchaseActivityStarting {
         self.requestActivity = requestActivity
     }
 
-    func start(session: PurchaseSession) async -> PurchaseActivityResult {
-        await perform(session: session, requestIfNeeded: true)
-    }
-
-    func update(session: PurchaseSession) async -> PurchaseActivityResult {
-        await perform(session: session, requestIfNeeded: false)
-    }
-
-    private func perform(session: PurchaseSession, requestIfNeeded: Bool) async -> PurchaseActivityResult {
-        // A broken App Group must never suppress the visible Live Activity: record the
-        // shared-state problem and continue, so the request itself still runs below.
-        let sharedStateError: String?
+    func publish(session: PurchaseSession, categoryColors: [String: String], requestActivityIfNeeded: Bool) async -> PurchaseActivityOutcome {
+        // Bridge first: a broken App Group must never suppress the visible Live Activity,
+        // and it must never be reported as a purchase failure.
+        var interactive = false
+        var warnings: [String] = []
         do {
-            try snapshotWriter(session)
-            sharedStateError = nil
+            try snapshotWriter(session, categoryColors)
+            interactive = true
         } catch {
-            sharedStateError = error.localizedDescription
+            let base = PurchaseSharedContainerState.containerUnavailable.warning ?? ""
+            let detail = error.localizedDescription
+            // Avoid repeating the same sentence when the underlying error already matches.
+            warnings.append(base.contains(detail) ? base : "\(base) (\(detail))")
         }
-        let state = PurchaseActivityAttributes.ContentState.make(session: session)
+        let state = PurchaseActivityAttributes.ContentState.make(
+            session: session,
+            interactiveCompletionAvailable: interactive,
+            categoryColors: categoryColors)
+
         if let activity = Activity<PurchaseActivityAttributes>.activities.first(where: { $0.attributes.sessionID == session.id }) {
             await activity.update(ActivityContent(state: state, staleDate: nil))
             if session.status == .completed || session.status == .cancelled {
                 await activity.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .default)
-                return .ended
+                return outcome(.ended, interactive: interactive, warnings: warnings)
             }
-            if let sharedStateError { return .sharedStateFailed(sharedStateError) }
-            return .updated
+            return outcome(.updated, interactive: interactive, warnings: warnings)
         }
-        guard requestIfNeeded, session.status == .active else {
-            if let sharedStateError { return .sharedStateFailed(sharedStateError) }
-            return .notRunning
+        guard requestActivityIfNeeded, session.status == .active else {
+            return outcome(.notRunning, interactive: interactive, warnings: warnings)
         }
         guard activitiesEnabled() else {
-            guard let sharedStateError else { return .liveActivitiesDisabled }
-            return .sharedStateFailed("\(sharedStateError) Live Activities are also disabled in Settings.")
+            warnings.append("Live Activities are disabled in Settings, so purchase progress cannot appear on the Lock Screen.")
+            return outcome(.liveActivitiesDisabled, interactive: interactive, warnings: warnings)
         }
         let attributes = PurchaseActivityAttributes(sessionID: session.id, title: session.name, currencyCode: session.currency.rawValue)
         do {
             let activityID = try requestActivity(attributes, state)
-            if let sharedStateError { return .startedWithoutSharedState(activityID: activityID, detail: sharedStateError) }
-            return .started(activityID: activityID)
+            return outcome(.started(activityID: activityID), interactive: interactive, warnings: warnings)
         } catch {
             let failure = error as NSError
-            var detail = "\(failure.domain) (\(failure.code)): \(failure.localizedDescription)"
-            if let sharedStateError { detail += " Shared storage also failed: \(sharedStateError)" }
-            return .requestFailed(detail)
+            let detail = "\(failure.domain) (\(failure.code)): \(failure.localizedDescription)"
+            warnings.append("The Live Activity could not start: \(detail)")
+            return outcome(.requestFailed(detail), interactive: interactive, warnings: warnings)
         }
+    }
+
+    private func outcome(_ activity: PurchaseActivityOutcome.Activity, interactive: Bool, warnings: [String]) -> PurchaseActivityOutcome {
+        .init(activity: activity, interactive: interactive, warning: warnings.isEmpty ? nil : warnings.joined(separator: " "))
     }
 
     func end(sessionID: UUID) async {
@@ -107,3 +120,26 @@ actor PurchaseLiveActivityController: PurchaseActivityStarting {
         }
     }
 }
+
+#if DEBUG
+/// Debug-only Purchase bridge diagnostics. Never logs monetary values.
+enum PurchaseActivityDiagnostics {
+    static func logStart(session: PurchaseSession) {
+        let groupAvailable = PurchaseSharedStateStore.url(sessionID: session.id) != nil
+        print("[Purchase] start session=\(session.id.uuidString.prefix(8)) items=\(session.items.count) activitiesEnabled=\(ActivityAuthorizationInfo().areActivitiesEnabled) appGroupURL=\(groupAvailable) bridge=\(PurchaseSharedStateStore.availability())")
+    }
+
+    static func log(outcome: PurchaseActivityOutcome, session: PurchaseSession) {
+        let activity: String
+        switch outcome.activity {
+        case .started(let id): activity = "started(\(id))"
+        case .updated: activity = "updated"
+        case .ended: activity = "ended"
+        case .notRunning: activity = "idle"
+        case .liveActivitiesDisabled: activity = "disabled"
+        case .requestFailed(let detail): activity = "requestFailed(\(detail))"
+        }
+        print("[Purchase] publish session=\(session.id.uuidString.prefix(8)) items=\(session.completedItemCount)/\(session.items.count) status=\(session.status.rawValue) sharedWrite=\(outcome.interactive) activity=\(activity)")
+    }
+}
+#endif

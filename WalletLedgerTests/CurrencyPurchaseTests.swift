@@ -3,8 +3,24 @@ import CloudKit
 @testable import WalletLedger
 
 private struct FixedActivityStarter: PurchaseActivityStarting {
-    let result: PurchaseActivityResult
-    func start(session: PurchaseSession) async -> PurchaseActivityResult { result }
+    var activity: PurchaseActivityOutcome.Activity = .started(activityID: "stub-activity")
+    var interactive = true
+    var warning: String?
+
+    func publish(session: PurchaseSession, categoryColors: [String: String], requestActivityIfNeeded: Bool) async -> PurchaseActivityOutcome {
+        .init(activity: activity, interactive: interactive, warning: warning)
+    }
+}
+
+/// Simulates a device/build where the App Group container cannot be opened.
+private let bridgeUnavailableStarter = FixedActivityStarter(
+    activity: .notRunning,
+    interactive: false,
+    warning: "Lock Screen item controls are unavailable because the shared purchase container could not be opened. Purchase Mode still works in the app.")
+
+/// Captures the published Live Activity state from an injected request closure.
+private final class ContentStateBox: @unchecked Sendable {
+    var state: PurchaseActivityAttributes.ContentState?
 }
 
 @MainActor
@@ -153,16 +169,36 @@ final class CurrencyPurchaseTests: XCTestCase {
         var session = makeSession(accountID: UUID(), currency: .PYUSD)
         session.items[0].isCompleted = true // 10 of 100, but 1 of 3 items.
         session.normalizeSections()
-        let content = PurchaseActivityAttributes.ContentState.make(session: session)
+        let content = PurchaseActivityAttributes.ContentState.make(session: session, interactiveCompletionAvailable: true, categoryColors: ["food": "F05E4F"])
         XCTAssertEqual(content.completedItemCount, 1)
         XCTAssertEqual(content.totalItemCount, 3)
         XCTAssertEqual(content.completionFraction, 1.0 / 3, accuracy: 0.000001)
         XCTAssertEqual(content.completedAmount, 10)
         XCTAssertEqual(content.totalPlannedAmount, 100)
         XCTAssertEqual(content.nextItems.map(\.name), ["Bread", "Train"])
+        XCTAssertEqual(content.nextItems.first?.categoryColorHex, "F05E4F")
+        XCTAssertTrue(content.interactiveCompletionAvailable)
+        XCTAssertFalse(content.isCompleted)
         session.items.append(.init(id: UUID(), categoryID: .transport, note: "Bus", amount: 5, displayOrder: 3, isCompleted: false, completedAt: nil, linkedTransactionID: nil))
         session.items.append(.init(id: UUID(), categoryID: .transport, note: "Taxi", amount: 5, displayOrder: 4, isCompleted: false, completedAt: nil, linkedTransactionID: nil))
-        XCTAssertEqual(PurchaseActivityAttributes.ContentState.make(session: session).nextItems.map(\.name), ["Bread", "Train", "Bus"])
+        XCTAssertEqual(PurchaseActivityAttributes.ContentState.make(session: session, interactiveCompletionAvailable: false).nextItems.map(\.name), ["Bread", "Train", "Bus"])
+    }
+
+    func testActivityContentIsReadOnlyByDefaultAndDecodesLegacyPayloads() throws {
+        var session = makeSession(accountID: UUID())
+        session.status = .awaitingSummary
+        for index in session.items.indices { session.items[index].isCompleted = true }
+        let completed = PurchaseActivityAttributes.ContentState.make(session: session, interactiveCompletionAvailable: false)
+        XCTAssertTrue(completed.isCompleted)
+        XCTAssertFalse(completed.interactiveCompletionAvailable)
+
+        // Payload persisted by an earlier build: missing keys must decode as read-only.
+        let legacy = #"{"totalPlannedAmount":100,"completedAmount":40,"completionFraction":0.4,"nextItems":[],"isCompleted":false}"#
+        let decoded = try JSONDecoder().decode(PurchaseActivityAttributes.ContentState.self, from: Data(legacy.utf8))
+        XCTAssertEqual(decoded.completedAmount, 40, accuracy: 0.000001)
+        XCTAssertEqual(decoded.completedItemCount, 0)
+        XCTAssertEqual(decoded.totalItemCount, 0)
+        XCTAssertFalse(decoded.interactiveCompletionAvailable)
     }
 
     func testDeletedPaymentAccountBlocksStartAndFinalizationWithoutFallback() async throws {
@@ -173,7 +209,7 @@ final class CurrencyPurchaseTests: XCTestCase {
         state.purchaseSessions = [session]
         let store = LedgerStore(stateForTesting: state)
         do {
-            _ = try await store.startPurchaseSession(session.id, activityStarter: FixedActivityStarter(result: .started(activityID: "unexpected")))
+            _ = try await store.startPurchaseSession(session.id, activityStarter: FixedActivityStarter())
             XCTFail("Starting must reject a deleted payment account.")
         } catch { XCTAssertTrue(store.state.transactions.isEmpty) }
         session.status = .awaitingSummary
@@ -184,61 +220,164 @@ final class CurrencyPurchaseTests: XCTestCase {
         XCTAssertEqual(store.purchaseSessions.first?.accountID, state.accounts[0].id)
     }
 
-    func testLiveActivityFailureIsPresentedAndPurchaseRemainsActive() async throws {
-        for result in [PurchaseActivityResult.liveActivitiesDisabled, .requestFailed("ActivityKit.Test (42): denied"), .sharedStateFailed("Missing App Group")] {
-            var state = SeedData.makeEmpty()
-            let session = makeSession(accountID: state.accounts[0].id)
-            state.purchaseSessions = [session]
-            let store = LedgerStore(stateForTesting: state)
-            let actual = try await store.startPurchaseSession(session.id, activityStarter: FixedActivityStarter(result: result))
-            XCTAssertEqual(actual, result)
-            XCTAssertEqual(store.purchaseSessions.first?.status, .active)
-            XCTAssertEqual(store.presentedError, result.userMessage)
-            XCTAssertNotNil(store.presentedError)
-            XCTAssertTrue(store.state.transactions.isEmpty)
+    func testStartPurchaseSucceedsAndWarnsWhenSharedStorageIsUnavailable() async throws {
+        var state = SeedData.makeEmpty()
+        let session = makeSession(accountID: state.accounts[0].id)
+        state.purchaseSessions = [session]
+        let store = LedgerStore(stateForTesting: state)
+        let outcome = try await store.startPurchaseSession(session.id, activityStarter: bridgeUnavailableStarter)
+        XCTAssertFalse(outcome.interactive)
+        XCTAssertNotNil(outcome.warning)
+        // The purchase itself succeeded: active, persisted and never a fatal error.
+        XCTAssertEqual(store.purchaseSessions.first?.status, .active)
+        XCTAssertNotNil(store.purchaseSessions.first?.startedAt)
+        XCTAssertNil(store.presentedError)
+        XCTAssertEqual(store.purchaseSyncWarning, outcome.warning)
+        XCTAssertTrue(store.state.transactions.isEmpty)
+    }
+
+    func testItemCompletionIsLocalFirstAndSurvivesBridgeFailure() async throws {
+        var state = SeedData.makeEmpty()
+        var session = makeSession(accountID: state.accounts[0].id)
+        session.status = .active
+        state.purchaseSessions = [session]
+        let store = LedgerStore(stateForTesting: state)
+        let item = try XCTUnwrap(session.items.first)
+
+        let updated = try XCTUnwrap(store.setPurchaseItem(item.id, in: session.id, completed: true))
+        XCTAssertEqual(updated.items.first(where: { $0.id == item.id })?.isCompleted, true)
+        // A non-final item must never leave the active state.
+        XCTAssertEqual(updated.status, .active)
+        XCTAssertEqual(store.purchaseSessions.first?.status, .active)
+        XCTAssertNil(store.presentedError)
+        XCTAssertNil(store.purchaseSyncWarning)
+
+        let outcome = await store.publishPurchase(sessionID: session.id, activityStarter: bridgeUnavailableStarter)
+        XCTAssertEqual(outcome?.interactive, false)
+        // No rollback, no status change, no fatal error.
+        XCTAssertEqual(store.purchaseSessions.first?.items.first(where: { $0.id == item.id })?.isCompleted, true)
+        XCTAssertEqual(store.purchaseSessions.first?.status, .active)
+        XCTAssertNil(store.presentedError)
+        XCTAssertEqual(store.purchaseSyncWarning, outcome?.warning)
+    }
+
+    func testOnlyTheFinalItemLeavesTheActiveState() throws {
+        var state = SeedData.makeEmpty()
+        var session = makeSession(accountID: state.accounts[0].id)
+        session.status = .active
+        state.purchaseSessions = [session]
+        let store = LedgerStore(stateForTesting: state)
+        let ids = session.items.map(\.id)
+
+        let first = try XCTUnwrap(store.setPurchaseItem(ids[0], in: session.id, completed: true))
+        XCTAssertEqual(first.completedItemCount, 1)
+        XCTAssertEqual(first.status, .active)
+
+        let second = try XCTUnwrap(store.setPurchaseItem(ids[1], in: session.id, completed: true))
+        XCTAssertEqual(second.completedItemCount, 2)
+        XCTAssertEqual(second.status, .active)
+
+        let third = try XCTUnwrap(store.setPurchaseItem(ids[2], in: session.id, completed: true))
+        XCTAssertEqual(third.completedItemCount, 3)
+        XCTAssertEqual(third.status, .awaitingSummary)
+
+        // Unchecking the final item returns the list to active.
+        let reverted = try XCTUnwrap(store.setPurchaseItem(ids[2], in: session.id, completed: false))
+        XCTAssertEqual(reverted.completedItemCount, 2)
+        XCTAssertEqual(reverted.status, .active)
+    }
+
+    func testBridgeFailureNeverAltersFinalItemTransitions() async throws {
+        var state = SeedData.makeEmpty()
+        var session = makeSession(accountID: state.accounts[0].id)
+        session.status = .active
+        state.purchaseSessions = [session]
+        let store = LedgerStore(stateForTesting: state)
+        let ids = session.items.map(\.id)
+        for (index, id) in ids.enumerated() {
+            _ = store.setPurchaseItem(id, in: session.id, completed: true)
+            _ = await store.publishPurchase(sessionID: session.id, activityStarter: bridgeUnavailableStarter)
+            let expected: PurchaseSessionStatus = index == ids.count - 1 ? .awaitingSummary : .active
+            XCTAssertEqual(store.purchaseSessions.first?.status, expected)
+            XCTAssertEqual(store.purchaseSessions.first?.completedItemCount, index + 1)
         }
+        XCTAssertNil(store.presentedError)
     }
 
     func testControllerSurfacesThrownRequestError() async {
         var session = makeSession(accountID: UUID())
         session.status = .active
-        let controller = PurchaseLiveActivityController(snapshotWriter: { _ in }, activitiesEnabled: { true },
+        let controller = PurchaseLiveActivityController(snapshotWriter: { _, _ in }, activitiesEnabled: { true },
             requestActivity: { _, _ in throw NSError(domain: "ActivityKit.Test", code: 42, userInfo: [NSLocalizedDescriptionKey: "Test rejection"]) })
-        let result = await controller.start(session: session)
-        guard case .requestFailed(let detail) = result else { return XCTFail("A thrown request must surface as requestFailed.") }
+        let outcome = await controller.start(session: session)
+        guard case .requestFailed(let detail) = outcome.activity else { return XCTFail("A thrown request must surface as requestFailed.") }
         XCTAssertTrue(detail.contains("ActivityKit.Test"))
         XCTAssertTrue(detail.contains("42"))
         XCTAssertTrue(detail.contains("Test rejection"))
+        XCTAssertTrue(outcome.interactive)
+        XCTAssertNil(outcome.warning, "A working bridge needs no infrastructure warning.")
     }
 
-    func testLiveActivityIsStillRequestedWhenSharedStateIsUnavailable() async {
+    func testControllerStillRequestsActivityWhenSharedStateIsUnavailable() async {
         var session = makeSession(accountID: UUID())
         session.status = .active
         let controller = PurchaseLiveActivityController(
-            snapshotWriter: { _ in throw PurchaseSharedStateError.appGroupUnavailable },
+            snapshotWriter: { _, _ in throw PurchaseSharedStateError.appGroupUnavailable },
             activitiesEnabled: { true },
             requestActivity: { _, _ in "probe-activity" })
-        let result = await controller.start(session: session)
-        guard case .startedWithoutSharedState(let activityID, let detail) = result else {
-            return XCTFail("A successful Activity.request must not be hidden by an App Group failure: \(result)")
+        let outcome = await controller.start(session: session)
+        guard case .started(let activityID) = outcome.activity else {
+            return XCTFail("A successful Activity.request must not be hidden by an App Group failure: \(outcome)")
         }
         XCTAssertEqual(activityID, "probe-activity")
-        XCTAssertFalse(detail.isEmpty)
-        XCTAssertNotNil(result.userMessage)
+        XCTAssertFalse(outcome.interactive)
+        XCTAssertNotNil(outcome.warning)
+        XCTAssertTrue((outcome.warning ?? "").contains("shared purchase container"))
     }
 
-    func testSharedStateFailureDoesNotHideAThrownRequestError() async {
+    func testControllerKeepsRequestFailureVisibleAlongsideBridgeFailure() async {
         var session = makeSession(accountID: UUID())
         session.status = .active
         let controller = PurchaseLiveActivityController(
-            snapshotWriter: { _ in throw PurchaseSharedStateError.appGroupUnavailable },
+            snapshotWriter: { _, _ in throw PurchaseSharedStateError.appGroupUnavailable },
             activitiesEnabled: { true },
             requestActivity: { _, _ in throw NSError(domain: "ActivityKit.Test", code: 7, userInfo: [NSLocalizedDescriptionKey: "denied"]) })
-        let result = await controller.start(session: session)
-        guard case .requestFailed(let detail) = result else { return XCTFail("Expected requestFailed, got \(result)") }
+        let outcome = await controller.start(session: session)
+        guard case .requestFailed(let detail) = outcome.activity else { return XCTFail("Expected requestFailed, got \(outcome)") }
         XCTAssertTrue(detail.contains("ActivityKit.Test"))
         XCTAssertTrue(detail.contains("denied"))
-        XCTAssertTrue(detail.contains("Shared storage also failed"))
+        XCTAssertFalse(outcome.interactive)
+        XCTAssertTrue((outcome.warning ?? "").contains("shared purchase container"))
+        XCTAssertTrue((outcome.warning ?? "").contains("Live Activity could not start"))
+    }
+
+    func testControllerReportsDisabledLiveActivitiesAsNonfatalWarning() async {
+        var session = makeSession(accountID: UUID())
+        session.status = .active
+        let controller = PurchaseLiveActivityController(snapshotWriter: { _, _ in }, activitiesEnabled: { false }, requestActivity: { _, _ in "unused" })
+        let outcome = await controller.start(session: session)
+        XCTAssertEqual(outcome.activity, .liveActivitiesDisabled)
+        XCTAssertTrue((outcome.warning ?? "").contains("Live Activities are disabled"))
+        XCTAssertTrue(outcome.interactive)
+    }
+
+    func testControllerPublishesInteractivityAndCategoryColors() async {
+        var session = makeSession(accountID: UUID(), currency: .USDT)
+        session.status = .active
+        session.items[0].isCompleted = true
+        session.normalizeSections()
+        let box = ContentStateBox()
+        let controller = PurchaseLiveActivityController(
+            snapshotWriter: { _, _ in },
+            activitiesEnabled: { true },
+            requestActivity: { _, state in box.state = state; return "activity" })
+        _ = await controller.start(session: session, categoryColors: ["food": "F05E4F"])
+        let published = box.state
+        XCTAssertEqual(published?.interactiveCompletionAvailable, true)
+        XCTAssertEqual(published?.completedItemCount, 1)
+        XCTAssertEqual(published?.totalItemCount, 3)
+        XCTAssertEqual(published?.nextItems.map(\.name), ["Bread", "Train"])
+        XCTAssertEqual(published?.nextItems.first?.categoryColorHex, "F05E4F")
     }
 
     func testOldDevelopmentPurchaseDecodesAndMigratesWithinSchemaTwo() throws {
@@ -255,6 +394,91 @@ final class CurrencyPurchaseTests: XCTestCase {
         XCTAssertEqual(state.schemaVersion, 2)
         XCTAssertEqual(state.purchaseSessions?.first?.currency, .USD)
         XCTAssertEqual(state.purchaseSessions?.first?.accountID, state.accounts[0].id)
+    }
+
+    func testSharedSnapshotAdoptionRequiresStrictlyNewerTimestamp() {
+        var local = makeSession(accountID: UUID())
+        local.updatedAt = Date(timeIntervalSince1970: 1000.5)
+        let newer = PurchaseSharedSnapshot(session: local, currencyCode: local.currency, updatedAt: Date(timeIntervalSince1970: 1000.75))
+        XCTAssertTrue(PurchaseRules.shouldAdoptSharedSnapshot(newer, over: local), "Subsecond-newer snapshots must win.")
+        let equal = PurchaseSharedSnapshot(session: local, currencyCode: local.currency, updatedAt: Date(timeIntervalSince1970: 1000.5))
+        XCTAssertFalse(PurchaseRules.shouldAdoptSharedSnapshot(equal, over: local))
+        let older = PurchaseSharedSnapshot(session: local, currencyCode: local.currency, updatedAt: Date(timeIntervalSince1970: 1000.25))
+        XCTAssertFalse(PurchaseRules.shouldAdoptSharedSnapshot(older, over: local), "An older snapshot must never overwrite newer local state.")
+    }
+
+    func testSharedSnapshotAdoptionRequiresMatchingPaymentIdentity() {
+        var local = makeSession(accountID: UUID())
+        local.updatedAt = Date(timeIntervalSince1970: 1000)
+        var otherAccount = local
+        otherAccount.accountID = UUID()
+        XCTAssertFalse(PurchaseRules.shouldAdoptSharedSnapshot(.init(session: otherAccount, currencyCode: otherAccount.currency, updatedAt: Date(timeIntervalSince1970: 2000)), over: local))
+        var otherCurrency = local
+        otherCurrency.currency = .EUR
+        XCTAssertFalse(PurchaseRules.shouldAdoptSharedSnapshot(.init(session: otherCurrency, currencyCode: .EUR, updatedAt: Date(timeIntervalSince1970: 2000)), over: local))
+    }
+
+    func testReconcileMergesLockScreenCompletionsWithoutLosingOrder() throws {
+        try XCTSkipUnless(PurchaseSharedStateStore.availability().isAvailable, "App Group container is unavailable in this environment")
+        defer { try? PurchaseSharedStateStore.resetLocalSnapshots() }
+        var state = SeedData.makeEmpty()
+        var session = makeSession(accountID: state.accounts[0].id)
+        session.status = .active
+        session.updatedAt = Date(timeIntervalSince1970: 1000)
+        state.purchaseSessions = [session]
+        let store = LedgerStore(stateForTesting: state)
+        let firstID = session.items[0].id, secondID = session.items[1].id
+
+        // Two Lock Screen / Dynamic Island completions arrive through the bridge.
+        try PurchaseSharedStateStore.write(session: session)
+        _ = try PurchaseSharedStateStore.updateItem(sessionID: session.id, itemID: firstID, completed: true)
+        _ = try PurchaseSharedStateStore.updateItem(sessionID: session.id, itemID: secondID, completed: true)
+
+        XCTAssertTrue(store.reconcileSharedActivePurchases())
+        let merged = try XCTUnwrap(store.purchaseSessions.first)
+        XCTAssertTrue(merged.items.first { $0.id == firstID }?.isCompleted == true)
+        XCTAssertTrue(merged.items.first { $0.id == secondID }?.isCompleted == true)
+        XCTAssertEqual(merged.status, .active, "One item is still open, so the list stays active.")
+        XCTAssertEqual(merged.orderedItems.map(\.note), ["Milk", "Bread", "Train"], "Ordering and grouping must survive reconciliation.")
+
+        // Nothing new in the bridge: reconciliation must be a no-op.
+        XCTAssertFalse(store.reconcileSharedActivePurchases())
+        XCTAssertEqual(store.purchaseSessions.first?.completedItemCount, 2)
+    }
+
+    func testOlderSharedSnapshotCannotOverwriteNewerLocalSession() throws {
+        try XCTSkipUnless(PurchaseSharedStateStore.availability().isAvailable, "App Group container is unavailable in this environment")
+        defer { try? PurchaseSharedStateStore.resetLocalSnapshots() }
+        var state = SeedData.makeEmpty()
+        var session = makeSession(accountID: state.accounts[0].id)
+        session.status = .active
+        session.updatedAt = Date(timeIntervalSince1970: 1000)
+        state.purchaseSessions = [session]
+        let store = LedgerStore(stateForTesting: state)
+        // The bridge still holds the older, fully incomplete session.
+        try PurchaseSharedStateStore.write(session: session)
+        // The app then completes an item locally with a newer timestamp.
+        XCTAssertNotNil(store.setPurchaseItem(session.items[0].id, in: session.id, completed: true))
+        XCTAssertFalse(store.reconcileSharedActivePurchases(), "A stale bridge snapshot must not be adopted.")
+        XCTAssertEqual(store.purchaseSessions.first?.completedItemCount, 1)
+    }
+
+    func testAppGroupDiagnosticsReportRuntimeStateAndLeaveNoProbeFiles() {
+        let diagnostics = PurchaseSharedStateStore.diagnostics()
+        XCTAssertEqual(diagnostics.appGroupIdentifier, "group.org.medx.WalletLedger")
+        XCTAssertFalse(diagnostics.report.isEmpty)
+        if diagnostics.containerReachable {
+            XCTAssertTrue(diagnostics.wroteProbeFile)
+            XCTAssertTrue(diagnostics.readProbeFile)
+            XCTAssertTrue(diagnostics.removedProbeFile, "Diagnostic probe files must never be kept.")
+            XCTAssertEqual(diagnostics.state, .available)
+        } else {
+            XCTAssertEqual(diagnostics.state, .containerUnavailable)
+            XCTAssertFalse(diagnostics.wroteProbeFile)
+        }
+        XCTAssertEqual(PurchaseSharedStateStore.supportsInteractiveCompletion, PurchaseSharedStateStore.availability().isAvailable)
+        XCTAssertNil(PurchaseSharedContainerState.available.warning)
+        XCTAssertNotNil(PurchaseSharedContainerState.containerUnavailable.warning)
     }
 
     private func makeSession(accountID: UUID, currency: CurrencyCode = .USD) -> PurchaseSession {

@@ -43,6 +43,11 @@ struct PurchaseSummaryView: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { if readOnly { Button("Done") { dismiss() } } } }
         }
         .sheet(isPresented: $showingCamera) { CameraPicker(image: $receiptImage) }
+        .task(id: sessionID) {
+            // Final controlled reconciliation before reviewing/finalizing, so an item that was
+            // checked on the Lock Screen is never omitted from the created transactions.
+            store.reconcileSharedActivePurchases()
+        }
         .task(id: session?.receiptAttachmentID) {
             guard let identifier = session?.receiptAttachmentID else { return }
             storedReceiptImage = await AttachmentStore.shared.loadReceipt(identifier: identifier)

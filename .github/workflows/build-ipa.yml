@@ -24,6 +24,9 @@ jobs:
         if: inputs.reproduce_original_analytics == true
         run: git show dabddfd:WalletLedger/Features/Analytics/AnalyticsView.swift > WalletLedger/Features/Analytics/AnalyticsView.swift
 
+      - name: Verify Purchase Mode source configuration
+        run: bash Scripts/verify-purchase-configuration.sh
+
       - name: Run domain and rendering tests on iOS Simulator
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if "iPhone" in x["name"]))')
@@ -78,3 +81,83 @@ jobs:
         with:
           name: WalletLedger-IPA
           path: WalletLedger.ipa
+
+  # Produces a SIGNED IPA whose app and widget keep the App Group entitlement, then verifies
+  # the built binaries. Skipped (with a warning) until the signing secrets are configured.
+  signed-ipa:
+    runs-on: macos-latest
+    env:
+      SIGNING_CERTIFICATE_P12: ${{ secrets.IOS_SIGNING_CERTIFICATE_P12 }}
+      SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.IOS_SIGNING_CERTIFICATE_PASSWORD }}
+      KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+      ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.APPSTORE_CONNECT_KEY_P8 }}
+      DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+
+    steps:
+      - name: Explain missing signing configuration
+        if: env.SIGNING_CERTIFICATE_P12 == ''
+        run: |
+          echo "::warning::Signed build skipped. Add repository secrets to enable runtime App Group verification:"
+          echo "  IOS_SIGNING_CERTIFICATE_P12, IOS_SIGNING_CERTIFICATE_PASSWORD, IOS_KEYCHAIN_PASSWORD,"
+          echo "  APPLE_DEVELOPMENT_TEAM, APPSTORE_CONNECT_KEY_ID, APPSTORE_CONNECT_ISSUER_ID, APPSTORE_CONNECT_KEY_P8"
+          echo "Also enable App Groups (group.org.medx.WalletLedger) for BOTH bundle IDs in the Apple Developer portal:"
+          echo "  org.medx.WalletLedger and org.medx.WalletLedger.Widget"
+
+      - name: Checkout repository
+        if: env.SIGNING_CERTIFICATE_P12 != ''
+        uses: actions/checkout@v4
+
+      - name: Verify Purchase Mode source configuration
+        if: env.SIGNING_CERTIFICATE_P12 != ''
+        run: bash Scripts/verify-purchase-configuration.sh
+
+      - name: Import signing identity
+        if: env.SIGNING_CERTIFICATE_P12 != ''
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$SIGNING_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security import "$RUNNER_TEMP/signing.p12" -k "$KEYCHAIN" -P "$SIGNING_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN"
+          mkdir -p "$RUNNER_TEMP/private_keys"
+          echo "$ASC_KEY_P8" > "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+
+      - name: Build signed app with App Group entitlements
+        if: env.SIGNING_CERTIFICATE_P12 != ''
+        run: |
+          xcodebuild clean build \
+            -scheme "WalletLedger" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath ./build_signed \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            CODE_SIGN_STYLE=Automatic
+
+      - name: Verify signed App Group entitlements on both products
+        if: env.SIGNING_CERTIFICATE_P12 != ''
+        run: |
+          APP="$(find ./build_signed/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n 1)"
+          bash Scripts/verify-app-group-entitlements.sh "$APP"
+
+      - name: Package signed IPA
+        if: env.SIGNING_CERTIFICATE_P12 != ''
+        run: |
+          mkdir -p Payload
+          cp -r ./build_signed/Build/Products/Release-iphoneos/*.app Payload/
+          zip -r WalletLedger-signed.ipa Payload
+
+      - name: Upload signed IPA artifact
+        if: env.SIGNING_CERTIFICATE_P12 != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: WalletLedger-Signed-IPA
+          path: WalletLedger-signed.ipa

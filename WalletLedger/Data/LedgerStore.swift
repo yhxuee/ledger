@@ -9,6 +9,9 @@ final class LedgerStore: ObservableObject {
     @Published private(set) var activeBookID: UUID
     @Published private(set) var currencyCatalog: [CurrencyDescriptor]
     @Published var presentedError: String?
+    /// Nonfatal Purchase Mode infrastructure notice (App Group bridge / Live Activity).
+    /// Never used for business-logic failures and never presented as a modal alert.
+    @Published var purchaseSyncWarning: String?
     @Published var undoMessage: String?
     @Published var routedPurchaseID: UUID?
     private var saveTask: Task<Void, Never>?
@@ -336,6 +339,20 @@ final class LedgerStore: ObservableObject {
         return id
     }
 
+    func dismissPurchaseSyncWarning() { purchaseSyncWarning = nil }
+
+    /// Records a nonfatal bridge notice. Repeats of the same notice are dropped so an
+    /// ordinary item tap can never spam the Purchase screens.
+    func reportPurchaseSyncWarning(_ message: String?) {
+        guard let message, !message.isEmpty else { return }
+        if purchaseSyncWarning != message { purchaseSyncWarning = message }
+    }
+
+    /// Category identification colors attached to Live Activity item rows.
+    var purchaseActivityCategoryColors: [String: String] {
+        Dictionary(state.categories.map { ($0.id.rawValue, $0.colorHex) }, uniquingKeysWith: { first, _ in first })
+    }
+
     var recurringRules: [RecurringRule] { (state.recurringRules ?? []).filter { $0.deletedAt == nil } }
     var purchaseSessions: [PurchaseSession] { (state.purchaseSessions ?? []).filter { $0.status != .cancelled }.sorted { $0.createdAt > $1.createdAt } }
 
@@ -359,52 +376,84 @@ final class LedgerStore: ObservableObject {
     }
 
     @discardableResult
-    func startPurchaseSession(_ sessionID: UUID, activityStarter: any PurchaseActivityStarting = PurchaseLiveActivityController.shared) async throws -> PurchaseActivityResult {
+    func startPurchaseSession(_ sessionID: UUID, activityStarter: any PurchaseActivityStarting = PurchaseLiveActivityController.shared) async throws -> PurchaseActivityOutcome {
         guard var session = purchaseSessions.first(where: { $0.id == sessionID }) else { throw PurchaseFinalizationError.missingSession }
         guard session.status == .draft else { throw PurchaseFinalizationError.notReady }
         try PurchaseRules.validatePayment(session, in: state)
         try PurchaseRules.validateItems(session, in: state)
+        // Local-first: the purchase becomes active and is durably persisted before any
+        // App Group / ActivityKit work runs. Those steps can never fail the start.
         session.status = .active
         session.startedAt = .now
         session.completedAt = nil
         for index in session.items.indices { session.items[index].isCompleted = false; session.items[index].completedAt = nil }
+        session.updatedAt = .now
         savePurchaseSession(session)
         try persistPurchaseChanges()
-        let persistedSession = purchaseSessions.first { $0.id == sessionID } ?? session
-        let result = await activityStarter.start(session: persistedSession)
-        if let message = result.userMessage { presentedError = message }
-        return result
+        purchaseSyncWarning = nil
+        guard let persistedSession = purchaseSessions.first(where: { $0.id == sessionID }) else { throw PurchaseFinalizationError.missingSession }
+        #if DEBUG
+        PurchaseActivityDiagnostics.logStart(session: persistedSession)
+        #endif
+        return await publish(session: persistedSession, requestActivity: true, activityStarter: activityStarter)
+    }
+
+    /// Mirrors a committed session to the App Group bridge and the Live Activity.
+    /// Never throws and never rolls back local state; bridge problems become warnings.
+    @discardableResult
+    func publish(session: PurchaseSession, requestActivity: Bool, activityStarter: any PurchaseActivityStarting = PurchaseLiveActivityController.shared) async -> PurchaseActivityOutcome {
+        let outcome = await activityStarter.publish(session: session, categoryColors: purchaseActivityCategoryColors, requestActivityIfNeeded: requestActivity)
+        reportPurchaseSyncWarning(outcome.warning)
+        #if DEBUG
+        PurchaseActivityDiagnostics.log(outcome: outcome, session: session)
+        #endif
+        return outcome
+    }
+
+    /// Bridges the current stored session (used after local mutations).
+    @discardableResult
+    func publishPurchase(sessionID: UUID, requestActivity: Bool? = nil, activityStarter: any PurchaseActivityStarting = PurchaseLiveActivityController.shared) async -> PurchaseActivityOutcome? {
+        guard let session = purchaseSessions.first(where: { $0.id == sessionID }) else { return nil }
+        return await publish(session: session, requestActivity: requestActivity ?? (session.status == .active), activityStarter: activityStarter)
     }
 
     func cancelPurchaseSession(_ session: PurchaseSession) {
         var cancelled = session
         cancelled.status = .cancelled
+        cancelled.updatedAt = .now
         savePurchaseSession(cancelled)
-        Task { await PurchaseLiveActivityController.shared.end(sessionID: session.id) }
+        let cancelledID = cancelled.id
+        Task { [weak self] in
+            guard let self else { return }
+            await PurchaseLiveActivityController.shared.end(sessionID: cancelledID)
+            self.dismissPurchaseSyncWarning()
+        }
     }
 
+    /// Local-first item completion.
+    ///
+    /// The stored `PurchaseSession` is the source of truth: it is validated, mutated and
+    /// persisted here, and the App Group / Live Activity bridge is updated afterwards by
+    /// `publish(session:requestActivity:)`. A failing bridge can therefore never roll back
+    /// the completion, return nil, change the session status or dismiss the screen.
+    @discardableResult
     func setPurchaseItem(_ itemID: UUID, in sessionID: UUID, completed: Bool) -> PurchaseSession? {
-        if persistenceEnabled { reconcileSharedActivePurchases() }
         guard var session = purchaseSessions.first(where: { $0.id == sessionID }),
               session.status == .active || session.status == .awaitingSummary,
               let index = session.items.firstIndex(where: { $0.id == itemID }) else { return nil }
-        do { try PurchaseRules.validatePayment(session, in: state) }
-        catch { presentedError = error.localizedDescription; return nil }
         session.items[index].isCompleted = completed
         session.items[index].completedAt = completed ? .now : nil
-        if session.items.allSatisfy(\.isCompleted) { session.status = .awaitingSummary; session.completedAt = .now }
-        else { session.status = .active; session.completedAt = nil }
+        // Only a fully completed list leaves the active state; non-final taps stay active.
+        if session.items.allSatisfy(\.isCompleted) {
+            session.status = .awaitingSummary
+            session.completedAt = .now
+        } else {
+            session.status = .active
+            session.completedAt = nil
+        }
         session.updatedAt = .now
         savePurchaseSession(session)
-        if persistenceEnabled {
-            do { try PurchaseSharedStateStore.write(session: session) }
-            catch { presentedError = error.localizedDescription }
-            Task {
-                let result = await PurchaseLiveActivityController.shared.update(session: session)
-                if let message = result.userMessage { presentedError = message }
-            }
-        }
-        return session
+        return purchaseSessions.first(where: { $0.id == sessionID }) ?? session
     }
 
     func finalizePurchaseSession(_ sessionID: UUID, receiptAttachmentID: String?) throws {
@@ -428,27 +477,34 @@ final class LedgerStore: ObservableObject {
         state.purchaseSessions = sessions
         try persistPurchaseChanges()
         let finished = sessions[sessionIndex]
-        if persistenceEnabled {
-            Task {
-                let result = await PurchaseLiveActivityController.shared.update(session: finished)
-                if let message = result.userMessage { presentedError = message }
-            }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.publish(session: finished, requestActivity: false)
         }
     }
 
-    func reconcileSharedActivePurchases() {
-        guard var sessions = state.purchaseSessions else { return }
+    /// Merges newer App Group snapshots (checked from the Lock Screen / Dynamic Island) into
+    /// the local store. Only strictly newer snapshots win, and local state is persisted after
+    /// a successful merge. Never touches `presentedError`: the bridge is a nonfatal channel.
+    @discardableResult
+    func reconcileSharedActivePurchases() -> Bool {
+        // Explicit availability check: do not discover a missing container through item taps.
+        guard PurchaseSharedStateStore.availability().isAvailable else { return false }
+        guard var sessions = state.purchaseSessions else { return false }
         var changed = false
         for index in sessions.indices where sessions[index].status == .active || sessions[index].status == .awaitingSummary {
-            guard let snapshot = PurchaseSharedStateStore.read(sessionID: sessions[index].id),
-                  snapshot.session.accountID == sessions[index].accountID,
-                  snapshot.session.currency == sessions[index].currency,
-                  snapshot.updatedAt > (sessions[index].updatedAt ?? sessions[index].startedAt ?? sessions[index].createdAt),
-                  (try? PurchaseRules.validatePayment(sessions[index], in: state)) != nil else { continue }
+            let local = sessions[index]
+            guard let snapshot = PurchaseSharedStateStore.newerSnapshot(for: local),
+                  PurchaseRules.shouldAdoptSharedSnapshot(snapshot, over: local),
+                  (try? PurchaseRules.validatePayment(snapshot.session, in: state)) != nil else { continue }
             sessions[index] = snapshot.session
             changed = true
         }
-        if changed { state.purchaseSessions = sessions; scheduleSave() }
+        guard changed else { return false }
+        state.purchaseSessions = sessions
+        do { try persistPurchaseChanges() }
+        catch { presentedError = "Purchase sync failed: \(error.localizedDescription)" }
+        return true
     }
 
     func handleDeepLink(_ url: URL) {

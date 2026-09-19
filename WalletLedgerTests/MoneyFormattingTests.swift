@@ -92,7 +92,7 @@ final class MoneyFormattingTests: XCTestCase {
         session.normalizeSections()
         let attributes = PurchaseActivityAttributes(sessionID: session.id, title: session.name, currencyCode: session.currency.rawValue)
         XCTAssertEqual(attributes.currencyCode, "USDT")
-        let state = PurchaseActivityAttributes.ContentState.make(session: session)
+        let state = PurchaseActivityAttributes.ContentState.make(session: session, interactiveCompletionAvailable: true)
         XCTAssertEqual(state.completedAmount, 48.2, accuracy: 0.0001)
         XCTAssertTrue(LedgerMoneyFormat.symbol(state.completedAmount, currencyCode: attributes.currencyCode).hasPrefix("$48"))
     }

@@ -16,6 +16,16 @@ enum PurchaseRules {
         guard session.items.allSatisfy({ categories.contains($0.categoryID) }) else { throw PurchaseFinalizationError.invalidItem }
     }
 
+    /// A shared App Group snapshot may replace local Purchase state only when it belongs to
+    /// the same payment identity and is *strictly* newer. Timestamps carry subsecond
+    /// precision in both processes, so rapid item taps keep a deterministic order.
+    static func shouldAdoptSharedSnapshot(_ snapshot: PurchaseSharedSnapshot, over local: PurchaseSession) -> Bool {
+        guard snapshot.session.accountID == local.accountID,
+              snapshot.session.currency == local.currency else { return false }
+        let localTimestamp = local.updatedAt ?? local.startedAt ?? local.createdAt
+        return snapshot.updatedAt > localTimestamp
+    }
+
     static func migrateDevelopmentSessions(in state: inout LedgerState) {
         guard var sessions = state.purchaseSessions else { return }
         for index in sessions.indices {

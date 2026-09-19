@@ -1,4 +1,4 @@
-# Currency and Purchase revision — build 9
+# Currency and Purchase revision — builds 9–10
 
 ## Architecture and changed files
 
@@ -61,12 +61,38 @@ Two distinct semantics exist and are centralized in `LedgerMoneyFormat` (shared 
 
 Currencies without a distinct symbol keep their code as a separated fallback (`CHF 1,000.00`); `CurrencyCode.symbol` is the single source, and the five USD stablecoins map to `$` there. Selectors, metadata such as `Checking · HKD`, persisted identifiers and error/search text keep using `CurrencyCode.rawValue`; symbols are never persisted.
 
+## Purchase Mode runtime hardening (build 10)
+
+### In-app Purchase is local-first
+`LedgerStore.setPurchaseItem` no longer reconciles the App Group bridge before a tap and no longer runs FX/account validation on a checkbox write. The stored `PurchaseSession` is validated, mutated and persisted first; only then does `publish(session:requestActivity:)` mirror the snapshot and refresh the Live Activity. A failing bridge cannot roll back a completion, return nil, change the session status, dismiss the screen or raise a modal error.
+
+### Nonfatal bridge warnings
+`LedgerStore.purchaseSyncWarning` is a separate, deduplicated channel rendered inline by `PurchaseStatusNotice`. App Group / ActivityKit infrastructure problems go there; `presentedError` stays reserved for real operation errors (invalid account/session, local persistence failure). This removes the "The shared purchase container is unavailable." alert that previously appeared on ordinary taps.
+
+### Controlled reconciliation
+`reconcileSharedActivePurchases()` runs when the app becomes active, when `ActivePurchaseView` appears (and every 3 seconds while it stays visible), and once before Purchase Summary. It reports whether it changed anything and persists immediately. Adoption requires the same account/currency identity and a *strictly* newer subsecond `updatedAt` (`PurchaseRules.shouldAdoptSharedSnapshot`), so an older or equal snapshot can never overwrite newer local work.
+
+### Bridge availability
+`PurchaseSharedStateStore.availability()` / `availability(probing:)` report `available`, `containerUnavailable`, `writeFailed` or `readFailed`, and `diagnostics()` probes the container by writing, reading and deleting a temporary file (never kept). The ActivityKit environment test prints this report.
+
+### Live Activity outcome model
+`PurchaseActivityOutcome { activity, interactive, warning }` replaces the previous `PurchaseActivityResult`. `activity` is the ActivityKit result (`started`, `updated`, `ended`, `notRunning`, `liveActivitiesDisabled`, `requestFailed(detail)`), `interactive` states whether the App Group snapshot was accepted, and `warning` carries the nonfatal text. The request is always attempted even when the snapshot write fails, and a thrown `Activity.request` error is always reported.
+
+### Read-only fallback
+`ContentState.interactiveCompletionAvailable` (decoded as `false` for payloads written by earlier builds) tells the widget whether AppIntents can work. Without a usable container the Lock Screen / Dynamic Island rows are read-only with category-colored indicators, so the widget never offers a button that would throw `appGroupUnavailable`. The Live Activity itself still starts and shows progress, title, counts and amounts.
+
+### Dynamic Island and Lock Screen visuals
+Shared widget-safe `PurchaseActivityPalette` (coral `#F05E4F`, teal `#62B28F`, blue `#36A7C9`, charcoal `#14181C`). `PurchaseProgressRing` accepts explicit `tint`/`trackColor`/`iconColor`/`iconSize`/`lineWidth` and no longer adds outer padding. The Dynamic Island leading ring is 46×46 with a 13pt glyph (previously 58×58 plus 5pt padding), compact leading uses a 14pt colored glyph, compact trailing is a colored percentage, minimal is a tinted circular gauge, and the island uses `keylineTint` (coral while shopping, teal when complete). The Lock Screen uses a charcoal surface, coral/teal accents, white primary text and muted secondary text.
+
+### App Group runtime entitlement
+`Scripts/verify-purchase-configuration.sh` audits the repository configuration (entitlement files, project wiring, bundle IDs, capability markers). `Scripts/verify-app-group-entitlements.sh` inspects `codesign -d --entitlements` for both the app and the embedded `.appex` of a built product. CI runs the source audit on every push and additionally builds and verifies a signed IPA when the signing secrets are configured. The pre-existing unsigned build (`CODE_SIGNING_ALLOWED=NO CODE_SIGN_ENTITLEMENTS=""`) cannot carry entitlements, so a runtime App Group requires a real signing identity plus profiles for both bundle IDs.
+
 ## Project configuration audited
 
 - Existing `WalletLedgerWidget` target remains embedded via Embed App Extensions and target dependency.
 - App ID: `org.medx.WalletLedger`; widget ID: `org.medx.WalletLedger.Widget`.
 - Both targets compile `WalletLedgerShared` and use `group.org.medx.WalletLedger`.
-- Both deployment targets remain iOS 17. NSSupportsLiveActivities remains true. App/extension versions match (build 9).
+- Both deployment targets remain iOS 17. NSSupportsLiveActivities remains true. App/extension versions match (build 10).
 - No new target, permission key or entitlement is needed for this revision. Existing CloudKit/iCloud Documents configuration is preserved.
 
 ## Verification and device checklist
@@ -82,6 +108,8 @@ Required before device acceptance:
 3. Install, allow Live Activities in iOS Settings, start a valid list while foregrounded, and check the explicit result. A "started but shared storage unavailable" result means the activity is visible while the App Group snapshot is not being written.
 4. On compatible hardware inspect compact/minimal/expanded Island and Lock Screen; check/uncheck in app, check next-three controls, lock/unlock, terminate/relaunch, and return via deep link.
 5. Verify shared ledgers with two iCloud users, including changed purchase payment metadata and removal of draft items.
+6. Confirm the runtime bridge on the device: the build 10 Debug log line `[Purchase] start … appGroupURL=… bridge=…` and the ActivityKit diagnostic report (CI test attachment `LiveActivity-Environment-Diagnostic`) must show `containerURL available: true` and `bridge state: available`. If they show `containerUnavailable`, the installed signature lacks the App Group entitlement: re-sign with profiles for both bundle IDs and run `Scripts/verify-app-group-entitlements.sh` on the built `.app`.
+7. With the App Group unavailable, verify that Purchase Mode is still fully usable in the app (start, check, uncheck, summary, finalize into Ledger), that the Lock Screen/Island rows are read-only, and that the inline notice explains why. An ordinary item tap must not show a modal alert or dismiss the screen.
 
 Physical-device/Dynamic Island validation has not been performed from this Windows environment. CI/simulator results are reported separately in the delivery response.
 

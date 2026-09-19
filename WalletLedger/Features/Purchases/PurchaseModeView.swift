@@ -246,7 +246,7 @@ struct ActivePurchaseView: View {
                 if let session {
                     Section {
                         HStack(spacing: 20) {
-                            PurchaseProgressRing(fraction: session.completionFraction, completed: session.completedItemCount == session.items.count)
+                            PurchaseProgressRing(fraction: session.completionFraction, completed: session.items.allSatisfy(\.isCompleted), iconSize: 18, lineWidth: 5)
                                 .frame(width: 64, height: 64)
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("\(session.completedItemCount) / \(session.items.count) items").font(.headline)
@@ -258,18 +258,15 @@ struct ActivePurchaseView: View {
                     ForEach(session.orderedSections) { section in
                         Section(category(section.categoryID).name) {
                             ForEach(session.orderedItems.filter { $0.categoryID == section.categoryID }) { item in
-                                Button {
-                                    let updated = store.setPurchaseItem(item.id, in: session.id, completed: !item.isCompleted)
-                                    if updated != nil { HapticFeedback.selection(enabled: preferences.value.hapticFeedbackEnabled) }
-                                    if updated?.status == .awaitingSummary { HapticFeedback.success(enabled: preferences.value.hapticFeedbackEnabled) }
-                                } label: {
+                                Button { toggle(item, in: session) } label: {
                                     HStack {
                                         Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
                                         Text(item.note).strikethrough(item.isCompleted)
                                         Spacer()
                                         SensitiveMoneyText(amount: item.amount, currency: session.currency)
                                     }
-                                }.listRowBackground(Color(hex: category(section.categoryID).colorHex).opacity(0.09))
+                                }
+                                .listRowBackground(Color(hex: category(section.categoryID).colorHex).opacity(0.09))
                             }
                         }
                     }
@@ -278,7 +275,28 @@ struct ActivePurchaseView: View {
             .navigationTitle(session?.name ?? "Purchase").navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) { PurchaseStatusNotice() }
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+            .task(id: sessionID) { await refreshFromSharedBridge() }
         }
     }
+
+    /// Local-first toggle: the stored session changes and is persisted immediately, then the
+    /// App Group / Live Activity bridge is refreshed in the background. Nothing here can
+    /// dismiss the screen, change the status or roll the completion back.
+    @MainActor private func toggle(_ item: PurchaseItem, in session: PurchaseSession) {
+        guard let updated = store.setPurchaseItem(item.id, in: session.id, completed: !item.isCompleted) else { return }
+        HapticFeedback.selection(enabled: preferences.value.hapticFeedbackEnabled)
+        if updated.status == .awaitingSummary { HapticFeedback.success(enabled: preferences.value.hapticFeedbackEnabled) }
+        Task { await store.publishPurchase(sessionID: session.id, requestActivity: updated.status == .active) }
+    }
+
+    /// Controlled reconciliation boundary: reads the bridge when this screen appears and
+    /// while it stays visible, so Lock Screen/Island completions appear without leaving it.
+    @MainActor private func refreshFromSharedBridge() async {
+        while !Task.isCancelled {
+            store.reconcileSharedActivePurchases()
+            try? await Task.sleep(for: .seconds(3))
+        }
+    }
+
     private func category(_ id: LedgerCategoryID) -> LedgerCategory { store.state.categories.first { $0.id == id } ?? SeedData.categories.last! }
 }

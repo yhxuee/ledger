@@ -38,13 +38,14 @@ final class PurchaseRenderingTests: XCTestCase {
         report += "App state: \(UIApplication.shared.applicationState.rawValue)\n"
         report += "Activities enabled: \(ActivityAuthorizationInfo().areActivitiesEnabled)\n"
         report += "App Group URL available: \(PurchaseSharedStateStore.url(sessionID: session.id) != nil)\n"
+        report += "App Group diagnostics:\n\(PurchaseSharedStateStore.diagnostics().report)\n"
         let result = await PurchaseLiveActivityController.shared.start(session: session)
         report += "Production controller result: \(result)\n"
         await PurchaseLiveActivityController.shared.end(sessionID: session.id)
         // Independently report OS authorization even if App Group provisioning blocked the production path.
         do {
             let attributes = PurchaseActivityAttributes(sessionID: session.id, title: session.name, currencyCode: session.currency.rawValue)
-            let activity = try Activity.request(attributes: attributes, content: ActivityContent(state: .make(session: session), staleDate: nil), pushType: nil)
+            let activity = try Activity.request(attributes: attributes, content: ActivityContent(state: .make(session: session, interactiveCompletionAvailable: true), staleDate: nil), pushType: nil)
             report += "Isolated real Activity.request: succeeded (\(activity.id))\n"
             await activity.end(nil, dismissalPolicy: .immediate)
         } catch {

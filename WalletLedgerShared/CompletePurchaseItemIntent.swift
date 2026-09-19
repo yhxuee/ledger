@@ -13,9 +13,16 @@ struct CompletePurchaseItemIntent: LiveActivityIntent {
 
     func perform() async throws -> some IntentResult {
         guard let sessionID = UUID(uuidString: sessionID), let itemID = UUID(uuidString: itemID) else { throw PurchaseSharedStateError.notFound }
+        // The App Group snapshot holds the full cross-process PurchaseSession, so exactly one
+        // item is updated while account, currency, ordering and grouping are preserved.
         let snapshot = try PurchaseSharedStateStore.updateItem(sessionID: sessionID, itemID: itemID, completed: true)
+        let state = PurchaseActivityAttributes.ContentState.make(
+            session: snapshot.session,
+            // The shared write just succeeded, so interactive controls stay available.
+            interactiveCompletionAvailable: true,
+            categoryColors: snapshot.resolvedCategoryColors)
         for activity in Activity<PurchaseActivityAttributes>.activities where activity.attributes.sessionID == sessionID {
-            await activity.update(ActivityContent(state: .make(session: snapshot.session), staleDate: nil))
+            await activity.update(ActivityContent(state: state, staleDate: nil))
         }
         return .result()
     }
