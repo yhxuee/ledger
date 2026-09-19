@@ -70,8 +70,8 @@ final class CurrencyPurchaseTests: XCTestCase {
         for code in CurrencyCode.usdStablecoins { XCTAssertTrue(catalog.contains { $0.code == code }) }
         XCTAssertEqual(catalog.first { $0.code == .CNY }?.name, "CNY")
         XCTAssertTrue(catalog.allSatisfy { $0.name.unicodeScalars.allSatisfy(\.isASCII) })
-        XCTAssertTrue(LedgerFormat.money(12, currency: .CNY).hasPrefix("CNY "))
-        XCTAssertTrue(LedgerFormat.money(12, currency: .PYUSD).hasPrefix("PYUSD "))
+        XCTAssertTrue(LedgerFormat.money(12, currency: .CNY).hasPrefix("¥"))
+        XCTAssertTrue(LedgerFormat.money(12, currency: .PYUSD).hasPrefix("$"))
         XCTAssertEqual(CurrencyCode.preferredFiat.map(\.rawValue), ["HKD", "USD", "GBP", "JPY", "CNY", "EUR", "SGD", "CHF"])
     }
 
@@ -209,6 +209,36 @@ final class CurrencyPurchaseTests: XCTestCase {
         XCTAssertTrue(detail.contains("ActivityKit.Test"))
         XCTAssertTrue(detail.contains("42"))
         XCTAssertTrue(detail.contains("Test rejection"))
+    }
+
+    func testLiveActivityIsStillRequestedWhenSharedStateIsUnavailable() async {
+        var session = makeSession(accountID: UUID())
+        session.status = .active
+        let controller = PurchaseLiveActivityController(
+            snapshotWriter: { _ in throw PurchaseSharedStateError.appGroupUnavailable },
+            activitiesEnabled: { true },
+            requestActivity: { _, _ in "probe-activity" })
+        let result = await controller.start(session: session)
+        guard case .startedWithoutSharedState(let activityID, let detail) = result else {
+            return XCTFail("A successful Activity.request must not be hidden by an App Group failure: \(result)")
+        }
+        XCTAssertEqual(activityID, "probe-activity")
+        XCTAssertFalse(detail.isEmpty)
+        XCTAssertNotNil(result.userMessage)
+    }
+
+    func testSharedStateFailureDoesNotHideAThrownRequestError() async {
+        var session = makeSession(accountID: UUID())
+        session.status = .active
+        let controller = PurchaseLiveActivityController(
+            snapshotWriter: { _ in throw PurchaseSharedStateError.appGroupUnavailable },
+            activitiesEnabled: { true },
+            requestActivity: { _, _ in throw NSError(domain: "ActivityKit.Test", code: 7, userInfo: [NSLocalizedDescriptionKey: "denied"]) })
+        let result = await controller.start(session: session)
+        guard case .requestFailed(let detail) = result else { return XCTFail("Expected requestFailed, got \(result)") }
+        XCTAssertTrue(detail.contains("ActivityKit.Test"))
+        XCTAssertTrue(detail.contains("denied"))
+        XCTAssertTrue(detail.contains("Shared storage also failed"))
     }
 
     func testOldDevelopmentPurchaseDecodesAndMigratesWithinSchemaTwo() throws {

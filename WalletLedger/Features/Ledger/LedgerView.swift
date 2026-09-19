@@ -69,7 +69,6 @@ struct LedgerView: View {
         }
         .background(LedgerBackground())
         .navigationTitle("Ledger")
-        .navigationBarTitleDisplayMode(.large)
         .modifier(LedgerSearchModifier(text: $query, isPresented: $isSearchPresented))
         .safeAreaInset(edge: .bottom) {
             if !isSearchPresented {

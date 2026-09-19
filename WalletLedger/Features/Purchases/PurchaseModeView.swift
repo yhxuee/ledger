@@ -182,6 +182,7 @@ struct PurchaseSessionEditorView: View {
                 }.font(.caption).foregroundStyle(Color(hex: category(item.categoryID).colorHex))
                     .frame(maxWidth: 90)
             }.accessibilityLabel("Category")
+            Text(session.currency.symbol).font(.caption.weight(.semibold)).foregroundStyle(.secondary).accessibilityHidden(true)
             SensitiveNumericField(placeholder: "0.00", value: itemBinding(item, \.amount), fractionDigits: 2, width: 82)
                 .accessibilityLabel("Amount in \(session.currency.rawValue)")
         }.padding(.vertical, 4)

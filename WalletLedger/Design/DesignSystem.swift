@@ -54,17 +54,16 @@ extension Color {
 }
 
 enum LedgerFormat {
+    /// Normal monetary display: the currency symbol (`$100.00`, `£25.00`, `¥500.00`, `€20.00`).
+    /// This is the formatter for every monetary amount except transaction-list rows.
     static func money(_ amount: Double, currency: CurrencyCode, compact: Bool = false) -> String {
-        if compact && abs(amount) >= 1_000 {
-            let value = amount / 1_000
-            return "\(currency.rawValue) \(value.formatted(.number.precision(.fractionLength(abs(value) >= 10 ? 0 : 1))))k"
-        }
-        return "\(currency.rawValue) \(amount.formatted(.number.precision(.fractionLength(2))))"
+        LedgerMoneyFormat.symbol(amount, currency: currency, compact: compact)
     }
 
+    /// Transaction-list display: the canonical currency code (`HKD 100.00`, `+USD 25.00`).
+    /// Reserved for Latest Transactions and the main Ledger transaction rows only.
     static func transaction(_ amount: Double, currency: CurrencyCode, type: LedgerTransactionType) -> String {
-        let sign = type == .income ? "+" : ""
-        return "\(sign)\(currency.rawValue) \(amount.formatted(.number.precision(.fractionLength(2))))"
+        LedgerMoneyFormat.code(amount, currency: currency, signPrefix: type == .income ? "+" : "")
     }
 }
 

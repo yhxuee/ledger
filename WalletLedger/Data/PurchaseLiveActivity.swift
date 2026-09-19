@@ -6,6 +6,8 @@ enum PurchaseActivityResult: Equatable, Sendable {
     case liveActivitiesDisabled
     case sharedStateFailed(String)
     case requestFailed(String)
+    /// The ActivityKit request succeeded but the App Group snapshot could not be written.
+    case startedWithoutSharedState(activityID: String, detail: String)
 
     var userMessage: String? {
         switch self {
@@ -16,6 +18,8 @@ enum PurchaseActivityResult: Equatable, Sendable {
             "Your purchase is saved. Live Activity shared storage is unavailable: \(detail)"
         case .requestFailed(let detail):
             "Your purchase is active in the app, but the Live Activity could not start: \(detail)"
+        case .startedWithoutSharedState(_, let detail):
+            "Your purchase is active and the Live Activity started, but shared purchase storage is unavailable: \(detail) Items checked from the Lock Screen may not sync until the App Group is available."
         }
     }
 }
@@ -51,8 +55,15 @@ actor PurchaseLiveActivityController: PurchaseActivityStarting {
     }
 
     private func perform(session: PurchaseSession, requestIfNeeded: Bool) async -> PurchaseActivityResult {
-        do { try snapshotWriter(session) }
-        catch { return .sharedStateFailed(error.localizedDescription) }
+        // A broken App Group must never suppress the visible Live Activity: record the
+        // shared-state problem and continue, so the request itself still runs below.
+        let sharedStateError: String?
+        do {
+            try snapshotWriter(session)
+            sharedStateError = nil
+        } catch {
+            sharedStateError = error.localizedDescription
+        }
         let state = PurchaseActivityAttributes.ContentState.make(session: session)
         if let activity = Activity<PurchaseActivityAttributes>.activities.first(where: { $0.attributes.sessionID == session.id }) {
             await activity.update(ActivityContent(state: state, staleDate: nil))
@@ -60,16 +71,27 @@ actor PurchaseLiveActivityController: PurchaseActivityStarting {
                 await activity.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .default)
                 return .ended
             }
+            if let sharedStateError { return .sharedStateFailed(sharedStateError) }
             return .updated
         }
-        guard requestIfNeeded, session.status == .active else { return .notRunning }
-        guard activitiesEnabled() else { return .liveActivitiesDisabled }
+        guard requestIfNeeded, session.status == .active else {
+            if let sharedStateError { return .sharedStateFailed(sharedStateError) }
+            return .notRunning
+        }
+        guard activitiesEnabled() else {
+            guard let sharedStateError else { return .liveActivitiesDisabled }
+            return .sharedStateFailed("\(sharedStateError) Live Activities are also disabled in Settings.")
+        }
         let attributes = PurchaseActivityAttributes(sessionID: session.id, title: session.name, currencyCode: session.currency.rawValue)
         do {
-            return .started(activityID: try requestActivity(attributes, state))
+            let activityID = try requestActivity(attributes, state)
+            if let sharedStateError { return .startedWithoutSharedState(activityID: activityID, detail: sharedStateError) }
+            return .started(activityID: activityID)
         } catch {
             let failure = error as NSError
-            return .requestFailed("\(failure.domain) (\(failure.code)): \(failure.localizedDescription)")
+            var detail = "\(failure.domain) (\(failure.code)): \(failure.localizedDescription)"
+            if let sharedStateError { detail += " Shared storage also failed: \(sharedStateError)" }
+            return .requestFailed(detail)
         }
     }
 

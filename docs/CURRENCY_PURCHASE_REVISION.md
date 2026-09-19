@@ -9,7 +9,7 @@
 - `Data/PurchaseLiveActivity.swift`, shared attributes/state/progress ring/intent, and `WalletLedgerWidget/PurchaseLiveActivityWidget.swift` implement explicit activity results and updated presentations.
 - Backup/local JSON/CloudKit migration paths are updated in `BackupCodec.swift`, `LedgerRepository.swift`, `PurchaseRules.swift`, and `CloudRecordMapper.swift`.
 - `LedgerView.swift` uses a native large root title. Secondary screens remain inline.
-- `DesignSystem.swift` formats money with currency codes; `SettingsEditors.swift` shows codes and locks stablecoin reference values.
+- `Shared/MoneyFormatting.swift` centralizes the two monetary display semantics; `DesignSystem.swift` exposes them as `LedgerFormat`. `SettingsEditors.swift` locks stablecoin reference values and shows symbols next to budget allocation amounts.
 - The test workflow now runs all WalletLedgerTests and exports rendering screenshots and an ActivityKit environment diagnostic.
 
 ## Stablecoins and FX
@@ -46,11 +46,20 @@ Every finalized child uses session.currency/session.accountID and the item's own
 
 Confirmed source defects in the prior implementation: disabled authorization returned silently, Activity.request used try?, and App Group write failures were discarded. The completion AppIntent was only in the widget target. The shared intent now conforms to LiveActivityIntent and belongs to both targets, following [Apple's interactivity guidance](https://developer.apple.com/documentation/widgetkit/adding-interactivity-to-widgets-and-live-activities).
 
-Start now durably saves the active session, attempts the shared snapshot, then explicitly requests the activity. Typed results distinguish started/updated/disabled/shared-storage failure/request failure. NSError domain, code and description are surfaced through the app's error presentation. A denied activity never prevents in-app purchasing.
+Start now durably saves the active session, attempts the shared snapshot, then explicitly requests the activity. Typed results distinguish started/updated/disabled/shared-storage failure/request failure, plus a combined result for a running activity whose shared snapshot could not be written. NSError domain, code and description are surfaced through the app's error presentation. A request is always attempted even when the App Group snapshot fails, so a missing App Group entitlement can no longer suppress the visible activity. A denied activity never prevents in-app purchasing.
 
-Expanded Island: circular item-count progress at left, completed amount/code at right, next three incomplete items with interactive checks below. Compact: cart/check plus completion percentage. Minimal: circular gauge. Lock Screen: title, progress/count, completed/planned amounts. Completed sessions keep a deep link to the summary. The in-app screen uses the same item-count metric; monetary progress is independently calculated.
+Expanded Island: circular item-count progress at left, completed amount at right, next three incomplete items with interactive checks below. All widget and Lock Screen amounts use session currency with symbol formatting (`$48.20`), never `USDT 48.20`. Compact: cart/check plus completion percentage. Minimal: circular gauge. Lock Screen: title, progress/count, completed/planned amounts. Completed sessions keep a deep link to the summary. The in-app screen uses the same item-count metric; monetary progress is independently calculated.
 
 A previously installed unsigned/re-signed IPA may lack the required App Group authorization. CI deliberately builds unsigned and clears entitlements for the IPA; the checked-in entitlement files alone do not provision a device. This is a concrete configuration risk, not a confirmed diagnosis of a particular phone's request error. Use the new error details to identify that phone's failure.
+
+## Monetary display rules
+
+Two distinct semantics exist and are centralized in `LedgerMoneyFormat` (shared by app and widget):
+
+- Normal money display uses the currency symbol: `LedgerFormat.money` / `LedgerMoneyFormat.symbol` produce `$1,234.00`, `£25.00`, `¥1,234`, `€20.00`. Compact form stays symbol-based and keeps one meaningful decimal (`$12.5k`, `$120k`, `£15k`). `SensitiveMoneyText`, portfolio/account balances, Weekly Activity, budgets, Analytics, the transaction editor, recurring summaries, purchase screens, aggregates and the Live Activity all use this path.
+- Transaction-list display uses the canonical currency code: `LedgerFormat.transaction` / `LedgerMoneyFormat.code` produce `HKD 120.00`, `+USD 500.00`, `USDT 50.00`. Only `TransactionRow` (Overview > Latest Transactions and the main Ledger list, including purchase children) may use it.
+
+Currencies without a distinct symbol keep their code as a separated fallback (`CHF 1,000.00`); `CurrencyCode.symbol` is the single source, and the five USD stablecoins map to `$` there. Selectors, metadata such as `Checking · HKD`, persisted identifiers and error/search text keep using `CurrencyCode.rawValue`; symbols are never persisted.
 
 ## Project configuration audited
 
@@ -62,7 +71,7 @@ A previously installed unsigned/re-signed IPA may lack the required App Group au
 
 ## Verification and device checklist
 
-Automated coverage includes identifier codecs/rejection, aliases and historical snapshots, code-only catalogue/formatting, backup/CloudKit payment round trips, legacy development migration, session-currency unified finalization, idempotency, category moves, deleted accounts, progress/next-three ordering, and injected request failure presentation. Existing refund, budget, recurring, migration, filtering and Analytics rendering tests continue to run.
+Automated coverage includes identifier codecs/rejection, aliases and historical snapshots, symbol-vs-code money formatting (`MoneyFormattingTests`), backup/CloudKit payment round trips, legacy development migration, session-currency unified finalization, idempotency, category moves, deleted accounts, progress/next-three ordering, and injected request failure presentation. Existing refund, budget, recurring, migration, filtering and Analytics rendering tests continue to run.
 
 Simulator rendering tests cover purchase editing, active purchase and Accounts at phone/tablet-sized layouts, including privacy masking. The ActivityKit diagnostic records the production controller result and a separate real Activity.request attempt; it does not assert hardware UI behavior.
 
@@ -70,7 +79,7 @@ Required before device acceptance:
 
 1. Select the same Developer team for app and widget; register both bundle IDs and enable the same App Group on both profiles.
 2. Re-sign the app AND embedded extension with profiles that preserve App Group entitlements. Do not assume a generic IPA re-sign preserves them.
-3. Install, allow Live Activities in iOS Settings, start a valid list while foregrounded, and check the explicit result.
+3. Install, allow Live Activities in iOS Settings, start a valid list while foregrounded, and check the explicit result. A "started but shared storage unavailable" result means the activity is visible while the App Group snapshot is not being written.
 4. On compatible hardware inspect compact/minimal/expanded Island and Lock Screen; check/uncheck in app, check next-three controls, lock/unlock, terminate/relaunch, and return via deep link.
 5. Verify shared ledgers with two iCloud users, including changed purchase payment metadata and removal of draft items.
 

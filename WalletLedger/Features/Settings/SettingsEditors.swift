@@ -142,7 +142,7 @@ struct BudgetEditorView: View {
     private func categoryAllocation(_ id: LedgerCategoryID) -> Binding<Double> { Binding(get: { store.state.settings.budgetPlan.categoryAllocations[id] ?? 0 }, set: { value in store.updateSettings { $0.budgetPlan.categoryAllocations[id] = max(0, value); $0.budgetPlan.updatedAt = .now } }) }
     private func accountAllocation(_ id: UUID) -> Binding<Double> { Binding(get: { store.state.settings.budgetPlan.accountAllocations[id] ?? 0 }, set: { value in store.updateSettings { $0.budgetPlan.accountAllocations[id] = max(0, value); $0.budgetPlan.updatedAt = .now } }) }
     private func amountField(_ binding: Binding<Double>, currency: CurrencyCode) -> some View {
-        HStack { SensitiveValueContent { TextField("0", value: binding, format: .number.precision(.fractionLength(2))).keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(width: 110).focused($focused) }; Text(currency.rawValue).font(.caption).foregroundStyle(.secondary) }
+        HStack { SensitiveValueContent { TextField("0", value: binding, format: .number.precision(.fractionLength(2))).keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(width: 110).focused($focused) }; Text(currency.symbol).font(.caption).foregroundStyle(.secondary) }
     }
 }
 

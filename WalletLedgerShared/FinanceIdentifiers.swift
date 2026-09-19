@@ -33,6 +33,8 @@ struct CurrencyCode: RawRepresentable, Codable, Hashable, Identifiable, Sendable
     static let EUR = CurrencyCode(unchecked: "EUR")
     static let GBP = CurrencyCode(unchecked: "GBP")
     static let JPY = CurrencyCode(unchecked: "JPY")
+    static let SGD = CurrencyCode(unchecked: "SGD")
+    static let CHF = CurrencyCode(unchecked: "CHF")
 
     init?(rawValue: String) {
         let normalized = rawValue.uppercased()
@@ -54,6 +56,9 @@ struct CurrencyCode: RawRepresentable, Codable, Hashable, Identifiable, Sendable
 
     var name: String { stablecoinName ?? rawValue }
     var symbol: String {
+        // USD-pegged stablecoins display the dollar symbol in normal monetary amounts
+        // while keeping their own identifier everywhere else.
+        if isUSDStablecoin { return "$" }
         switch rawValue {
         case "HKD", "USD", "AUD", "CAD", "NZD", "SGD", "TWD": "$"
         case "CNY", "JPY": "¥"
@@ -81,7 +86,7 @@ struct CurrencyDescriptor: Identifiable, Codable, Hashable, Sendable {
     static func appCatalog(_ fetched: [CurrencyDescriptor]) -> [CurrencyDescriptor] {
         let codes = Set(bundled.map(\.code) + fetched.map(\.code))
         return codes.sorted { $0.rawValue < $1.rawValue }.map {
-            .init(code: $0, name: $0.name, symbol: $0.rawValue)
+            .init(code: $0, name: $0.name, symbol: $0.symbol)
         }
     }
 }
