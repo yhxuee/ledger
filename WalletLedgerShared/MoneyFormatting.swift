@@ -43,6 +43,6 @@ enum LedgerMoneyFormat {
     /// Transaction-list display only: canonical currency code, then the decimal amount.
     /// Used by Latest Transactions and the main Ledger transaction rows.
     static func code(_ amount: Double, currency: CurrencyCode, signPrefix: String = "") -> String {
-        "\(signPrefix)\(currency.rawValue) \(amount.formatted(.number.precision(.fractionLength(2))))"
+        return "\(signPrefix)\(currency.rawValue) \(amount.formatted(.number.precision(.fractionLength(2))))"
     }
 }

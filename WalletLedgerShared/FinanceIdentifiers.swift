@@ -60,15 +60,15 @@ struct CurrencyCode: RawRepresentable, Codable, Hashable, Identifiable, Sendable
         // while keeping their own identifier everywhere else.
         if isUSDStablecoin { return "$" }
         switch rawValue {
-        case "HKD", "USD", "AUD", "CAD", "NZD", "SGD", "TWD": "$"
-        case "CNY", "JPY": "¥"
-        case "MYR": "RM"
-        case "EUR": "€"
-        case "GBP": "£"
-        case "KRW": "₩"
-        case "INR": "₹"
-        case "THB": "฿"
-        default: rawValue
+        case "HKD", "USD", "AUD", "CAD", "NZD", "SGD", "TWD": return "$"
+        case "CNY", "JPY": return "¥"
+        case "MYR": return "RM"
+        case "EUR": return "€"
+        case "GBP": return "£"
+        case "KRW": return "₩"
+        case "INR": return "₹"
+        case "THB": return "฿"
+        default: return rawValue
         }
     }
 }
