@@ -22,10 +22,6 @@ struct TransactionEditorView: View {
     @State private var showingCategoryEditor = false
     @State private var accountExplicitlyOverridden: Bool
     @State private var applyingDefaultAccount = false
-    /// Pocket the posting lands in. Nil means "use the account default", so changing the
-    /// transaction currency re-resolves it instead of pinning a stale pocket.
-    @State private var accountPocket: CurrencyCode?
-    @State private var destinationPocket: CurrencyCode?
     @State private var accountAmountText: String
     @State private var destinationAmountText: String
     /// True once the user typed their own account-side amount: never recalculated afterwards.
@@ -67,8 +63,6 @@ struct TransactionEditorView: View {
         _isNegative = State(initialValue: rawAmount < 0)
         _minorUnits = State(initialValue: String(Int((abs(rawAmount) * 100).rounded())))
         _accountExplicitlyOverridden = State(initialValue: transaction != nil)
-        _accountPocket = State(initialValue: transaction?.accountCurrency)
-        _destinationPocket = State(initialValue: transaction?.destinationAccountCurrency)
         _accountAmountText = State(initialValue: transaction?.accountAmount.map(Self.amountText) ?? "")
         _destinationAmountText = State(initialValue: transaction?.destinationAmount.map(Self.amountText) ?? "")
         _noteAttachmentID = State(initialValue: transaction?.noteAttachmentID)
@@ -98,8 +92,13 @@ struct TransactionEditorView: View {
             taxRate = nil
             taxInputMode = .finalAmount
             isTaxExempt = false
-        } else if let category = availableCategories.first(where: { $0.id == categoryID }) {
-            taxRate = store.state.settings.taxRate(for: category)
+        } else {
+            if original == nil {
+                taxInputMode = store.state.settings.defaultTaxInputMode
+            }
+            if let category = availableCategories.first(where: { $0.id == categoryID }) {
+                taxRate = store.state.settings.taxRate(for: category)
+            }
         }
     }
 
@@ -119,25 +118,59 @@ struct TransactionEditorView: View {
     /// account already holds it, otherwise to the account's primary currency.
     private var sourcePocket: CurrencyCode {
         guard let sourceAccount else { return currency }
-        if let accountPocket, sourceAccount.pocketCurrencies.contains(accountPocket) { return accountPocket }
+        if let original,
+           type == original.type,
+           accountID == original.accountID,
+           currency == original.currency,
+           let stored = original.accountCurrency,
+           sourceAccount.pocketCurrencies.contains(stored) {
+            return stored
+        }
         return sourceAccount.defaultPocket(for: currency)
     }
 
     private var targetPocket: CurrencyCode {
         guard let destinationAccount else { return currency }
-        if let destinationPocket, destinationAccount.pocketCurrencies.contains(destinationPocket) { return destinationPocket }
+        if let original,
+           type == original.type,
+           destinationID == original.destinationAccountID,
+           currency == original.currency,
+           let stored = original.destinationAccountCurrency,
+           destinationAccount.pocketCurrencies.contains(stored) {
+            return stored
+        }
         return destinationAccount.defaultPocket(for: currency)
     }
 
-    private var showsSourcePocket: Bool { sourceAccount?.hasMultiplePockets ?? false }
-    private var showsDestinationPocket: Bool { type == .transfer && (destinationAccount?.hasMultiplePockets ?? false) }
     /// The account-side amount is only editable when it is not simply the transaction amount.
     private var showsSourceAmount: Bool { sourcePocket != currency }
     private var showsDestinationAmount: Bool { type == .transfer && targetPocket != currency }
     private var estimatedSourceAmount: Double { LedgerCalculations.convert(abs(amount), from: currency, to: sourcePocket, rates: store.state.settings.rates) }
     private var estimatedDestinationAmount: Double { LedgerCalculations.convert(abs(amount), from: currency, to: targetPocket, rates: store.state.settings.rates) }
-    private var sourcePostingValue: Double { (showsSourceAmount ? (Double(accountAmountText) ?? estimatedSourceAmount) : abs(amount)) * (isNegative ? -1 : 1) }
-    private var destinationPostingValue: Double { (showsDestinationAmount ? (Double(destinationAmountText) ?? estimatedDestinationAmount) : abs(amount)) * (isNegative ? -1 : 1) }
+    private var sourcePostingValue: Double {
+        if let original,
+           type == original.type,
+           accountID == original.accountID,
+           currency == original.currency,
+           amount == original.amount,
+           !accountAmountOverridden,
+           let stored = original.accountAmount {
+            return stored
+        }
+        return (showsSourceAmount ? (Double(accountAmountText) ?? estimatedSourceAmount) : abs(amount)) * (isNegative ? -1 : 1)
+    }
+    private var destinationPostingValue: Double {
+        if let original,
+           type == original.type,
+           destinationID == original.destinationAccountID,
+           currency == original.currency,
+           amount == original.amount,
+           !destinationAmountOverridden,
+           let stored = original.destinationAmount {
+            return stored
+        }
+        return (showsDestinationAmount ? (Double(destinationAmountText) ?? estimatedDestinationAmount) : abs(amount)) * (isNegative ? -1 : 1)
+    }
 
     var body: some View {
         NavigationStack {
@@ -194,7 +227,10 @@ struct TransactionEditorView: View {
             }
         }
         .onAppear {
-            if original == nil { reloadTaxRate() }
+            if original == nil {
+                taxInputMode = store.state.settings.defaultTaxInputMode
+                reloadTaxRate()
+            }
             if accountID == nil { applyDefaultAccount(for: categoryID) }
             if destinationID == nil { destinationID = activeAccounts.first(where: { $0.id != accountID })?.id }
             if original == nil { syncAmountFields() } else { prefillStoredAmounts() }
@@ -217,13 +253,16 @@ struct TransactionEditorView: View {
             if (newType == .expense || newType == .income) && !accountExplicitlyOverridden {
                 applyDefaultAccount(for: categoryID)
             }
+            if original == nil {
+                taxInputMode = store.state.settings.defaultTaxInputMode
+            }
             reloadTaxRate()
+            accountAmountOverridden = false
+            destinationAmountOverridden = false
+            syncAmountFields()
         }
         .onChange(of: currency) { _, _ in
             taxChanged = true
-            // The pocket default depends on the denomination, so re-resolve it and drop stale guesses.
-            accountPocket = nil
-            destinationPocket = nil
             accountAmountOverridden = false
             destinationAmountOverridden = false
             syncAmountFields()
@@ -234,7 +273,12 @@ struct TransactionEditorView: View {
             if taxRate == nil && type != .transfer { reloadTaxRate() }
         }
         .onChange(of: store.state.settings.taxSettings) { _, _ in
-            if original == nil || original?.categoryID != categoryID || original?.type != type { reloadTaxRate() }
+            if original == nil {
+                taxInputMode = store.state.settings.defaultTaxInputMode
+                reloadTaxRate()
+            } else if original?.categoryID != categoryID || original?.type != type {
+                reloadTaxRate()
+            }
         }
         .onChange(of: amount) { _, _ in syncAmountFields() }
         .sheet(isPresented: $showingCategoryEditor) {
@@ -299,7 +343,6 @@ struct TransactionEditorView: View {
                 .lineLimit(1)
             if type != .transfer {
                 taxSummaryLine
-                taxModeControl
                 if taxInputMode == .beforeTax {
                     taxTotalLine
                 }
@@ -339,15 +382,6 @@ struct TransactionEditorView: View {
         .accessibilityValue(isTaxExempt ? "On" : "Off")
     }
 
-    private var taxModeControl: some View {
-        Picker("Tax input", selection: $taxInputMode) {
-            Text(type == .income ? "After Tax" : "Tax Included").tag(TaxInputMode.finalAmount)
-            Text("Before Tax").tag(TaxInputMode.beforeTax)
-        }
-        .pickerStyle(.segmented)
-        .frame(maxWidth: 240)
-    }
-
     private var taxTotalLine: some View {
         HStack(spacing: 6) {
             Text(type == .income ? "Net Received" : "Total")
@@ -377,7 +411,6 @@ struct TransactionEditorView: View {
                 .clipped()
                 .onChange(of: accountID) { _, newValue in
                     if !applyingDefaultAccount { accountExplicitlyOverridden = true }
-                    accountPocket = nil
                     accountAmountOverridden = false
                     if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
                     if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
@@ -433,7 +466,6 @@ struct TransactionEditorView: View {
             .ledgerGlass(in: Capsule())
             .onChange(of: accountID) { _, newValue in
                 if !applyingDefaultAccount { accountExplicitlyOverridden = true }
-                accountPocket = nil
                 accountAmountOverridden = false
                 if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
                 if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
@@ -458,7 +490,6 @@ struct TransactionEditorView: View {
             .clipped()
             .ledgerGlass(in: Capsule())
             .onChange(of: destinationID) { _, _ in
-                destinationPocket = nil
                 destinationAmountOverridden = false
                 syncAmountFields()
             }
@@ -524,34 +555,18 @@ struct TransactionEditorView: View {
     }
 
     @ViewBuilder private var detailsPanel: some View {
-        if showsSourcePocket || showsSourceAmount || showsDestinationPocket || showsDestinationAmount {
+        if showsSourceAmount || showsDestinationAmount {
             VStack(spacing: 0) {
-                if showsSourcePocket {
-                    LabeledContent(type == .transfer ? "From Account Currency" : "Account Currency") {
-                        AccountPocketPicker(account: sourceAccount ?? activeAccountPlaceholder, selection: sourcePocketBinding, title: "Account Currency")
-                    }
-                }
                 if showsSourceAmount {
-                    if showsSourcePocket {
-                        Divider()
-                    }
-                    accountAmountRow(title: type == .transfer ? "From Amount" : "Account Amount",
+                    accountAmountRow(title: type == .transfer ? "From Amount" : "Amount",
                                      pocket: sourcePocket,
                                      text: $accountAmountText,
                                      overridden: $accountAmountOverridden,
                                      suggestion: $sourceSuggestion,
                                      estimated: estimatedSourceAmount)
                 }
-                if showsDestinationPocket {
-                    if showsSourcePocket || showsSourceAmount {
-                        Divider()
-                    }
-                    LabeledContent("To Account Currency") {
-                        AccountPocketPicker(account: destinationAccount ?? activeAccountPlaceholder, selection: targetPocketBinding, title: "To Account Currency")
-                    }
-                }
                 if showsDestinationAmount {
-                    if showsSourcePocket || showsSourceAmount || showsDestinationPocket {
+                    if showsSourceAmount {
                         Divider()
                     }
                     accountAmountRow(title: "To Amount",
@@ -615,7 +630,7 @@ struct TransactionEditorView: View {
 
     /// Editable actual account-side amount. Prefilled from the cached FX rate, but a value the user
     /// types becomes authoritative and is never overwritten afterwards.
-    private func accountAmountRow(title: String, pocket: CurrencyCode, text: Binding<String>, overridden: Binding<Bool>, suggestion: Binding<Double>, estimated: Double) -> some View {
+    private func accountAmountRow(title: LocalizedStringKey, pocket: CurrencyCode, text: Binding<String>, overridden: Binding<Bool>, suggestion: Binding<Double>, estimated: Double) -> some View {
         HStack(spacing: 10) {
             Text(title)
             Spacer(minLength: 8)
@@ -650,19 +665,6 @@ struct TransactionEditorView: View {
             if let value = Double(newValue), abs(value - suggestion.wrappedValue) > 0.005 { overridden.wrappedValue = true }
             else if newValue.isEmpty { overridden.wrappedValue = false }
         }
-    }
-
-    private var sourcePocketBinding: Binding<CurrencyCode> {
-        Binding(get: { sourcePocket }, set: { accountPocket = $0; syncAmountFields() })
-    }
-
-    private var targetPocketBinding: Binding<CurrencyCode> {
-        Binding(get: { targetPocket }, set: { destinationPocket = $0; syncAmountFields() })
-    }
-
-    /// Placeholder account so the pocket picker has pockets to read before a selection exists.
-    private var activeAccountPlaceholder: LedgerAccount {
-        LedgerAccount(id: UUID(), userID: SeedData.localUserID, name: "", type: .checking, currency: currency, openingBalance: 0, budget: 0, includeInBudget: false, logo: "", cardStyle: .init(startHex: "86C5DA", endHex: "C6E7CF"), createdAt: .now, updatedAt: .now, deletedAt: nil, version: 0, syncStatus: .pending)
     }
 
     /// Refreshes the FX-estimated account amounts unless the user supplied their own value.

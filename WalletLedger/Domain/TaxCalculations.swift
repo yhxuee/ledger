@@ -7,9 +7,34 @@ enum TaxInputMode: String, Codable, Hashable, Sendable {
 
 struct TaxSettings: Codable, Hashable, Sendable {
     var categoryRates: [LedgerCategoryID: Double] = [:]
+    var isTaxInclusive: Bool = true
+
+    enum CodingKeys: String, CodingKey {
+        case categoryRates
+        case isTaxInclusive
+    }
+
+    init(categoryRates: [LedgerCategoryID: Double] = [:], isTaxInclusive: Bool = true) {
+        self.categoryRates = categoryRates
+        self.isTaxInclusive = isTaxInclusive
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        categoryRates = try container.decodeIfPresent([LedgerCategoryID: Double].self, forKey: .categoryRates) ?? [:]
+        isTaxInclusive = try container.decodeIfPresent(Bool.self, forKey: .isTaxInclusive) ?? true
+    }
 }
 
 extension LedgerSettings {
+    var isTaxInclusive: Bool {
+        taxSettings?.isTaxInclusive ?? true
+    }
+
+    var defaultTaxInputMode: TaxInputMode {
+        isTaxInclusive ? .finalAmount : .beforeTax
+    }
+
     func taxRate(for category: LedgerCategory) -> Double {
         let fallback = category.kind == .expense ? 0.09 : 0.15
         return TaxCalculations.validRate(taxSettings?.categoryRates[category.id] ?? fallback,

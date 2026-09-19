@@ -167,7 +167,7 @@ struct SettingsView: View {
             NavigationLink {
                 TaxRateEditorView()
             } label: {
-                SettingsLinkRow("Tax Rates", systemImage: "percent", detail: nil)
+                SettingsLinkRow("Tax Rates", systemImage: "percent", detail: store.state.settings.isTaxInclusive ? "Tax-inclusive" : "Before-tax")
             }
             .foregroundStyle(.primary)
 

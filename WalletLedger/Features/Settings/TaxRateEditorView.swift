@@ -5,6 +5,21 @@ struct TaxRateEditorView: View {
 
     var body: some View {
         List {
+            Section {
+                Toggle("Tax-Inclusive Amounts", isOn: Binding(
+                    get: { store.state.settings.isTaxInclusive },
+                    set: { newValue in
+                        store.updateSettings { settings in
+                            var taxes = settings.taxSettings ?? TaxSettings()
+                            taxes.isTaxInclusive = newValue
+                            settings.taxSettings = taxes
+                        }
+                    }
+                ))
+            } footer: {
+                Text("When enabled, entered amounts include tax (or after-tax for income). When disabled, amounts are entered before tax.")
+            }
+
             ratesSection("Expense Categories", kind: .expense)
             ratesSection("Income Categories", kind: .income)
         }
@@ -48,7 +63,10 @@ private struct TaxRateField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 12) {
-                CategoryIcon(category: category)
+                CategoryIcon(category: category, font: .system(size: 17, weight: .semibold))
+                    .foregroundStyle(Color(hex: category.colorHex))
+                    .frame(width: 32, height: 32)
+                    .background(Color(hex: category.colorHex).opacity(0.14), in: Circle())
                 Text(category.name)
                 Spacer()
                 TextField("Rate", text: $text)

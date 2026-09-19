@@ -1105,71 +1105,25 @@
         }
       }
     },
-    "Account Currency": {
+    "Amount": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Account Currency"
+            "value": "Amount"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "账户货币"
+            "value": "金额"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "帳戶幣別"
-          }
-        }
-      }
-    },
-    "From Account Currency": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "From Account Currency"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "转出账户货币"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "轉出帳戶幣別"
-          }
-        }
-      }
-    },
-    "To Account Currency": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "To Account Currency"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "转入账户货币"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "轉入帳戶幣別"
+            "value": "金額"
           }
         }
       }
@@ -4728,6 +4682,98 @@
           "stringUnit": {
             "state": "translated",
             "value": "請輸入 0% 至 1000% 之間的稅率。"
+          }
+        }
+      }
+    },
+    "Tax-Inclusive Amounts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tax-Inclusive Amounts"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "含税金额"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "含稅金額"
+          }
+        }
+      }
+    },
+    "When enabled, entered amounts include tax (or after-tax for income). When disabled, amounts are entered before tax.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When enabled, entered amounts include tax (or after-tax for income). When disabled, amounts are entered before tax."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用后，输入的金额已包含税费（收入为税后金额）。禁用后，输入的金额为税前金额。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用後，輸入的金額已包含稅費（收入為稅後金額）。停用後，輸入的金額為稅前金額。"
+          }
+        }
+      }
+    },
+    "Tax-inclusive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tax-inclusive"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "含税"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "含稅"
+          }
+        }
+      }
+    },
+    "Before-tax": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before-tax"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "税前"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稅前"
           }
         }
       }
