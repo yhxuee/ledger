@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AnalyticsView: View {
     @EnvironmentObject private var store: LedgerStore
+    @EnvironmentObject private var privacy: PrivacyController
     @State private var range: AnalyticsRange = .week
     @State private var selectedCategories = Set<LedgerCategoryID>()
     @State private var selectedAccounts = Set<UUID>()
@@ -43,9 +44,9 @@ struct AnalyticsView: View {
 
     private var categoryChart: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack { VStack(alignment: .leading) { Text("Category Breakdown").font(.headline); Text(summary.subtitle).font(.caption).foregroundStyle(.secondary) }; Spacer(); Text(LedgerFormat.money(summary.total, currency: store.state.settings.baseCurrency, compact: true)).font(.title3.bold()) }
+            HStack { VStack(alignment: .leading) { Text("Category Breakdown").font(.headline); Text(summary.subtitle).font(.caption).foregroundStyle(.secondary) }; Spacer(); SensitiveMoneyText(amount: summary.total, currency: store.state.settings.baseCurrency, compact: true).font(.title3.bold()) }
             Chart(store.state.categories) { category in
-                SectorMark(angle: .value("Spent", summary.categoryTotals[category.id, default: 0]), innerRadius: .ratio(0.62), angularInset: 1.5)
+                SectorMark(angle: .value("Spent", privacy.isLocked ? 0 : summary.categoryTotals[category.id, default: 0]), innerRadius: .ratio(0.62), angularInset: 1.5)
                     .foregroundStyle(Color(hex: category.colorHex)).cornerRadius(4)
             }.chartLegend(.hidden).frame(height: 190)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 110))]) {
@@ -60,10 +61,10 @@ struct AnalyticsView: View {
             GeometryReader { geometry in
                 let showAllLabels = allValueLabelsFit(width: geometry.size.width)
                 Chart(summary.buckets) { bucket in
-                    BarMark(x: .value("Period", bucket.label), y: .value("Amount", bucket.value)).foregroundStyle(LedgerPalette.coral.gradient).cornerRadius(6)
+                    BarMark(x: .value("Period", bucket.label), y: .value("Amount", privacy.isLocked ? 0 : bucket.value)).foregroundStyle(LedgerPalette.coral.gradient).cornerRadius(6)
                         .annotation(position: .top) {
                             if showAllLabels || extremaIDs.contains(bucket.id) {
-                                Text(valueLabel(bucket.value))
+                                SensitiveValueText(valueLabel(bucket.value), maskLength: 5)
                                     .font(.caption2.weight(extremaIDs.contains(bucket.id) ? .bold : .regular))
                                     .foregroundStyle(.secondary)
                             }
@@ -86,8 +87,8 @@ struct AnalyticsView: View {
             stat("Average", summary.average); stat("Maximum", summary.maximum); stat("Minimum", summary.minimum)
         }
     }
-    private func stat(_ title: String, _ value: Double) -> some View { MetricCard(title) { Text(LedgerFormat.money(value, currency: store.state.settings.baseCurrency, compact: true)).font(.headline.bold()).minimumScaleFactor(0.6).lineLimit(1) } }
-    private func percent(_ category: LedgerCategoryID) -> String { summary.total > 0 ? "\(Int((summary.categoryTotals[category, default: 0] / summary.total * 100).rounded()))%" : "0%" }
+    private func stat(_ title: String, _ value: Double) -> some View { MetricCard(title) { SensitiveMoneyText(amount: value, currency: store.state.settings.baseCurrency, compact: true).font(.headline.bold()).minimumScaleFactor(0.6).lineLimit(1) } }
+    private func percent(_ category: LedgerCategoryID) -> String { privacy.isLocked ? "***" : (summary.total > 0 ? "\(Int((summary.categoryTotals[category, default: 0] / summary.total * 100).rounded()))%" : "0%") }
     private var filtersActive: Bool { !selectedCategories.isEmpty || !selectedAccounts.isEmpty || hasCustomRange }
     private var axisLabels: [String] {
         let labels = summary.buckets.map(\.label)

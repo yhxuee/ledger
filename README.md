@@ -1,42 +1,57 @@
 # Wallet Ledger for iOS
 
-Native SwiftUI reconstruction of the `wallet-ledger-overview` personal-finance PWA. Open `WalletLedger.xcodeproj` in Xcode 26.
-
-Version 1.3.0 separates the Overview/Accounts toolbar actions into native Liquid Glass controls, keeps the Ledger title visible above a glass calendar, fixes exchange-rate keyboard dismissal, adds Frankfurter daily reference-rate refresh with offline caching, and adds recurring expense, income, and transfer rules with weekly, monthly, yearly, or custom-day schedules.
+Wallet Ledger 2.0 is a local-first SwiftUI personal-finance application. It preserves the existing Liquid Glass design while replacing prototype aggregates with a versioned domain model, derived balances/analytics, durable local persistence, purchase workflows, and optional CloudKit-shared ledgers.
 
 ## Requirements
 
-- Xcode 26 with the iOS 26 SDK for Liquid Glass.
-- Deployment target iOS 17. The app uses native Liquid Glass on iOS 26 and falls back to system materials on iOS 17–25.
-- An Apple Development team for device builds and iCloud Documents.
-
-## First build
-
-1. Open `WalletLedger.xcodeproj`.
-2. Select the `WalletLedger` target, Signing & Capabilities, and choose your team.
-3. Change `org.medx.WalletLedger` if you need a different bundle identifier.
-4. Add/verify the iCloud capability with **iCloud Documents** enabled.
-5. If the bundle identifier changes, replace `iCloud.org.medx.WalletLedger` in `WalletLedger.entitlements` with a container owned by your team.
-6. Select an iPhone or iPad simulator and Build. iCloud container operations require a signed app and an Apple ID; Files export/import works without iCloud.
+- Xcode 26 and the iOS 26 SDK for native Liquid Glass; deployment target iOS 17.
+- An Apple Developer team for device signing, App Groups, Live Activities, push notifications, and CloudKit sharing.
+- The app remains useful offline. Private local ledgers never require CloudKit.
 
 ## Architecture
 
-- `Domain`: Codable entities, sample data and pure financial calculations.
-- `Data`: local Application Support persistence, versioned backup codec, Web-backup conversion, Files document support and iCloud Documents backup.
-- `Design`: shared colors, formatting, Liquid Glass compatibility and adaptive surfaces.
-- `Features`: Overview, Ledger, Analytics, Accounts, Settings and transaction editor.
+- `Domain`: schema-v2 entities, v1 migration mirrors, pure balance/budget/analytics/refund/purchase presentation calculations.
+- `Data`: `LedgerRepository`, local Application Support persistence, backup codecs, cached Frankfurter catalogue/rates, privacy controller, EventKit import, ActivityKit bridge, receipt storage, CloudKit record mapper and `CKSyncEngine` coordinators.
+- `Features`: the existing Overview, Ledger, Analytics, Accounts and four-section Settings design plus dedicated editors, Budget Detail and Purchase Mode/Summary.
+- `WalletLedgerWidget`: interactive Lock Screen/Dynamic Island Live Activity. The App Group snapshot coordinates active-purchase item completion; the main ledger remains a durable source of truth.
 
-Balances are derived from `openingBalance + active ledger entries`. Expense, income and transfer effects are applied exactly once. Transfers never count as expense analytics. Monthly budget includes only participating accounts and only current-month expenses. Historical reporting uses each transaction’s saved FX snapshot.
+Balances, budget use and analytics are always derived from active transactions. There is no mutable stored total. Transfers are balance movements, refunds are linked exact reversals, and PurchaseSession aggregate rows are presentation-only.
 
-Frankfurter refreshes HKD-reference rates at most once per local calendar day when automatic updates are enabled. A manual refresh remains available, and the last successful values stay available offline. Recurring rules are processed on launch, ledger switch, and whenever the app becomes active; missed due dates are caught up without creating the same occurrence twice.
+## Schema v2 and migration
 
-## Backup formats
+The native state schema is version 2. `SchemaMigration` decodes native v1 state/library/backup shapes and migrates legacy account budgets into an account-mode `BudgetPlan`. `LegacyWebBackup` converts supported Web backups. IDs, original amounts, `accountAmount`, `destinationAmount`, and historical `exchangeRateAtTransaction` snapshots are preserved.
 
-- Native exports use the `.walletledger` extension and JSON content.
-- The importer validates IDs, account references, transfer destinations, values, rates and schema version before showing a confirmation preview.
-- JSON backups exported by the Web PWA (`wallet-ledger-overview`, schema v2) are converted into the native schema during import.
-- “Back Up Now” writes `WalletLedger-latest.walletledger` to the app’s iCloud Documents container.
+Device-only preferences are stored in `app-preferences.json` and never enter a ledger backup or CloudKit record. Ledger finance configuration remains in `LedgerSettings`. Currency identifiers accept any valid three-letter ISO-style code; the Frankfurter catalogue and latest successful rates are cached for offline use.
+
+## Privacy and destructive behavior
+
+Biometric protection is centralized through `PrivacyController`. When locked, reusable sensitive-value views mask financial numbers while navigation remains usable. Disabling protection and Reset App Data authenticate when protection is enabled. Reset removes only local application state/caches/preferences and active-purchase App Group snapshots; it never deletes collaborators' CloudKit data.
+
+Transactions and accounts keep soft-deletion behavior. Deleting a refund restores the original transaction's refundable state and Undo restores the linked pair.
+
+## Backup and sharing
+
+- `.walletledger` JSON exports remain the complete portable finance backup.
+- iCloud Documents Back Up/Restore remains available.
+- A backup imported while a shared ledger is active becomes a new local ledger.
+- Shared ledgers use one custom CloudKit zone per logical LedgerBook and a zone-wide `CKShare`; they do not copy the JSON backup file.
+- Accounts, transactions, categories, settings, budget plan, recurring rules, purchase sessions, purchase items, and receipt `CKAsset` references have explicit CloudKit record mappings.
+
+## Apple capability setup
+
+Source and project target changes are included, but these account-bound steps must be completed in Xcode/Developer Portal:
+
+1. Select a development team for both `WalletLedger` and `WalletLedgerWidget`.
+2. Register `org.medx.WalletLedger` and `org.medx.WalletLedger.Widget` (or change both identifiers consistently).
+3. Create/enable `iCloud.org.medx.WalletLedger` with CloudKit and iCloud Documents, then select it on the app target.
+4. Create/enable App Group `group.org.medx.WalletLedger` for both targets.
+5. Enable Push Notifications and Background Modes > Remote notifications on the app target.
+6. Enable Live Activities for the Widget Extension and confirm it is embedded in the app.
+7. In CloudKit Dashboard development, deploy record types after a signed development build writes sample records; promote the schema to production before distribution.
+8. Validate CloudKit invitations with two real iCloud accounts and Live Activity/AppIntent behavior on a real Dynamic Island device. Simulators do not provide full push/biometric/CloudKit validation.
 
 ## Verification
 
-The `WalletLedgerTests` target covers expense/income/transfer balance effects, deleted-entry exclusion, budget semantics and backup round trips. This repository was generated on Windows, so the final SDK compile and simulator run must be performed in Xcode 26.
+`WalletLedgerTests` covers balance semantics, soft deletion, native backup round-trip, native v1 migration, legacy Web conversion, flexible currencies, refund idempotency and deletion, both budget modes, multi-currency budgets, dynamic loan interest, deleted default-account mappings, PurchaseSession finalization/grouping, and CloudKit record mapping without network access.
+
+This checkout is authored from Windows, where SwiftUI, ActivityKit, EventKit and CloudKit SDK compilation is unavailable. Run the included Xcode test target or the existing macOS GitHub Actions workflow before signing a release archive.

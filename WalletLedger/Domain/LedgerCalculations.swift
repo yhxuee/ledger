@@ -12,6 +12,15 @@ enum LedgerCalculations {
         transaction.amount * transaction.exchangeRateAtTransaction / (rates[target] ?? 1)
     }
 
+    static func expenseEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode) -> Double? {
+        if let originalID = transaction.reversalOfTransactionID {
+            guard let original = state.transactions.first(where: { $0.id == originalID }), original.type == .expense else { return nil }
+            return -historical(transaction, to: target, rates: state.settings.rates)
+        }
+        guard transaction.type == .expense else { return nil }
+        return historical(transaction, to: target, rates: state.settings.rates)
+    }
+
     static func balance(for account: LedgerAccount, in state: LedgerState) -> Double {
         activeTransactions(state).reduce(account.openingBalance) { balance, transaction in
             guard transaction.accountID == account.id || transaction.destinationAccountID == account.id else { return balance }
@@ -36,27 +45,72 @@ enum LedgerCalculations {
         return accountViews(state).reduce(0) { $0 + convert($1.balance, from: $1.account.currency, to: currency, rates: state.settings.rates) }
     }
 
+    static func portfolioSummary(_ state: LedgerState, target: CurrencyCode? = nil) -> (netWorth: Double, assets: Double, liabilities: Double) {
+        let currency = target ?? state.settings.baseCurrency
+        return accountViews(state).reduce(into: (netWorth: 0.0, assets: 0.0, liabilities: 0.0)) { result, item in
+            let value = convert(item.balance, from: item.account.currency, to: currency, rates: state.settings.rates)
+            result.netWorth += value
+            if value >= 0 { result.assets += value }
+            else { result.liabilities += abs(value) }
+        }
+    }
+
     static func budgetUsage(_ state: LedgerState, now: Date = .now) -> (budget: Double, spent: Double, ratio: Double) {
+        let detail = budgetBreakdown(state, now: now)
+        return (detail.budget, detail.spent, detail.ratio)
+    }
+
+    static func budgetBreakdown(_ state: LedgerState, now: Date = .now) -> BudgetBreakdown {
         let target = state.settings.baseCurrency
-        let accounts = activeAccounts(state).filter(\.includeInBudget)
-        let accountIDs = Set(accounts.map(\.id))
-        let budget = accounts.reduce(0) { $0 + convert($1.budget, from: $1.currency, to: target, rates: state.settings.rates) }
+        let plan = state.settings.budgetPlan
         let calendar = Calendar.current
-        let spent = activeTransactions(state).filter {
-            $0.type == .expense && accountIDs.contains($0.accountID) && calendar.isDate($0.occurredAt, equalTo: now, toGranularity: .month)
-        }.reduce(0) { $0 + historical($1, to: target, rates: state.settings.rates) }
-        return (budget, spent, budget > 0 ? spent / budget : 0)
+        let monthly = activeTransactions(state).filter { calendar.isDate($0.occurredAt, equalTo: now, toGranularity: .month) }
+        let accountMap = Dictionary(uniqueKeysWithValues: activeAccounts(state).map { ($0.id, $0) })
+        let lines: [BudgetBreakdownLine]
+        switch plan.mode {
+        case .category:
+            let categoryMap = Dictionary(uniqueKeysWithValues: state.categories.map { ($0.id, $0) })
+            lines = plan.categoryAllocations.filter { $0.value > 0 }.map { categoryID, allocation in
+                let spent = monthly.reduce(0) { partial, transaction in
+                    guard transaction.categoryID == categoryID, let value = expenseEffect(transaction, in: state, to: target) else { return partial }
+                    return partial + value
+                }
+                return .init(id: "category:\(categoryID.rawValue)", title: categoryMap[categoryID]?.name ?? categoryID.rawValue, currency: target, budget: allocation, spent: spent)
+            }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .account:
+            lines = plan.accountAllocations.compactMap { accountID, allocation in
+                guard allocation > 0, let account = accountMap[accountID] else { return nil }
+                let spent = monthly.reduce(0) { partial, transaction in
+                    guard transaction.accountID == accountID, let value = expenseEffect(transaction, in: state, to: account.currency) else { return partial }
+                    return partial + value
+                }
+                return .init(id: "account:\(accountID.uuidString)", title: account.name, currency: account.currency, budget: allocation, spent: spent)
+            }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        }
+        let budget = lines.reduce(0) { $0 + convert($1.budget, from: $1.currency, to: target, rates: state.settings.rates) }
+        let spent = lines.reduce(0) { $0 + convert($1.spent, from: $1.currency, to: target, rates: state.settings.rates) }
+        return .init(currency: target, budget: budget, spent: spent, lines: lines)
     }
 
     static func budgetUsage(_ state: LedgerState, account: LedgerAccount, now: Date = .now) -> (budget: Double, spent: Double, ratio: Double) {
-        guard account.includeInBudget else { return (0, 0, 0) }
-        let calendar = Calendar.current
-        let spent = activeTransactions(state).filter {
-            $0.type == .expense && $0.accountID == account.id && calendar.isDate($0.occurredAt, equalTo: now, toGranularity: .month)
-        }.reduce(0) { partial, transaction in
-            partial + (transaction.accountAmount ?? convert(transaction.amount, from: transaction.currency, to: account.currency, rates: state.settings.rates))
+        let plan = state.settings.budgetPlan
+        let budget: Double
+        let includedCategories: Set<LedgerCategoryID>?
+        switch plan.mode {
+        case .account:
+            budget = plan.accountAllocations[account.id] ?? 0
+            includedCategories = nil
+        case .category:
+            budget = convert(plan.categoryAllocations.values.reduce(0, +), from: state.settings.baseCurrency, to: account.currency, rates: state.settings.rates)
+            includedCategories = Set(plan.categoryAllocations.filter { $0.value > 0 }.keys)
         }
-        return (account.budget, spent, account.budget > 0 ? spent / account.budget : 0)
+        guard budget > 0 else { return (0, 0, 0) }
+        let calendar = Calendar.current
+        let spent = activeTransactions(state).reduce(0) { partial, transaction in
+            guard transaction.accountID == account.id, (includedCategories == nil || includedCategories!.contains(transaction.categoryID)), calendar.isDate(transaction.occurredAt, equalTo: now, toGranularity: .month), let value = expenseEffect(transaction, in: state, to: account.currency) else { return partial }
+            return partial + value
+        }
+        return (budget, spent, spent / budget)
     }
 
     static func transactions(_ state: LedgerState, accountID: UUID?) -> [LedgerTransaction] {
@@ -127,9 +181,9 @@ enum LedgerCalculations {
         }
 
         var totals = Dictionary(uniqueKeysWithValues: state.categories.map { ($0.id, 0.0) })
-        for transaction in activeTransactions(state) where transaction.type == .expense && transaction.occurredAt >= start && transaction.occurredAt < end && (accountID == nil || transaction.accountID == accountID) && (accountIDs.isEmpty || accountIDs.contains(transaction.accountID)) {
+        for transaction in activeTransactions(state) where transaction.occurredAt >= start && transaction.occurredAt < end && (accountID == nil || transaction.accountID == accountID) && (accountIDs.isEmpty || accountIDs.contains(transaction.accountID)) {
             guard categories.isEmpty || categories.contains(transaction.categoryID) else { continue }
-            let value = historical(transaction, to: target, rates: state.settings.rates)
+            guard let value = expenseEffect(transaction, in: state, to: target) else { continue }
             let key: String
             switch bucketMode {
             case .day: key = dayKey(transaction.occurredAt)

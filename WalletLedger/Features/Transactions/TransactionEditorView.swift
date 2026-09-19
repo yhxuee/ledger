@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TransactionEditorView: View {
     @EnvironmentObject private var store: LedgerStore
+    @EnvironmentObject private var preferences: AppPreferencesStore
     @Environment(\.dismiss) private var dismiss
     private let original: LedgerTransaction?
     @State private var type: LedgerTransactionType
@@ -12,8 +13,9 @@ struct TransactionEditorView: View {
     @State private var occurredAt: Date
     @State private var note: String
     @State private var minorUnits: String
-    @State private var showDeleteConfirmation = false
     @State private var showingCategoryEditor = false
+    @State private var accountExplicitlyOverridden: Bool
+    @State private var applyingDefaultAccount = false
 
     init(transaction: LedgerTransaction? = nil) {
         original = transaction
@@ -25,6 +27,7 @@ struct TransactionEditorView: View {
         _occurredAt = State(initialValue: transaction?.occurredAt ?? .now)
         _note = State(initialValue: transaction?.note ?? "")
         _minorUnits = State(initialValue: String(Int(((transaction?.amount ?? 0) * 100).rounded())))
+        _accountExplicitlyOverridden = State(initialValue: transaction != nil)
     }
 
     private var amount: Double { (Double(minorUnits) ?? 0) / 100 }
@@ -42,9 +45,6 @@ struct TransactionEditorView: View {
                         detailsPanel
                         keypad
                         if type != .transfer { categoryPicker }
-                        if original != nil {
-                            Button("Delete Transaction", role: .destructive) { showDeleteConfirmation = true }.frame(maxWidth: .infinity).padding(.top, 4)
-                        }
                     }
                     .frame(minHeight: max(0, geometry.size.height - 20), alignment: .top)
                     .padding(.horizontal, 16).padding(.vertical, 10)
@@ -57,14 +57,13 @@ struct TransactionEditorView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button("Save", action: save).disabled(!canSave).fontWeight(.semibold) }
             }
-            .confirmationDialog("Delete this transaction?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
-                Button("Delete Transaction", role: .destructive) { if let original { store.deleteTransaction(original) }; dismiss() }
-            }
         }
         .onAppear {
-            if accountID == nil { accountID = activeAccounts.first?.id; currency = activeAccounts.first?.currency ?? store.state.settings.baseCurrency }
+            if accountID == nil { applyDefaultAccount(for: categoryID) }
             if destinationID == nil { destinationID = activeAccounts.first(where: { $0.id != accountID })?.id }
         }
+        .onChange(of: categoryID) { _, category in if type == .expense && !accountExplicitlyOverridden { applyDefaultAccount(for: category) } }
+        .onChange(of: type) { _, value in if value == .expense && !accountExplicitlyOverridden { applyDefaultAccount(for: categoryID) } }
         .sheet(isPresented: $showingCategoryEditor) {
             CategoryEditorSheet { id in categoryID = id }
         }
@@ -72,8 +71,8 @@ struct TransactionEditorView: View {
 
     private var amountPanel: some View {
         VStack(spacing: 8) {
-            Picker("Currency", selection: $currency) { ForEach(CurrencyCode.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu)
-            Text(LedgerFormat.money(amount, currency: currency)).font(.system(size: 48, weight: .bold, design: .rounded)).minimumScaleFactor(0.55).lineLimit(1)
+            Picker("Currency", selection: $currency) { ForEach(store.availableCurrencies) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu)
+            SensitiveMoneyText(amount: amount, currency: currency).font(.system(size: 48, weight: .bold, design: .rounded)).minimumScaleFactor(0.55).lineLimit(1)
         }.frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 12).ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
@@ -87,6 +86,7 @@ struct TransactionEditorView: View {
                 .pickerStyle(.menu)
             }
             .onChange(of: accountID) { _, newValue in
+                if !applyingDefaultAccount { accountExplicitlyOverridden = true }
                 if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
                 if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
             }
@@ -151,11 +151,21 @@ struct TransactionEditorView: View {
     }
 
     private func press(_ key: String) {
+        HapticFeedback.selection(enabled: preferences.value.hapticFeedbackEnabled)
         if key == "delete.left" { minorUnits = minorUnits.count <= 1 ? "0" : String(minorUnits.dropLast()) }
         else {
             let next = minorUnits == "0" ? key : minorUnits + key
             if next.count <= 11 { minorUnits = next }
         }
+    }
+
+    private func applyDefaultAccount(for category: LedgerCategoryID) {
+        let mapped = store.state.settings.defaultExpenseAccountByCategory[category]
+        let resolved = mapped.flatMap { id in activeAccounts.first(where: { $0.id == id })?.id } ?? activeAccounts.first?.id
+        applyingDefaultAccount = true
+        accountID = resolved
+        if let account = activeAccounts.first(where: { $0.id == resolved }) { currency = account.currency }
+        DispatchQueue.main.async { applyingDefaultAccount = false }
     }
 
     private func save() {

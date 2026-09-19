@@ -11,6 +11,15 @@
     <key>CFBundlePackageType</key><string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
     <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>NSFaceIDUsageDescription</key><string>Use Face ID to protect balances, transactions, budgets, analytics, and other financial values.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key><string>Choose a recurring calendar event to prefill a recurring financial transaction. Wallet Ledger never modifies the calendar event.</string>
+    <key>NSCameraUsageDescription</key><string>Take a photo of a receipt or invoice for a completed purchase.</string>
+    <key>NSPhotoLibraryUsageDescription</key><string>Choose a receipt image when a camera is unavailable.</string>
+    <key>NSSupportsLiveActivities</key><true/>
+    <key>CKSharingSupported</key><true/>
+    <key>UIBackgroundModes</key><array><string>remote-notification</string></array>
+    <key>CFBundleURLTypes</key>
+    <array><dict><key>CFBundleURLName</key><string>org.medx.WalletLedger.purchase</string><key>CFBundleURLSchemes</key><array><string>walletledger</string></array></dict></array>
     <key>LSRequiresIPhoneOS</key><true/>
     <key>UIApplicationSupportsIndirectInputEvents</key><true/>
     <key>UILaunchScreen</key><dict/>

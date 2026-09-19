@@ -10,11 +10,11 @@ struct TransactionRow: View {
                 .frame(width: 40, height: 40)
                 .background(Color(hex: category.colorHex).opacity(0.14), in: Circle())
             VStack(alignment: .leading, spacing: 3) {
-                Text(transaction.note?.isEmpty == false ? transaction.note! : category.name).font(.body.weight(.semibold)).lineLimit(1)
+                Text(transaction.note?.isEmpty == false ? transaction.note! : category.name).font(.body.weight(.semibold)).lineLimit(1).strikethrough(transaction.isRefunded)
                 Text("\(category.name) · \(transaction.occurredAt.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            Text(LedgerFormat.transaction(transaction.amount, currency: transaction.currency, type: transaction.type))
+            SensitiveValueText(LedgerFormat.transaction(transaction.amount, currency: transaction.currency, type: transaction.type), maskLength: 7)
                 .font(.subheadline.monospacedDigit().weight(.semibold))
                 .foregroundStyle(transaction.type == .income ? .green : .primary)
             Image(systemName: "chevron.right")
@@ -22,6 +22,7 @@ struct TransactionRow: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 9)
+        .opacity(transaction.isRefunded ? 0.5 : 1)
         .contentShape(Rectangle())
     }
 }

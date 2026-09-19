@@ -3,12 +3,13 @@ import SwiftUI
 struct LedgerView: View {
     private struct DayGroup: Identifiable {
         let date: Date
-        let items: [LedgerTransaction]
+        let entries: [PurchaseLedgerEntry]
 
         var id: Date { date }
     }
 
     @EnvironmentObject private var store: LedgerStore
+    @EnvironmentObject private var preferences: AppPreferencesStore
     @State private var query = ""
     @State private var isSearchPresented = false
     @State private var selectedCategories = Set<LedgerCategoryID>()
@@ -21,6 +22,7 @@ struct LedgerView: View {
     @State private var showingCalendar = false
     @State private var calendarDay = Date.now
     @State private var hasCalendarDay = false
+    @State private var expandedPurchaseIDs = Set<UUID>()
 
     private var filtered: [LedgerTransaction] {
         store.activeTransactions.filter { item in
@@ -33,27 +35,31 @@ struct LedgerView: View {
         }
     }
     private var groups: [DayGroup] {
-        Dictionary(grouping: filtered) { Calendar.current.startOfDay(for: $0.occurredAt) }
-            .map { DayGroup(date: $0.key, items: $0.value) }
+        let entries = PurchaseLedgerPresentation.entries(
+            transactions: filtered,
+            sessions: store.purchaseSessions,
+            collapsePurchases: !filtersActive && query.isEmpty
+        )
+        return Dictionary(grouping: entries) { Calendar.current.startOfDay(for: $0.occurredAt) }
+            .map { DayGroup(date: $0.key, entries: $0.value) }
             .sorted { $0.date > $1.date }
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: showingCalendar ? 12 : 0) {
             if showingCalendar { calendarPanel }
             List {
                 ForEach(groups) { group in
                     Section(group.date.formatted(.dateTime.weekday(.wide).month(.wide).day())) {
-                        ForEach(group.items) { item in
-                            Button { editing = item } label: {
-                                TransactionRow(transaction: item, category: category(item.categoryID))
-                                    .padding(.horizontal, 14)
-                                    .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                            }.buttonStyle(.plain)
-                                .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
-                                .listRowBackground(Color.clear)
-                                .listRowSeparator(.hidden)
-                                .swipeActions { Button("Delete", role: .destructive) { store.deleteTransaction(item) } }
+                        ForEach(group.entries) { entry in
+                            switch entry {
+                            case .transaction(let item): transactionButton(item)
+                            case .purchase(let session, let children):
+                                purchaseRow(session: session, children: children)
+                                if expandedPurchaseIDs.contains(session.id) {
+                                    ForEach(children) { transactionButton($0, isPurchaseChild: true) }
+                                }
+                            }
                         }
                     }
                 }
@@ -106,15 +112,8 @@ struct LedgerView: View {
     private func clearFilters() { selectedCategories.removeAll(); selectedAccounts.removeAll(); hasCustomRange = false; hasCalendarDay = false; showingCalendar = false }
 
     private var calendarPanel: some View {
-        ZStack(alignment: .topTrailing) {
-            LedgerCalendarView(selection: $calendarDay, transactions: store.activeTransactions, accounts: store.accounts.map(\.account))
-                .onChange(of: calendarDay) { _, _ in hasCalendarDay = true }
-            Button { withAnimation(.snappy) { hasCalendarDay = false; showingCalendar = false } } label: {
-                Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.secondary)
-            }
-            .accessibilityLabel("Close calendar")
-            .padding(10)
-        }
+        LedgerCalendarView(selection: $calendarDay, transactions: store.activeTransactions, accounts: store.accounts.map(\.account))
+            .onChange(of: calendarDay) { _, _ in hasCalendarDay = true }
         .padding(10)
         .ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, 12).padding(.top, 8)
@@ -122,6 +121,70 @@ struct LedgerView: View {
     }
 
     private func category(_ id: LedgerCategoryID) -> LedgerCategory { store.state.categories.first { $0.id == id } ?? SeedData.categories.first { $0.id == id } ?? LedgerCategory(id: .other, name: "Other", detail: "Everything else", symbol: "dollarsign.circle.fill", colorHex: "62B28F") }
+
+    private func transactionButton(_ item: LedgerTransaction, isPurchaseChild: Bool = false) -> some View {
+        Button { if !item.isLockedByReversal { editing = item } } label: {
+            TransactionRow(transaction: item, category: category(item.categoryID))
+                .padding(.leading, isPurchaseChild ? 22 : 14).padding(.trailing, 14)
+                .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            if preferences.value.swipeActionOrientation == .refundLeadingDeleteTrailing { refundButton(item) }
+            else { deleteButton(item) }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if preferences.value.swipeActionOrientation == .refundLeadingDeleteTrailing { deleteButton(item) }
+            else { refundButton(item) }
+        }
+    }
+
+    private func purchaseRow(session: PurchaseSession, children: [LedgerTransaction]) -> some View {
+        Button {
+            withAnimation(.snappy) {
+                if expandedPurchaseIDs.contains(session.id) { expandedPurchaseIDs.remove(session.id) }
+                else { expandedPurchaseIDs.insert(session.id) }
+            }
+        } label: {
+            HStack(spacing: 13) {
+                Image(systemName: "cart.fill").font(.system(size: 17, weight: .semibold)).frame(width: 40, height: 40)
+                    .background(.primary.opacity(0.08), in: Circle())
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(session.name).font(.body.weight(.semibold)).lineLimit(1)
+                    Text("\(children.count) items · Purchase").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                SensitiveMoneyText(amount: children.reduce(0) { $0 + $1.amount }, currency: store.state.settings.baseCurrency)
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                Image(systemName: expandedPurchaseIDs.contains(session.id) ? "chevron.down" : "chevron.right")
+                    .font(.caption.bold()).foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 9)
+            .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onLongPressGesture { withAnimation(.snappy) { expandedPurchaseIDs.insert(session.id) } }
+        .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .accessibilityHint("Expands the individual purchase transactions")
+    }
+
+    private func deleteButton(_ item: LedgerTransaction) -> some View {
+        Button("Delete", role: .destructive) {
+            HapticFeedback.warning(enabled: preferences.value.hapticFeedbackEnabled)
+            store.deleteTransaction(item)
+        }
+    }
+
+    private func refundButton(_ item: LedgerTransaction) -> some View {
+        Button { store.refundTransaction(item) } label: { Label("Refund", systemImage: "arrow.uturn.backward.circle") }
+            .tint(.blue)
+            .disabled(item.isLockedByReversal)
+    }
 }
 
 private struct LedgerSearchModifier: ViewModifier {

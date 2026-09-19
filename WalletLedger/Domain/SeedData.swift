@@ -45,7 +45,8 @@ enum SeedData {
             expense(checking, category: .transport, note: "Taxi", daysAgo: 9, currency: .HKD, amount: 86, hour: 21),
             expense(investments, category: .shopping, note: "Household", daysAgo: 13, currency: .HKD, amount: 123, hour: 14)
         ]
-        return LedgerState(schemaVersion: 1, accounts: [checking, savings, card, investments], transactions: transactions, categories: categories, settings: .init(userID: localUserID, baseCurrency: .HKD, rates: rates, automaticRates: false, backupReminders: true, lastBackupAt: nil, updatedAt: now))
+        let budgetPlan = BudgetPlan(mode: .account, categoryAllocations: [:], accountAllocations: [checking.id: checking.budget, card.id: card.budget], updatedAt: now)
+        return LedgerState(schemaVersion: 2, accounts: [checking, savings, card, investments], transactions: transactions, categories: categories, settings: .init(userID: localUserID, baseCurrency: .HKD, exchangeRates: .init(rates: rates, automatic: false, updatedAt: nil), defaultExpenseAccountByCategory: [:], budgetPlan: budgetPlan, backupReminders: true, lastBackupAt: nil, updatedAt: now))
     }
 
     static func makeEmpty() -> LedgerState {
@@ -57,11 +58,11 @@ enum SeedData {
             createdAt: now, updatedAt: now, deletedAt: nil, version: 1, syncStatus: .pending
         )
         return LedgerState(
-            schemaVersion: 1,
+            schemaVersion: 2,
             accounts: [account],
             transactions: [],
             categories: categories,
-            settings: .init(userID: localUserID, baseCurrency: .HKD, rates: rates, automaticRates: false, backupReminders: true, lastBackupAt: nil, updatedAt: now)
+            settings: .init(userID: localUserID, baseCurrency: .HKD, exchangeRates: .init(rates: rates, automatic: false, updatedAt: nil), defaultExpenseAccountByCategory: [:], budgetPlan: .empty(now: now), backupReminders: true, lastBackupAt: nil, updatedAt: now)
         )
     }
 }

@@ -2,11 +2,13 @@ import SwiftUI
 
 struct OverviewView: View {
     @EnvironmentObject private var store: LedgerStore
+    @EnvironmentObject private var privacy: PrivacyController
     @Binding var section: AppSection
     @Binding var selectedAccountID: UUID?
     @State private var showAccountPicker = false
     @State private var showTransactionEditor = false
     @State private var editingTransaction: LedgerTransaction?
+    @State private var showingBudgetDetail = false
 
     private var selected: AccountViewModel? { selectedAccountID.flatMap { id in store.accounts.first { $0.id == id } } }
     private var transactions: [LedgerTransaction] { LedgerCalculations.transactions(store.state, accountID: selectedAccountID) }
@@ -32,6 +34,7 @@ struct OverviewView: View {
         .sheet(isPresented: $showAccountPicker) { AccountPickerView(selectedAccountID: $selectedAccountID) }
         .fullScreenCover(isPresented: $showTransactionEditor) { TransactionEditorView() }
         .fullScreenCover(item: $editingTransaction) { TransactionEditorView(transaction: $0) }
+        .sheet(isPresented: $showingBudgetDetail) { BudgetDetailView() }
     }
 
     private var hero: some View {
@@ -45,18 +48,19 @@ struct OverviewView: View {
             Button { section = .analytics } label: {
                 MetricCard("Weekly Activity") {
                     MiniActivityChart(buckets: summary.buckets)
-                    Text(LedgerFormat.money(summary.total, currency: store.state.settings.baseCurrency, compact: true)).font(.headline.bold())
+                    SensitiveMoneyText(amount: summary.total, currency: store.state.settings.baseCurrency, compact: true).font(.headline.bold())
                 }
                 .frame(minHeight: 146)
             }
             .buttonStyle(.plain)
             .accessibilityHint("Opens Analytics")
-            MetricCard("Budget / Remain") {
-                Text(LedgerFormat.money(usage.budget - usage.spent, currency: usageCurrency)).font(.title2.bold()).minimumScaleFactor(0.65).lineLimit(1)
-                ProgressView(value: min(max(usage.ratio, 0), 1)).tint(usage.ratio > 1 ? .red : LedgerPalette.coral)
-                Text("\(Int(usage.ratio * 100))% of monthly budget used").font(.caption).foregroundStyle(.secondary)
-            }
-            .frame(minHeight: 146)
+            Button { showingBudgetDetail = true } label: {
+                MetricCard("Budget / Remain") {
+                    SensitiveMoneyText(amount: usage.budget - usage.spent, currency: usageCurrency).font(.title2.bold()).minimumScaleFactor(0.65).lineLimit(1)
+                    ProgressView(value: privacy.isLocked ? 0 : min(max(usage.ratio, 0), 1)).tint(usage.ratio > 1 ? .red : LedgerPalette.coral)
+                    SensitiveValueText("\(Int(usage.ratio * 100))% of monthly budget used", maskLength: 8).font(.caption).foregroundStyle(.secondary)
+                }.frame(minHeight: 146)
+            }.buttonStyle(.plain)
         }
     }
 
@@ -76,7 +80,7 @@ struct OverviewView: View {
             }
             LazyVStack(spacing: 0) {
                 ForEach(transactions.prefix(8)) { item in
-                    Button { editingTransaction = item } label: { TransactionRow(transaction: item, category: category(item.categoryID)).padding(.horizontal, 15).padding(.vertical, 7) }
+                    Button { if !item.isLockedByReversal { editingTransaction = item } } label: { TransactionRow(transaction: item, category: category(item.categoryID)).padding(.horizontal, 15).padding(.vertical, 7) }
                         .buttonStyle(.plain)
                     if item.id != transactions.prefix(8).last?.id { Divider().padding(.leading, 67) }
                 }
@@ -90,6 +94,7 @@ struct OverviewView: View {
 }
 
 private struct MiniActivityChart: View {
+    @EnvironmentObject private var privacy: PrivacyController
     let buckets: [AnalyticsBucket]
     var body: some View {
         let maximum = max(buckets.map(\.value).max() ?? 1, 1)
@@ -98,7 +103,7 @@ private struct MiniActivityChart: View {
             ForEach(Array(buckets.enumerated()), id: \.element.id) { index, bucket in
                 VStack(spacing: 3) {
                     Spacer(minLength: 0)
-                    RoundedRectangle(cornerRadius: 3).fill(LedgerPalette.coral.gradient).frame(height: max(4, 30 * bucket.value / maximum))
+                    RoundedRectangle(cornerRadius: 3).fill(LedgerPalette.coral.gradient).frame(height: privacy.isLocked ? 4 : max(4, 30 * bucket.value / maximum))
                     Text(labels[index % labels.count]).font(.system(size: 8, weight: .semibold)).foregroundStyle(.secondary)
                 }
             }

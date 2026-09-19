@@ -22,10 +22,10 @@ enum LegacyWebBackup {
     static func decode(_ data: Data) throws -> LedgerBackupEnvelope {
         let web = try JSONDecoder().decode(WebBackup.self, from: data)
         let userID = web.data.settings.userId
-        let accountIDMap = Dictionary(uniqueKeysWithValues: web.data.accounts.map { ($0.id, stableUUID($0.id)) })
+        let accountIDMap = web.data.accounts.reduce(into: [String: UUID]()) { $0[$1.id] = stableUUID($1.id) }
         let accounts = web.data.accounts.compactMap { item -> LedgerAccount? in
             guard let id = accountIDMap[item.id] else { return nil }
-            return LedgerAccount(id: id, userID: userID, name: item.name, type: AccountType(rawValue: item.type) ?? .checking, currency: CurrencyCode(rawValue: item.currency) ?? .HKD, openingBalance: item.openingBalance, budget: item.budget, includeInBudget: item.includeInBudget, logo: item.logo, cardStyle: .init(startHex: cleanHex(item.cardStyle.start), endHex: cleanHex(item.cardStyle.end)), createdAt: parseISO(item.createdAt) ?? .now, updatedAt: parseISO(item.updatedAt) ?? .now, deletedAt: parseISO(item.deletedAt), version: item.version ?? 1, syncStatus: .pending)
+            return LedgerAccount(id: id, userID: userID, name: item.name, type: accountType(item.type), currency: CurrencyCode(rawValue: item.currency) ?? .HKD, openingBalance: item.openingBalance, budget: item.budget, includeInBudget: item.includeInBudget, logo: item.logo, cardStyle: .init(startHex: cleanHex(item.cardStyle.start), endHex: cleanHex(item.cardStyle.end)), createdAt: parseISO(item.createdAt) ?? .now, updatedAt: parseISO(item.updatedAt) ?? .now, deletedAt: parseISO(item.deletedAt), version: item.version ?? 1, syncStatus: .pending)
         }
         let transactions = web.data.transactions.compactMap { item -> LedgerTransaction? in
             guard let source = accountIDMap[item.accountId] else { return nil }
@@ -38,8 +38,24 @@ enum LegacyWebBackup {
             let seed = SeedData.categories.first { $0.id == id }
             return .init(id: id, name: item.name, detail: item.description, symbol: seed?.symbol ?? "circle.fill", colorHex: cleanHex(item.color))
         }
-        let rates = Dictionary(uniqueKeysWithValues: CurrencyCode.allCases.map { ($0, web.data.settings.rates[$0.rawValue] ?? SeedData.rates[$0] ?? 1) })
-        let state = LedgerState(schemaVersion: BackupCodec.currentSchemaVersion, accounts: accounts, transactions: transactions, categories: categories.isEmpty ? SeedData.categories : categories, settings: .init(userID: userID, baseCurrency: CurrencyCode(rawValue: web.data.settings.baseCurrency) ?? .HKD, rates: rates, automaticRates: web.data.settings.automaticRates, backupReminders: web.data.settings.backupEnabled, lastBackupAt: parseISO(web.data.settings.lastBackup), updatedAt: parseISO(web.data.settings.updatedAt) ?? .now))
+        let rates = web.data.settings.rates.reduce(into: SeedData.rates) { result, entry in
+            if let currency = CurrencyCode(rawValue: entry.key), entry.value.isFinite, entry.value > 0 { result[currency] = entry.value }
+        }
+        let updatedAt = parseISO(web.data.settings.updatedAt) ?? .now
+        let accountAllocations = accounts.reduce(into: [UUID: Double]()) { result, account in
+            if account.deletedAt == nil, account.includeInBudget, account.budget > 0 { result[account.id] = account.budget }
+        }
+        let settings = LedgerSettings(
+            userID: userID,
+            baseCurrency: CurrencyCode(rawValue: web.data.settings.baseCurrency) ?? .HKD,
+            exchangeRates: .init(rates: rates, automatic: web.data.settings.automaticRates, updatedAt: nil),
+            defaultExpenseAccountByCategory: [:],
+            budgetPlan: .init(mode: .account, categoryAllocations: [:], accountAllocations: accountAllocations, updatedAt: updatedAt),
+            backupReminders: web.data.settings.backupEnabled,
+            lastBackupAt: parseISO(web.data.settings.lastBackup),
+            updatedAt: updatedAt
+        )
+        let state = LedgerState(schemaVersion: BackupCodec.currentSchemaVersion, accounts: accounts, transactions: transactions, categories: categories.isEmpty ? SeedData.categories : categories, settings: settings)
         return .init(metadata: .init(app: web.metadata.app, schemaVersion: BackupCodec.currentSchemaVersion, exportedAt: parseISO(web.metadata.exportedAt) ?? .now, userID: userID, accountCount: accounts.count, transactionCount: transactions.count, categoryCount: state.categories.count, baseCurrency: state.settings.baseCurrency), data: state)
     }
 
@@ -68,4 +84,17 @@ enum LegacyWebBackup {
     }
 
     private static func cleanHex(_ value: String) -> String { value.trimmingCharacters(in: CharacterSet(charactersIn: "#")).uppercased() }
+    private static func accountType(_ value: String) -> AccountType {
+        switch value.lowercased() {
+        case "checking": .checking
+        case "savings": .savings
+        case "credit", "credit card": .credit
+        case "investment": .investment
+        case "cash": .cash
+        case "loan": .loan
+        case "lending", "lending / receivable", "receivable": .lending
+        case "stocks", "stock": .stocks
+        default: AccountType(rawValue: value) ?? .checking
+        }
+    }
 }

@@ -11,9 +11,12 @@ enum AppSection: String, CaseIterable, Identifiable {
 struct LedgerBookMenu: View {
     @EnvironmentObject private var store: LedgerStore
     @State private var showingNewBook = false
+    @State private var showingPurchaseMode = false
 
     var body: some View {
         Menu {
+            Button { showingPurchaseMode = true } label: { Label("Purchase Mode", systemImage: "cart") }
+            Divider()
             ForEach(store.books) { book in
                 Button { store.switchBook(to: book.id) } label: {
                     Label(book.name, systemImage: store.activeBookID == book.id ? "checkmark.circle.fill" : "book.closed")
@@ -29,6 +32,7 @@ struct LedgerBookMenu: View {
         }
         .accessibilityLabel("Choose ledger")
         .sheet(isPresented: $showingNewBook) { NewLedgerSheet() }
+        .sheet(isPresented: $showingPurchaseMode) { PurchaseModeView() }
     }
 }
 
@@ -62,6 +66,9 @@ struct RootView: View {
             .alert("Wallet Ledger", isPresented: Binding(get: { store.presentedError != nil }, set: { if !$0 { store.presentedError = nil } })) { Button("OK") { store.presentedError = nil } } message: { Text(store.presentedError ?? "") }
             .overlay(alignment: .bottom) { undoToast }
             .onChange(of: store.activeBookID) { _, _ in selectedAccountID = nil }
+            .sheet(isPresented: Binding(get: { store.routedPurchaseID != nil }, set: { if !$0 { store.routedPurchaseID = nil } })) {
+                if let id = store.routedPurchaseID { PurchaseSessionFlowView(sessionID: id) }
+            }
     }
 
     @ViewBuilder private var content: some View {
@@ -74,10 +81,10 @@ struct RootView: View {
                         }
                     }
                     Section("Accounts") {
-                        Button { selectedAccountID = nil; section = .overview } label: { Label("All Accounts", systemImage: "square.grid.2x2") }
+                        Button { selectedAccountID = nil; section = .overview } label: { Label("Net Worth", systemImage: "square.grid.2x2") }
                         ForEach(store.accounts) { item in
                             Button { selectedAccountID = item.id; section = .overview } label: {
-                                HStack { Text(item.account.logo).font(.caption.bold()).frame(width: 32); VStack(alignment: .leading) { Text(item.account.name).lineLimit(1); Text(LedgerFormat.money(item.balance, currency: item.account.currency)).font(.caption).foregroundStyle(.secondary) } }
+                                HStack { Text(item.account.logo).font(.caption.bold()).frame(width: 32); VStack(alignment: .leading) { Text(item.account.name).lineLimit(1); SensitiveMoneyText(amount: item.balance, currency: item.account.currency).font(.caption).foregroundStyle(.secondary) } }
                             }
                         }
                     }

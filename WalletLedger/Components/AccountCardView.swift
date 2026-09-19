@@ -5,6 +5,9 @@ struct AccountCardView: View {
     var portfolioBalance: Double = 0
     var baseCurrency: CurrencyCode = .HKD
     var compact = false
+    var portfolioTitle = "Net Worth"
+    var portfolioAssets: Double?
+    var portfolioLiabilities: Double?
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -28,9 +31,15 @@ struct AccountCardView: View {
                 }
                 Spacer(minLength: 8)
                 Text(account?.account.type.rawValue ?? "Portfolio").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                Text(account?.account.name ?? "All Accounts").font((compact ? Font.headline : .title3).weight(.bold)).lineLimit(1)
-                Text(LedgerFormat.money(account?.balance ?? portfolioBalance, currency: account?.account.currency ?? baseCurrency))
+                Text(account?.account.name ?? portfolioTitle).font((compact ? Font.headline : .title3).weight(.bold)).lineLimit(1)
+                SensitiveMoneyText(amount: account?.balance ?? portfolioBalance, currency: account?.account.currency ?? baseCurrency)
                     .font(.system(size: compact ? 24 : 34, weight: .bold, design: .rounded)).minimumScaleFactor(0.6).lineLimit(1)
+                if account == nil, let portfolioAssets, let portfolioLiabilities {
+                    HStack(spacing: 24) {
+                        portfolioMetric("Total Assets", value: portfolioAssets)
+                        portfolioMetric("Liabilities", value: portfolioLiabilities)
+                    }
+                }
             }.padding(compact ? 16 : 22)
         }
         .foregroundStyle(account?.account.cardImageData == nil ? Color.black.opacity(0.84) : Color.white)
@@ -41,5 +50,12 @@ struct AccountCardView: View {
     private var background: LinearGradient {
         let style = account?.account.cardStyle ?? .init(startHex: "F2C7D8", endHex: "B9D9F1")
         return LinearGradient(colors: [Color(hex: style.startHex), Color(hex: style.endHex)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    private func portfolioMetric(_ title: String, value: Double) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title.uppercased()).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+            SensitiveMoneyText(amount: value, currency: baseCurrency, compact: true).font(.caption.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
+        }
     }
 }
