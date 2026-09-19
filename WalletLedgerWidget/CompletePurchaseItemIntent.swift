@@ -3,9 +3,9 @@ import ActivityKit
 import Foundation
 
 struct CompletePurchaseItemIntent: AppIntent {
-    static var title: LocalizedStringResource = "Complete Purchase Item"
-    static var description = IntentDescription("Marks an item complete in the active purchase shared with Wallet Ledger.")
-    static var openAppWhenRun = false
+    static let title: LocalizedStringResource = "Complete Purchase Item"
+    static let description = IntentDescription("Marks an item complete in the active purchase shared with Wallet Ledger.")
+    static let openAppWhenRun = false
 
     @Parameter(title: "Session ID") var sessionID: String
     @Parameter(title: "Item ID") var itemID: String

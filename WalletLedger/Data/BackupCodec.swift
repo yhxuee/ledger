@@ -108,10 +108,11 @@ enum BackupCodec {
 }
 
 enum BackupError: LocalizedError {
-    case wrongApplication, futureSchema(Int), duplicateID(String), missingAccount, invalidTransfer, invalidValue(String), iCloudUnavailable, noICloudBackup
+    case wrongApplication, invalidFormat, futureSchema(Int), duplicateID(String), missingAccount, invalidTransfer, invalidValue(String), iCloudUnavailable, noICloudBackup
     var errorDescription: String? {
         switch self {
         case .wrongApplication: "This file is not a Wallet Ledger backup."
+        case .invalidFormat: "The saved ledger format is invalid or unsupported."
         case .futureSchema(let version): "Backup schema \(version) is newer than this app supports."
         case .duplicateID(let type): "Backup contains a duplicate \(type) ID."
         case .missingAccount: "A transaction references a missing account."

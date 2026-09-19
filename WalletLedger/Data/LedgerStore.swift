@@ -21,7 +21,7 @@ final class LedgerStore: ObservableObject {
     init() {
         persistenceEnabled = true
         let cachedCatalog = CurrencyCatalogCache.load()
-        currencyCatalog = cachedCatalog?.currencies ?? .bundled
+        currencyCatalog = cachedCatalog?.currencies ?? CurrencyDescriptor.bundled
         currencyCatalogUpdatedAt = cachedCatalog?.fetchedAt
         if let library = Self.loadLibrary(), let active = library.books.first(where: { $0.id == library.activeBookID }) ?? library.books.first {
             books = library.books
@@ -45,7 +45,7 @@ final class LedgerStore: ObservableObject {
         state = initialState
         books = [book]
         activeBookID = book.id
-        currencyCatalog = .bundled
+        currencyCatalog = CurrencyDescriptor.bundled
         currencyCatalogUpdatedAt = nil
     }
 
@@ -480,7 +480,7 @@ final class LedgerStore: ObservableObject {
         books = [book]
         activeBookID = book.id
         state = initial
-        currencyCatalog = .bundled
+        currencyCatalog = CurrencyDescriptor.bundled
         currencyCatalogUpdatedAt = nil
         undoTransactions = []
         undoState = nil
