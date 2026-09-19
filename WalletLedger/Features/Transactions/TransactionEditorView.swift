@@ -216,7 +216,7 @@ struct TransactionEditorView: View {
                         Spacer()
                         Button("Done") {
                             noteFocused = false
-                            if type != .transfer {
+                            if original == nil {
                                 withAnimation(.snappy) {
                                     showingNoteEditor = false
                                 }
@@ -322,7 +322,7 @@ struct TransactionEditorView: View {
             amountPanel
             accountAndDateRow
             detailsPanel
-            if showingNoteEditor {
+            if original != nil || showingNoteEditor {
                 noteEditor
             }
             keypad
@@ -334,9 +334,13 @@ struct TransactionEditorView: View {
                 accountAndDateRow
             }
             detailsPanel
-            if type == .transfer {
-                noteEditor
-            } else if showingNoteEditor {
+            if type == .transfer && original == nil {
+                HStack {
+                    Spacer()
+                    noteButton
+                }
+            }
+            if original != nil || showingNoteEditor {
                 noteEditor
             }
             keypad
@@ -443,26 +447,32 @@ struct TransactionEditorView: View {
             .frame(height: 50)
             .ledgerGlass(in: Capsule())
 
-            Button {
-                withAnimation(.snappy) {
-                    showingNoteEditor.toggle()
-                    if showingNoteEditor {
-                        noteFocused = true
-                    } else {
-                        noteFocused = false
-                    }
-                }
-            } label: {
-                Image(systemName: hasNote ? "square.and.pencil.circle.fill" : "square.and.pencil")
-                    .font(.title3.weight(.medium))
-                    .foregroundStyle(hasNote ? primaryActionColor : .secondary)
-                    .frame(width: 50, height: 50)
+            if original == nil {
+                noteButton
             }
-            .buttonStyle(.plain)
-            .ledgerGlass(interactive: true, in: Circle())
-            .accessibilityLabel("Note")
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var noteButton: some View {
+        Button {
+            withAnimation(.snappy) {
+                showingNoteEditor.toggle()
+                if showingNoteEditor {
+                    noteFocused = true
+                } else {
+                    noteFocused = false
+                }
+            }
+        } label: {
+            Image(systemName: hasNote ? "square.and.pencil.circle.fill" : "square.and.pencil")
+                .font(.title3.weight(.medium))
+                .foregroundStyle(hasNote ? primaryActionColor : .secondary)
+                .frame(width: 50, height: 50)
+        }
+        .buttonStyle(.plain)
+        .ledgerGlass(interactive: true, in: Circle())
+        .accessibilityLabel("Note")
     }
 
     private var transferRow: some View {

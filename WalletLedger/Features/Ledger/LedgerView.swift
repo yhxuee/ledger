@@ -3,8 +3,6 @@ import SwiftUI
 struct LedgerView: View {
     @EnvironmentObject private var store: LedgerStore
     @EnvironmentObject private var preferences: AppPreferencesStore
-    @State private var query = ""
-    @State private var isSearchPresented = false
     @State private var selectedCategories = Set<LedgerCategoryID>()
     @State private var selectedAccounts = Set<UUID>()
     @State private var editing: LedgerTransaction?
@@ -23,8 +21,7 @@ struct LedgerView: View {
             let matchesAccount = selectedAccounts.isEmpty || selectedAccounts.contains(item.accountID) || item.destinationAccountID.map { selectedAccounts.contains($0) } == true
             let matchesRange = !hasCustomRange || (item.occurredAt >= Calendar.current.startOfDay(for: rangeStart) && item.occurredAt < (Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: rangeEnd)) ?? rangeEnd))
             let matchesDay = !hasCalendarDay || (item.type == .expense && Calendar.current.isDate(item.occurredAt, inSameDayAs: calendarDay))
-            let searchable = [item.note ?? "", item.categoryID.rawValue, item.currency.rawValue, String(item.amount)].joined(separator: " ").lowercased()
-            return matchesCategory && matchesAccount && matchesRange && matchesDay && (query.isEmpty || searchable.contains(query.lowercased()))
+            return matchesCategory && matchesAccount && matchesRange && matchesDay
         }
     }
 
@@ -32,7 +29,7 @@ struct LedgerView: View {
         PurchaseLedgerPresentation.entries(
             transactions: filtered,
             sessions: store.purchaseSessions,
-            collapsePurchases: !filtersActive && query.isEmpty
+            collapsePurchases: !filtersActive
         )
     }
 
@@ -88,9 +85,17 @@ struct LedgerView: View {
                     }
 
                     if filtered.isEmpty {
-                        ContentUnavailableView.search(text: query)
-                            .padding(.top, 40)
-                            .frame(maxWidth: .infinity)
+                        ContentUnavailableView(
+                            "No Transactions",
+                            systemImage: "tray",
+                            description: Text(
+                                filtersActive
+                                    ? "No transactions match the current filters."
+                                    : "Transactions will appear here."
+                            )
+                        )
+                        .padding(.top, 40)
+                        .frame(maxWidth: .infinity)
                     }
                 } header: {
                     if showingCalendar {
@@ -99,19 +104,10 @@ struct LedgerView: View {
                     }
                 }
             }
-            .padding(.bottom, 80)
+            .padding(.bottom, 16)
         }
         .background(LedgerBackground())
         .navigationTitle("Ledger")
-        .modifier(LedgerSearchModifier(text: $query, isPresented: $isSearchPresented))
-        .safeAreaInset(edge: .bottom) {
-            if !isSearchPresented {
-                HStack {
-                    Spacer()
-                    GlassIconButton(systemName: "magnifyingglass", label: "Search transactions") { isSearchPresented = true }
-                }.padding(.horizontal, 18).padding(.vertical, 6)
-            }
-        }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Menu {
@@ -230,26 +226,3 @@ struct LedgerView: View {
     }
 }
 
-private struct LedgerSearchModifier: ViewModifier {
-    @Binding var text: String
-    @Binding var isPresented: Bool
-
-    @ViewBuilder func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.searchable(text: $text, isPresented: $isPresented, prompt: Text("Transactions"))
-        } else {
-            content.overlay(alignment: .bottom) {
-                if isPresented {
-                    HStack {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        TextField("Transactions", text: $text).textFieldStyle(.plain)
-                        Button { text = ""; isPresented = false } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
-                    }
-                    .padding(12)
-                    .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .padding()
-                }
-            }
-        }
-    }
-}

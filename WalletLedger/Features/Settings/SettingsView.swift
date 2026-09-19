@@ -126,29 +126,12 @@ struct SettingsView: View {
     private var functionsSection: some View {
         SettingsGlassSection("Functions") {
             LabeledContent {
-                Menu {
-                    ForEach(CurrencyCode.allCases) { currency in
-                        Button {
-                            store.updateSettings {
-                                $0.baseCurrency = currency
-                            }
-                        } label: {
-                            if store.state.settings.baseCurrency == currency {
-                                Label("\(currency.rawValue) (\(currency.symbol))", systemImage: "checkmark")
-                            } else {
-                                Text("\(currency.rawValue) (\(currency.symbol))")
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(store.state.settings.baseCurrency.rawValue)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .foregroundStyle(.primary)
+                CurrencyMenuButton(
+                    selection: baseCurrencyBinding,
+                    codes: CurrencySelection.common,
+                    title: "Base Currency",
+                    showsOther: true
+                )
             } label: {
                 SettingsLabel("Base Currency", systemImage: "coloncurrencysign.circle")
             }
@@ -311,6 +294,18 @@ struct SettingsView: View {
 
     private func preferenceBinding(_ keyPath: WritableKeyPath<AppPreferences, Bool>) -> Binding<Bool> {
         Binding(get: { preferences.value[keyPath: keyPath] }, set: { value in preferences.update { $0[keyPath: keyPath] = value } })
+    }
+    private var baseCurrencyBinding: Binding<CurrencyCode> {
+        Binding(
+            get: {
+                store.state.settings.baseCurrency
+            },
+            set: { currency in
+                store.updateSettings {
+                    $0.baseCurrency = currency
+                }
+            }
+        )
     }
     private var dateFormatBinding: Binding<AppDateFormat> {
         Binding(get: { preferences.value.dateFormat }, set: { value in preferences.update { $0.dateFormat = value } })

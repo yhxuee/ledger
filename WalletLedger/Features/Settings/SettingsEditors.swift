@@ -33,7 +33,16 @@ struct DefaultExpenseAccountsView: View {
             Text("No Default").tag(Optional<UUID>.none)
             ForEach(store.accounts) { item in Text(item.account.name).tag(Optional(item.id)) }
         } label: {
-            HStack { CategoryIcon(category: category); Text(category.name) }
+            HStack(spacing: 10) {
+                CategoryIcon(
+                    category: category,
+                    font: .system(size: 17, weight: .semibold)
+                )
+                .frame(width: 32, height: 32, alignment: .center)
+
+                Text(category.name)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
