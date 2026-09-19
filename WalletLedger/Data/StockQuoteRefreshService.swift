@@ -188,7 +188,7 @@ final class StockQuoteRefreshService: ObservableObject {
 
 @MainActor
 enum MarketRefreshBackground {
-    static let identifier = "org.medx.WalletLedger.market-refresh"
+    static let identifier = "com.finsy.app.market-refresh"
     static func register() {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: .main) { task in
             guard let refresh = task as? BGAppRefreshTask else { task.setTaskCompleted(success: false); return }

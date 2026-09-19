@@ -62,7 +62,7 @@ struct PurchaseSharedContainerDiagnostics: Equatable, Sendable {
 }
 
 enum PurchaseSharedStateStore {
-    static let appGroupIdentifier = "group.org.medx.WalletLedger"
+    static let appGroupIdentifier = "group.com.finsy.app"
 
     /// The App Group container root, or nil when the runtime (signed) entitlement is missing.
     static func containerURL() -> URL? {

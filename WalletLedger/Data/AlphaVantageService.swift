@@ -5,7 +5,7 @@ import Security
 enum MarketDataKeychain {
     private static var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: "org.medx.WalletLedger.AlphaVantage",
+         kSecAttrService as String: "com.finsy.app.AlphaVantage",
          kSecAttrAccount as String: "api-key", kSecAttrSynchronizable as String: false]
     }
     static func read() throws -> String? {

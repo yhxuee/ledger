@@ -16,6 +16,9 @@ final class LedgerStore: ObservableObject {
     @Published var purchaseSyncWarning: String?
     @Published var undoMessage: String?
     @Published var routedPurchaseID: UUID?
+    @Published var requestedAnalyticsType: LedgerTransactionType? = nil
+    @Published var requestedAnalyticsRange: AnalyticsRange? = nil
+    @Published var requestedAnalyticsCustomRange: ClosedRange<Date>? = nil
     private var saveTask: Task<Void, Never>?
     private var undoTransactions: [LedgerTransaction] = []
     private var undoState: LedgerState?
@@ -689,7 +692,7 @@ final class LedgerStore: ObservableObject {
     }
 
     func handleDeepLink(_ url: URL) {
-        guard url.scheme == "walletledger", url.host == "purchase", let rawID = url.pathComponents.dropFirst().first, let id = UUID(uuidString: rawID), purchaseSessions.contains(where: { $0.id == id }) else { return }
+        guard (url.scheme == "finsy" || url.scheme == "walletledger"), url.host == "purchase", let rawID = url.pathComponents.dropFirst().first, let id = UUID(uuidString: rawID), purchaseSessions.contains(where: { $0.id == id }) else { return }
         routedPurchaseID = id
     }
 

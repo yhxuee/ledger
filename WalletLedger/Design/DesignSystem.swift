@@ -10,6 +10,7 @@ enum LedgerPalette {
     static let amber = Color(hex: "F3A11F")
     static let purple = Color(hex: "B54AC6")
     static let teal = Color(hex: "62B28F")
+    static let emerald = Color(hex: "2E7D32")
 
     static func category(_ id: LedgerCategoryID) -> Color {
         if id == .food { return coral }

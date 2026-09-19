@@ -140,7 +140,7 @@ struct PurchaseLiveActivityWidget: Widget {
         PurchaseActivityPalette.progressTint(completed: context.state.isCompleted)
     }
 
-    private func deepLink(_ id: UUID) -> URL { URL(string: "walletledger://purchase/\(id.uuidString)")! }
+    private func deepLink(_ id: UUID) -> URL { URL(string: "finsy://purchase/\(id.uuidString)")! }
     /// Lock Screen / Dynamic Island monetary amounts use the currency symbol, never the code.
     private func amount(_ value: Double, code: String) -> String { LedgerMoneyFormat.symbol(value, currencyCode: code) }
 }

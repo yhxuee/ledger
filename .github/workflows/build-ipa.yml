@@ -73,12 +73,12 @@ jobs:
           APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist")"
           WIDGET_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$WIDGET_PATH/Info.plist")"
 
-          if [ "$APP_ID" != "org.medx.WalletLedger" ]; then
+          if [ "$APP_ID" != "com.finsy.app" ]; then
             echo "::error::Unexpected app bundle identifier: $APP_ID"
             exit 1
           fi
 
-          if [ "$WIDGET_ID" != "org.medx.WalletLedger.Widget" ]; then
+          if [ "$WIDGET_ID" != "com.finsy.app.Widget" ]; then
             echo "::error::Unexpected widget bundle identifier: $WIDGET_ID"
             exit 1
           fi
@@ -95,7 +95,7 @@ jobs:
 
           # Entitlement sources and their target wiring must survive the unsigned build so the
           # re-signing step can attach the same App Group to the app and the extension.
-          APP_GROUP="group.org.medx.WalletLedger"
+          APP_GROUP="group.com.finsy.app"
           PBX="WalletLedger.xcodeproj/project.pbxproj"
 
           for entitlements in "WalletLedger/WalletLedger.entitlements" "WalletLedgerWidget/WalletLedgerWidget.entitlements"; do
@@ -221,8 +221,8 @@ jobs:
           echo "::warning::Signed build skipped. Add repository secrets to enable runtime App Group verification:"
           echo "  IOS_SIGNING_CERTIFICATE_P12, IOS_SIGNING_CERTIFICATE_PASSWORD, IOS_KEYCHAIN_PASSWORD,"
           echo "  APPLE_DEVELOPMENT_TEAM, APPSTORE_CONNECT_KEY_ID, APPSTORE_CONNECT_ISSUER_ID, APPSTORE_CONNECT_KEY_P8"
-          echo "Also enable App Groups (group.org.medx.WalletLedger) for BOTH bundle IDs in the Apple Developer portal:"
-          echo "  org.medx.WalletLedger and org.medx.WalletLedger.Widget"
+          echo "Also enable App Groups (group.com.finsy.app) for BOTH bundle IDs in the Apple Developer portal:"
+          echo "  com.finsy.app and com.finsy.app.Widget"
 
       - name: Checkout repository
         if: env.SIGNING_CERTIFICATE_P12 != ''

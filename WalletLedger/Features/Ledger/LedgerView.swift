@@ -50,7 +50,7 @@ struct LedgerView: View {
             if showingCalendar { calendarPanel }
             List {
                 ForEach(groups) { group in
-                    Section(group.date.formatted(.dateTime.weekday(.wide).month(.wide).day())) {
+                    Section {
                         ForEach(group.entries) { entry in
                             switch entry {
                             case .transaction(let item): transactionButton(item)
@@ -61,11 +61,19 @@ struct LedgerView: View {
                                 }
                             }
                         }
+                    } header: {
+                        Text(group.date.formatted(.dateTime.weekday(.wide).month(.wide).day()))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(nil)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 4, trailing: 16))
                 }
                 if filtered.isEmpty { ContentUnavailableView.search(text: query) }
             }
             .scrollContentBackground(.hidden)
+            .listStyle(.plain)
         }
         .background(LedgerBackground())
         .navigationTitle("Ledger")
@@ -100,7 +108,7 @@ struct LedgerView: View {
         }
         .sheet(item: $editing) {
             TransactionEditorView(transaction: $0)
-                .presentationDetents([.fraction(0.92)])
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(28)
         }
@@ -120,7 +128,7 @@ struct LedgerView: View {
             .onChange(of: calendarDay) { _, _ in hasCalendarDay = true }
         .padding(10)
         .ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .padding(.horizontal, 12).padding(.top, 8)
+        .padding(.horizontal, 16).padding(.top, 8)
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
@@ -130,10 +138,11 @@ struct LedgerView: View {
         Button { if !item.isLockedByReversal { editing = item } } label: {
             TransactionRow(transaction: item, category: category(item.categoryID))
                 .padding(.leading, isPurchaseChild ? 22 : 14).padding(.trailing, 14)
+                .frame(maxWidth: .infinity)
                 .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
+        .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
         .listRowBackground(EmptyView())
         .listRowSeparator(.hidden)
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
@@ -171,6 +180,7 @@ struct LedgerView: View {
                     .font(.caption.bold()).foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 14).padding(.vertical, 9)
+            .frame(maxWidth: .infinity)
             .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -179,7 +189,7 @@ struct LedgerView: View {
                 _ = expandedPurchaseIDs.insert(session.id)
             }
         }
-        .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
+        .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
         .listRowBackground(EmptyView())
         .listRowSeparator(.hidden)
         .accessibilityHint("Expands the individual purchase transactions")

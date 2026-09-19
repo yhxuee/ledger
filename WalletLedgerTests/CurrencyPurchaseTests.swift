@@ -508,7 +508,7 @@ final class CurrencyPurchaseTests: XCTestCase {
 
     func testAppGroupDiagnosticsReportRuntimeStateAndLeaveNoProbeFiles() {
         let diagnostics = PurchaseSharedStateStore.diagnostics()
-        XCTAssertEqual(diagnostics.appGroupIdentifier, "group.org.medx.WalletLedger")
+        XCTAssertEqual(diagnostics.appGroupIdentifier, "group.com.finsy.app")
         XCTAssertFalse(diagnostics.report.isEmpty)
         if diagnostics.containerReachable {
             XCTAssertTrue(diagnostics.wroteProbeFile)

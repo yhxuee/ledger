@@ -1,20 +1,19 @@
-import SwiftUI
-import UniformTypeIdentifiers
 import CloudKit
+import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var store: LedgerStore
     @EnvironmentObject private var preferences: AppPreferencesStore
     @EnvironmentObject private var privacy: PrivacyController
-    @State private var showingExporter = false
-    @State private var showingImporter = false
-    @State private var exportDocument: BackupDocument?
-    @State private var importPreview: ImportPreview?
-    @State private var working = false
-    @State private var statusMessage: String?
     @State private var confirmingReset = false
+    @State private var showingImporter = false
+    @State private var showingExporter = false
+    @State private var exportDocument: BackupDocument?
     @State private var cloudShare: CKShare?
     @State private var showingCloudSharing = false
+    @State private var working = false
+    @State private var activeImportPreview: ImportPreview?
+    @State private var showingImportPreview = false
 
     var body: some View {
         ScrollView {
@@ -22,31 +21,9 @@ struct SettingsView: View {
                 SettingsGlassSection("Basic") {
                     NavigationLink { DefaultExpenseAccountsView() } label: { SettingsLinkRow("Default Accounts", systemImage: "arrow.triangle.branch", detail: "By category") }.foregroundStyle(.primary)
                     Divider()
-                    LabeledContent {
-                        Menu {
-                            ForEach(TransactionEditorLayout.allCases) { layout in
-                                Button {
-                                    layoutBinding.wrappedValue = layout
-                                } label: {
-                                    if layoutBinding.wrappedValue == layout {
-                                        Label(layout.title, systemImage: "checkmark")
-                                    } else {
-                                        Text(layout.title)
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Text(layoutBinding.wrappedValue.title)
-                                Image(systemName: "chevron.up.chevron.down")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .foregroundStyle(.primary)
-                    } label: {
-                        Label("Layout", systemImage: "rectangle.3.group")
-                    }
+                    NavigationLink { LayoutSettingsView() } label: {
+                        SettingsLinkRow("Layout", systemImage: "rectangle.grid.1x2", detail: preferences.value.transactionLayout.title)
+                    }.foregroundStyle(.primary)
                     Divider()
                     LabeledContent {
                         Menu {
@@ -71,19 +48,36 @@ struct SettingsView: View {
                         }
                         .foregroundStyle(.primary)
                     } label: {
-                        Label("Date Format", systemImage: "calendar")
+                        SettingsLabel("Date Format", systemImage: "calendar")
+                    }
+                    Divider()
+                    LabeledContent {
+                        Menu {
+                            ForEach(CurrencyCode.allCases) { currency in
+                                Button {
+                                    store.updateBaseCurrency(currency)
+                                } label: {
+                                    if store.state.settings.baseCurrency == currency {
+                                        Label("\(currency.rawValue) (\(currency.symbol))", systemImage: "checkmark")
+                                    } else {
+                                        Text("\(currency.rawValue) (\(currency.symbol))")
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(store.state.settings.baseCurrency.rawValue)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                    } label: {
+                        SettingsLabel("Base Currency", systemImage: "coloncurrencysign.circle")
                     }
                 }
                 SettingsGlassSection("Functions") {
-                    LabeledContent {
-                        CurrencyMenuButton(selection: Binding(get: { store.state.settings.baseCurrency },
-                                                              set: { code in store.updateSettings { $0.baseCurrency = code } }),
-                                           codes: CurrencySelection.common, title: "Base Currency",
-                                           showsOther: true, showsStablecoinNames: false)
-                    } label: {
-                        Label("Base Currency", systemImage: "coloncurrencysign.circle")
-                    }
-                    Divider()
                     NavigationLink { ExchangeRateEditorView() } label: { SettingsLinkRow("Exchange Rates", systemImage: "arrow.left.arrow.right", detail: store.state.settings.automaticRates ? "Automatic" : "Manual") }.foregroundStyle(.primary)
                     Divider()
                     NavigationLink { BudgetEditorView() } label: { SettingsLinkRow("Budget", systemImage: "chart.pie", detail: store.state.settings.budgetPlan.mode.title) }.foregroundStyle(.primary)
@@ -92,110 +86,113 @@ struct SettingsView: View {
                     Divider()
                     NavigationLink { SwipeActionsEditorView() } label: { SettingsLinkRow("Swipe Actions", systemImage: "hand.draw", detail: nil) }.foregroundStyle(.primary)
                     Divider()
-                    Toggle(isOn: preferenceBinding(\.hapticFeedbackEnabled)) { Label("Haptic Feedback", systemImage: "waveform") }
+                    Toggle(isOn: preferenceBinding(\.hapticFeedbackEnabled)) { SettingsLabel("Haptic Feedback", systemImage: "waveform") }
                     Divider()
                     NavigationLink { MarketDataSettingsView() } label: { SettingsLinkRow("Alpha Vantage API Key", systemImage: "key", detail: nil) }.foregroundStyle(.primary)
                 }
-                SettingsGlassSection("Privacy") {
-                    Toggle(isOn: biometricBinding) { Label("Face ID / Touch ID", systemImage: "faceid") }
+                SettingsGlassSection("Security") {
+                    Toggle(isOn: biometricBinding) { SettingsLabel("Face ID / Touch ID", systemImage: "faceid") }
                     Divider()
-                    Button(role: .destructive) { confirmingReset = true } label: { Label("Reset App Data", systemImage: "trash").frame(maxWidth: .infinity, alignment: .leading) }
-                    Text("Sensitive values are protected on this device only. This preference is never included in ledger backups.").font(.caption).foregroundStyle(.secondary)
+                    Button(role: .destructive) { confirmingReset = true } label: { SettingsLabel("Reset App Data", systemImage: "trash").frame(maxWidth: .infinity, alignment: .leading) }
                 }
-                SettingsGlassSection("Share & Backup") {
-                    Button { Task { await shareLedger() } } label: { Label(store.activeBook.effectiveStorageKind == .local ? "Share Ledger" : "Manage Sharing", systemImage: "person.2.badge.gearshape").frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(.primary).disabled(working)
+                SettingsGlassSection("Data") {
+                    LedgerBookSummaryView()
                     Divider()
-                    Button { Task { await backupToICloud() } } label: { Label("Back Up Now", systemImage: "icloud.and.arrow.up").frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(.primary).disabled(working)
+                    Button { Task { await shareLedger() } } label: { SettingsLabel(store.activeBook.effectiveStorageKind == .local ? "Share Ledger" : "Manage Sharing", systemImage: "person.2.badge.gearshape").frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(.primary).disabled(working)
                     Divider()
-                    Button { Task { await restoreFromICloud() } } label: { Label("Restore", systemImage: "icloud.and.arrow.down").frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(.primary).disabled(working)
+                    Button { Task { await backupToICloud() } } label: { SettingsLabel("Back Up Now", systemImage: "icloud.and.arrow.up").frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(.primary).disabled(working)
                     Divider()
-                    Button { exportDocument = BackupDocument(envelope: store.backupEnvelope()); showingExporter = true } label: { Label("Export Backup", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(.primary)
+                    Button { Task { await restoreFromICloud() } } label: { SettingsLabel("Restore", systemImage: "icloud.and.arrow.down").frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(.primary).disabled(working)
                     Divider()
-                    Button { showingImporter = true } label: { Label("Import Backup", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(.primary)
+                    Button { exportDocument = BackupDocument(envelope: store.backupEnvelope()); showingExporter = true } label: { SettingsLabel("Export Backup", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(.primary)
                     Divider()
-                    Toggle("Backup Reminders", isOn: remindersBinding)
-                    LabeledContent("Last Backup", value: store.state.settings.lastBackupAt?.formatted(date: .abbreviated, time: .shortened) ?? "Never")
+                    Button { showingImporter = true } label: { SettingsLabel("Import Backup", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(.primary)
                 }
+                Text("Finsy · Multi-Currency Double-Entry Ledger").font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .center).padding(.top, 4).padding(.bottom, 24)
             }.padding()
         }
         .background(LedgerBackground())
         .navigationTitle("Settings")
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() } }
-        .fileExporter(isPresented: $showingExporter, document: exportDocument, contentType: .walletLedgerBackup, defaultFilename: backupFileName) { result in if case .failure(let error) = result { store.presentedError = error.localizedDescription } }
-        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.walletLedgerBackup, .json]) { result in
-            do {
-                let url = try result.get()
-                let accessed = url.startAccessingSecurityScopedResource()
-                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-                importPreview = try BackupCodec.decode(Data(contentsOf: url), sourceName: url.lastPathComponent)
-            } catch { store.presentedError = error.localizedDescription }
+        .fileExporter(isPresented: $showingExporter, document: exportDocument, contentType: .walletLedgerBackup, defaultFilename: "ledger-\(Date.now.formatted(.dateTime.year().month(.twoDigits).day(.twoDigits))).walletledger") { result in
+            if case .failure(let error) = result { store.presentedError = error.localizedDescription }
         }
-        .sheet(item: $importPreview) { preview in ImportPreviewView(preview: preview) { store.replace(with: preview.envelope); importPreview = nil } }
-        .sheet(isPresented: $showingCloudSharing) { if let cloudShare { CloudSharingView(share: cloudShare, container: CKContainer(identifier: "iCloud.org.medx.WalletLedger")) } }
-        .overlay { if working { ProgressView().controlSize(.large).padding(24).ledgerGlass(in: RoundedRectangle(cornerRadius: 22)) } }
-        .alert("Backup", isPresented: Binding(get: { statusMessage != nil }, set: { if !$0 { statusMessage = nil } })) { Button("OK") { statusMessage = nil } } message: { Text(statusMessage ?? "") }
+        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.walletLedgerBackup, .json]) { result in
+            switch result {
+            case .success(let url):
+                do {
+                    activeImportPreview = try store.previewBackup(at: url)
+                    showingImportPreview = true
+                } catch {
+                    store.presentedError = error.localizedDescription
+                }
+            case .failure(let error):
+                store.presentedError = error.localizedDescription
+            }
+        }
+        .sheet(isPresented: $showingCloudSharing) { if let cloudShare { CloudSharingView(share: cloudShare, container: CKContainer(identifier: "iCloud.com.finsy.app")) } }
+        .sheet(isPresented: $showingImportPreview) {
+            if let activeImportPreview {
+                ImportPreviewView(preview: activeImportPreview) {
+                    do { try store.applyImportPreview(activeImportPreview); showingImportPreview = false }
+                    catch { store.presentedError = error.localizedDescription }
+                }
+            }
+        }
         .confirmationDialog("Reset App Data?", isPresented: $confirmingReset, titleVisibility: .visible) {
-            Button("Reset Local App Data", role: .destructive) { Task { await resetAppData() } }
-            Button("Cancel", role: .cancel) {}
-        } message: { Text("This clears local ledgers, receipts, caches, and device preferences. It does not delete CloudKit ledgers owned by or shared with other people.") }
+            Button("Erase All Books and Start Fresh", role: .destructive) { store.resetAllData() }
+        } message: { Text("This will delete all books, transactions, accounts, and budgets from this device.") }
     }
 
-    private func preferenceBinding(_ keyPath: WritableKeyPath<AppPreferences, Bool>) -> Binding<Bool> {
+    private func preferenceBinding<T>(_ keyPath: WritableKeyPath<AppPreferences, T>) -> Binding<T> {
         Binding(get: { preferences.value[keyPath: keyPath] }, set: { value in preferences.update { $0[keyPath: keyPath] = value } })
-    }
-    private var layoutBinding: Binding<TransactionEditorLayout> {
-        Binding(get: { preferences.value.transactionLayout }, set: { value in preferences.update { $0.transactionLayout = value } })
     }
     private var dateFormatBinding: Binding<AppDateFormat> {
         Binding(get: { preferences.value.dateFormat }, set: { value in preferences.update { $0.dateFormat = value } })
     }
     private var biometricBinding: Binding<Bool> {
         Binding(get: { preferences.value.biometricLockEnabled }, set: { enabled in
-            if enabled {
-                preferences.update { $0.biometricLockEnabled = true }
-                privacy.lockIfNeeded(protectionEnabled: true)
-                Task { await privacy.unlockIfNeeded(protectionEnabled: true) }
-            } else {
-                Task {
-                    guard await privacy.authorizeDisablingProtection() else { return }
-                    preferences.update { $0.biometricLockEnabled = false }
-                    privacy.protectionWasDisabled()
+            Task {
+                if enabled {
+                    let success = await privacy.requestEnrollmentAuthentication()
+                    if success { preferences.update { $0.biometricLockEnabled = true } }
+                } else {
+                    let success = await privacy.requestEnrollmentAuthentication()
+                    if success { preferences.update { $0.biometricLockEnabled = false } }
                 }
             }
         })
     }
-    private var remindersBinding: Binding<Bool> { Binding(get: { store.state.settings.backupReminders }, set: { value in store.updateSettings { $0.backupReminders = value } }) }
-    private var backupFileName: String {
-        let values = Calendar.current.dateComponents([.year, .month, .day], from: .now)
-        return String(format: "WalletLedger-%04d-%02d-%02d.walletledger", values.year ?? 0, values.month ?? 0, values.day ?? 0)
-    }
     private func backupToICloud() async {
         working = true; defer { working = false }
-        do { let date = try await ICloudBackupService.shared.backup(store.backupEnvelope()); store.updateSettings { $0.lastBackupAt = date }; statusMessage = "Backup saved to iCloud Drive." }
+        do { try await store.backupToICloud() }
         catch { store.presentedError = error.localizedDescription }
     }
     private func restoreFromICloud() async {
         working = true; defer { working = false }
-        do { importPreview = try await ICloudBackupService.shared.restoreLatest() }
+        do { try await store.restoreFromICloud() }
         catch { store.presentedError = error.localizedDescription }
-    }
-    private func resetAppData() async {
-        guard await privacy.authorizeSensitiveChange(reason: "Authenticate to reset local app data.", protectionEnabled: preferences.value.biometricLockEnabled) else { return }
-        do {
-            try store.resetLocalData()
-            preferences.reset()
-            privacy.protectionWasDisabled()
-            statusMessage = "Local app data was reset. Shared CloudKit data was not deleted."
-        } catch { store.presentedError = error.localizedDescription }
     }
     private func shareLedger() async {
         working = true; defer { working = false }
         do {
-            let share = try await CloudLedgerService.shared.share(book: store.activeBook)
-            cloudShare = share
-            if store.activeBook.effectiveStorageKind == .local { store.markActiveBookCloudOwner(zoneName: share.recordID.zoneID.zoneName) }
+            cloudShare = try await store.prepareCloudShare()
             showingCloudSharing = true
-        } catch { store.presentedError = error.localizedDescription }
+        } catch {
+            store.presentedError = error.localizedDescription
+        }
+    }
+}
+
+struct SettingsLabel: View {
+    let title: String
+    let systemImage: String
+    init(_ title: String, systemImage: String) { self.title = title; self.systemImage = systemImage }
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .frame(width: 22)
+            Text(title)
+        }
     }
 }
 
@@ -206,7 +203,9 @@ struct SettingsLinkRow: View {
     init(_ title: String, systemImage: String, detail: String?) { self.title = title; self.systemImage = systemImage; self.detail = detail }
     var body: some View {
         HStack(spacing: 12) {
-            Label(title, systemImage: systemImage)
+            Image(systemName: systemImage)
+                .frame(width: 22)
+            Text(title)
             Spacer()
             if let detail { Text(detail).font(.subheadline).foregroundStyle(.secondary) }
             Image(systemName: "chevron.right")
@@ -238,11 +237,9 @@ struct ImportPreviewView: View {
         NavigationStack {
             List {
                 Section("File") { LabeledContent("Name", value: preview.sourceName); LabeledContent("Base Currency", value: preview.envelope.data.settings.baseCurrency.rawValue) }
-                Section("Contents") { LabeledContent("Accounts", value: "\(preview.envelope.metadata.accountCount)"); LabeledContent("Transactions", value: "\(preview.envelope.metadata.transactionCount)"); LabeledContent("Categories", value: "\(preview.envelope.metadata.categoryCount)") }
                 if !preview.warnings.isEmpty { Section("Review") { ForEach(preview.warnings, id: \.self) { Label($0, systemImage: "exclamationmark.triangle") } } }
-                Section { Text("Import replaces the current private local ledger. While viewing a shared ledger, it creates a separate local ledger and never overwrites collaborators’ CloudKit data.").font(.footnote).foregroundStyle(.secondary) }
             }
-            .navigationTitle("Import Preview").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Import Ledger")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
@@ -253,10 +250,12 @@ struct ImportPreviewView: View {
                     .accessibilityLabel("Cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Import", action: confirm)
-                        .fontWeight(.semibold)
+                    Button(action: confirm) {
+                        Image(systemName: "checkmark")
+                    }
+                    .accessibilityLabel("Save")
                 }
             }
-        }.presentationDetents([.medium, .large])
+        }
     }
 }

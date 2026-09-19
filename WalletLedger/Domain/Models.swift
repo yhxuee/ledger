@@ -19,7 +19,7 @@ enum AccountType: String, Codable, CaseIterable, Identifiable, Sendable {
         case .cash: "wallet.bifold"
         case .loan: "building.columns.fill"
         case .lending: "person.crop.circle.badge.clock"
-        case .stocks: "chart.line.uptrend.xyaxis"
+        case .stocks: "chart.bar.fill"
         }
     }
 }

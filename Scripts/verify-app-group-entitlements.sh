@@ -6,9 +6,9 @@
 set -euo pipefail
 
 APP_PATH="${1:-}"
-APP_GROUP="group.org.medx.WalletLedger"
-APP_ID="org.medx.WalletLedger"
-WIDGET_ID="org.medx.WalletLedger.Widget"
+APP_GROUP="group.com.finsy.app"
+APP_ID="com.finsy.app"
+WIDGET_ID="com.finsy.app.Widget"
 
 failures=0
 ok()  { printf 'OK    %s\n' "$1"; }

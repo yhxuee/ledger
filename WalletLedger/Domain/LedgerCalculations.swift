@@ -24,13 +24,18 @@ enum LedgerCalculations {
         return value
     }
 
-    static func expenseEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode) -> Double? {
+    static func transactionEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, type: LedgerTransactionType) -> Double? {
+        guard type == .expense || type == .income else { return nil }
         if let originalID = transaction.reversalOfTransactionID {
-            guard let original = state.transactions.first(where: { $0.id == originalID }), original.type == .expense else { return nil }
+            guard let original = state.transactions.first(where: { $0.id == originalID }), original.type == type else { return nil }
             return -historical(transaction, to: target, rates: state.settings.rates)
         }
-        guard transaction.type == .expense else { return nil }
+        guard transaction.type == type else { return nil }
         return historical(transaction, to: target, rates: state.settings.rates)
+    }
+
+    static func expenseEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode) -> Double? {
+        transactionEffect(transaction, in: state, to: target, type: .expense)
     }
 
     /// Pocket a source posting lands in. Single-currency accounts always use their primary currency.
@@ -185,7 +190,7 @@ enum LedgerCalculations {
         activeTransactions(state).filter { accountID == nil || $0.accountID == accountID || $0.destinationAccountID == accountID }.sorted { $0.occurredAt > $1.occurredAt }
     }
 
-    static func analytics(_ state: LedgerState, range: AnalyticsRange, categories: Set<LedgerCategoryID> = [], accountID: UUID? = nil, accountIDs: Set<UUID> = [], customRange: ClosedRange<Date>? = nil, now: Date = .now) -> AnalyticsSummary {
+    static func analytics(_ state: LedgerState, range: AnalyticsRange, type: LedgerTransactionType = .expense, categories: Set<LedgerCategoryID> = [], accountID: UUID? = nil, accountIDs: Set<UUID> = [], customRange: ClosedRange<Date>? = nil, now: Date = .now) -> AnalyticsSummary {
         let calendar = Calendar.current
         let target = state.settings.baseCurrency
         let startOfToday = calendar.startOfDay(for: now)
@@ -248,10 +253,11 @@ enum LedgerCalculations {
             }
         }
 
-        var totals = Dictionary(uniqueKeysWithValues: state.categories.map { ($0.id, 0.0) })
+        let relevantCategories = state.categories.filter { $0.kind == (type == .income ? .income : .expense) }
+        var totals = Dictionary(uniqueKeysWithValues: relevantCategories.map { ($0.id, 0.0) })
         for transaction in activeTransactions(state) where transaction.occurredAt >= start && transaction.occurredAt < end && (accountID == nil || transaction.accountID == accountID) && (accountIDs.isEmpty || accountIDs.contains(transaction.accountID)) {
             guard categories.isEmpty || categories.contains(transaction.categoryID) else { continue }
-            guard let value = expenseEffect(transaction, in: state, to: target) else { continue }
+            guard let value = transactionEffect(transaction, in: state, to: target, type: type) else { continue }
             let key: String
             switch bucketMode {
             case .day: key = dayKey(transaction.occurredAt)

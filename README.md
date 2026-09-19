@@ -42,9 +42,9 @@ Transactions and accounts keep soft-deletion behavior. Deleting a refund restore
 Source and project target changes are included, but these account-bound steps must be completed in Xcode/Developer Portal:
 
 1. Select a development team for both `WalletLedger` and `WalletLedgerWidget`.
-2. Register `org.medx.WalletLedger` and `org.medx.WalletLedger.Widget` (or change both identifiers consistently).
-3. Create/enable `iCloud.org.medx.WalletLedger` with CloudKit and iCloud Documents, then select it on the app target.
-4. Create/enable App Group `group.org.medx.WalletLedger` for both targets.
+2. Register `com.finsy.app` and `com.finsy.app.Widget` (or change both identifiers consistently).
+3. Create/enable `iCloud.com.finsy.app` with CloudKit and iCloud Documents, then select it on the app target.
+4. Create/enable App Group `group.com.finsy.app` for both targets.
 5. Enable Push Notifications and Background Modes > Remote notifications on the app target.
 6. Enable Live Activities for the Widget Extension and confirm it is embedded in the app.
 7. In CloudKit Dashboard development, deploy record types after a signed development build writes sample records; promote the schema to production before distribution.

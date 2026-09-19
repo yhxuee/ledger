@@ -70,6 +70,9 @@ struct BudgetDetailView: View {
                             }
                         }
                 }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
             }
         }
     }

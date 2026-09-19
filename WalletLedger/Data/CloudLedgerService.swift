@@ -4,7 +4,7 @@ import Foundation
 final class CloudLedgerSyncCoordinator: CKSyncEngineDelegate, @unchecked Sendable {
     private let database: CKDatabase
     private let stateURL: URL
-    private let queue = DispatchQueue(label: "org.medx.WalletLedger.cloud-sync")
+    private let queue = DispatchQueue(label: "com.finsy.app.cloud-sync")
     private var pendingRecords: [CKRecord.ID: CKRecord] = [:]
     var receivedRecords: (@Sendable ([CKRecord]) -> Void)?
 
@@ -78,7 +78,7 @@ final class CloudLedgerSyncCoordinator: CKSyncEngineDelegate, @unchecked Sendabl
 
 actor CloudLedgerService {
     static let shared = CloudLedgerService()
-    let container = CKContainer(identifier: "iCloud.org.medx.WalletLedger")
+    let container = CKContainer(identifier: "iCloud.com.finsy.app")
     private lazy var ownerSync = CloudLedgerSyncCoordinator(database: container.privateCloudDatabase, stateName: "private")
     private lazy var participantSync = CloudLedgerSyncCoordinator(database: container.sharedCloudDatabase, stateName: "shared")
     private var callbacksConfigured = false

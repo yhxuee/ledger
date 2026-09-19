@@ -8,7 +8,6 @@ struct AccountsView: View {
     @State private var editing: AccountViewModel?
     @State private var creating = false
     @State private var deleting: LedgerAccount?
-    @State private var draggedID: UUID?
     @State private var hoverTargetID: UUID?
     private var portfolio: (netWorth: Double, assets: Double, liabilities: Double) { LedgerCalculations.portfolioSummary(store.state) }
 
@@ -25,21 +24,16 @@ struct AccountsView: View {
                             accountRowContent(item)
                         }
                         .buttonStyle(.plain)
-                        .scaleEffect(draggedID == item.id ? 1.03 : (hoverTargetID == item.id ? 0.98 : 1.0))
-                        .shadow(color: draggedID == item.id ? .black.opacity(0.18) : .clear, radius: 8, y: 4)
-                        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: draggedID)
+                        .scaleEffect(hoverTargetID == item.id ? 0.98 : 1.0)
                         .animation(.spring(response: 0.28, dampingFraction: 0.72), value: hoverTargetID)
                         .draggable(item.id.uuidString) {
                             accountRowContent(item)
                                 .frame(width: 320)
-                                .onAppear { draggedID = item.id }
                         }
                         .dropDestination(for: String.self) { items, _ in
-                            defer {
-                                draggedID = nil
-                                hoverTargetID = nil
-                            }
+                            hoverTargetID = nil
                             guard let first = items.first, let sourceID = UUID(uuidString: first) else { return false }
+                            guard sourceID != item.id else { return false }
                             withAnimation(.snappy) {
                                 store.moveAccount(from: sourceID, to: item.id)
                             }
@@ -58,8 +52,18 @@ struct AccountsView: View {
             if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
             ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() }
         }
-        .sheet(item: $editing) { item in AccountEditorView(item: item) { deleting = $0 } }
-        .sheet(isPresented: $creating) { AccountEditorView(item: nil) { deleting = $0 } }
+        .sheet(item: $editing) { item in
+            AccountEditorView(item: item) { deleting = $0 }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
+        }
+        .sheet(isPresented: $creating) {
+            AccountEditorView(item: nil) { deleting = $0 }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
+        }
         .confirmationDialog("Delete \(deleting?.name ?? "account")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
             Button("Delete Account and Linked Transactions", role: .destructive) { if let deleting { store.deleteAccount(deleting) }; deleting = nil }
         } message: { Text("The account and linked transactions will be soft-deleted and excluded from all totals.") }

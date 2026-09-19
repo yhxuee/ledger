@@ -10,9 +10,9 @@ note() { printf '  %s\n' "$1"; }
 ok()   { printf 'OK    %s\n' "$1"; }
 bad()  { printf 'FAIL  %s\n' "$1"; failures=$((failures + 1)); }
 
-APP_GROUP="group.org.medx.WalletLedger"
-APP_ID="org.medx.WalletLedger"
-WIDGET_ID="org.medx.WalletLedger.Widget"
+APP_GROUP="group.com.finsy.app"
+APP_ID="com.finsy.app"
+WIDGET_ID="com.finsy.app.Widget"
 PBX="WalletLedger.xcodeproj/project.pbxproj"
 
 echo "== Entitlement files =="

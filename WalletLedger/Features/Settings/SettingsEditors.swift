@@ -305,3 +305,50 @@ struct RecurringRuleEditorView: View {
         store.processDueRecurring(); dismiss()
     }
 }
+
+
+struct LayoutSettingsView: View {
+    @EnvironmentObject private var preferences: AppPreferencesStore
+
+    var body: some View {
+        Form {
+            Section("Transaction Editor Layout") {
+                Picker("Transaction Editor Layout", selection: Binding(
+                    get: { preferences.value.transactionLayout },
+                    set: { val in preferences.update { $0.transactionLayout = val } }
+                )) {
+                    ForEach(TransactionEditorLayout.allCases) { layout in
+                        Text(layout.title).tag(layout)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+
+            Section {
+                Picker("First Card", selection: Binding(
+                    get: { preferences.value.overviewMetrics.first ?? .weeklyActivity },
+                    set: { val in preferences.update { $0.setOverviewMetric(at: 0, to: val) } }
+                )) {
+                    ForEach(OverviewMetricKind.allCases) { kind in
+                        Text(kind.title).tag(kind)
+                    }
+                }
+
+                Picker("Second Card", selection: Binding(
+                    get: { preferences.value.overviewMetrics.count > 1 ? preferences.value.overviewMetrics[1] : .budget },
+                    set: { val in preferences.update { $0.setOverviewMetric(at: 1, to: val) } }
+                )) {
+                    ForEach(OverviewMetricKind.allCases) { kind in
+                        Text(kind.title).tag(kind)
+                    }
+                }
+            } header: {
+                Text("Overview Metrics")
+            } footer: {
+                Text("Overview displays exactly two metric cards. Selecting a duplicate metric automatically swaps the existing card.")
+            }
+        }
+        .navigationTitle("Layout")
+    }
+}

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDevelopmentRegion</key><string>$(DEVELOPMENT_LANGUAGE)</string>
-    <key>CFBundleDisplayName</key><string>Ledger</string>
+    <key>CFBundleDisplayName</key><string>Finsy</string>
     <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
@@ -18,9 +18,9 @@
     <key>NSSupportsLiveActivities</key><true/>
     <key>CKSharingSupported</key><true/>
     <key>UIBackgroundModes</key><array><string>remote-notification</string><string>fetch</string></array>
-    <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>org.medx.WalletLedger.market-refresh</string></array>
+    <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.finsy.app.market-refresh</string></array>
     <key>CFBundleURLTypes</key>
-    <array><dict><key>CFBundleURLName</key><string>org.medx.WalletLedger.purchase</string><key>CFBundleURLSchemes</key><array><string>walletledger</string></array></dict></array>
+    <array><dict><key>CFBundleURLName</key><string>com.finsy.app.purchase</string><key>CFBundleURLSchemes</key><array><string>finsy</string><string>walletledger</string></array></dict></array>
     <key>LSRequiresIPhoneOS</key><true/>
     <key>UIApplicationSupportsIndirectInputEvents</key><true/>
     <key>UILaunchScreen</key><dict/>
@@ -31,11 +31,37 @@
     <key>LSSupportsOpeningDocumentsInPlace</key><true/>
     <key>CFBundleDocumentTypes</key>
     <array>
-        <dict><key>CFBundleTypeName</key><string>Wallet Ledger Backup</string><key>LSHandlerRank</key><string>Owner</string><key>LSItemContentTypes</key><array><string>org.medx.walletledger.backup</string></array></dict>
+        <dict>
+            <key>CFBundleTypeName</key><string>Finsy Backup</string>
+            <key>LSHandlerRank</key><string>Owner</string>
+            <key>LSItemContentTypes</key><array>
+                <string>com.finsy.app.backup</string>
+                <string>org.medx.walletledger.backup</string>
+            </array>
+        </dict>
     </array>
     <key>UTExportedTypeDeclarations</key>
     <array>
-        <dict><key>UTTypeIdentifier</key><string>org.medx.walletledger.backup</string><key>UTTypeDescription</key><string>Wallet Ledger Backup</string><key>UTTypeConformsTo</key><array><string>public.json</string></array><key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>walletledger</string></array><key>public.mime-type</key><string>application/json</string></dict></dict>
+        <dict>
+            <key>UTTypeIdentifier</key><string>com.finsy.app.backup</string>
+            <key>UTTypeDescription</key><string>Finsy Backup</string>
+            <key>UTTypeConformsTo</key><array><string>public.json</string></array>
+            <key>UTTypeTagSpecification</key><dict>
+                <key>public.filename-extension</key><array><string>walletledger</string></array>
+                <key>public.mime-type</key><string>application/json</string>
+            </dict>
+        </dict>
+    </array>
+    <key>UTImportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key><string>org.medx.walletledger.backup</string>
+            <key>UTTypeDescription</key><string>Wallet Ledger Backup</string>
+            <key>UTTypeConformsTo</key><array><string>public.json</string></array>
+            <key>UTTypeTagSpecification</key><dict>
+                <key>public.filename-extension</key><array><string>walletledger</string></array>
+            </dict>
+        </dict>
     </array>
 </dict>
 </plist>
