@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct TransactionRow: View {
+    @EnvironmentObject private var preferences: AppPreferencesStore
     let transaction: LedgerTransaction
     let category: LedgerCategory
     var body: some View {
@@ -11,7 +12,7 @@ struct TransactionRow: View {
                 .background(Color(hex: category.colorHex).opacity(0.14), in: Circle())
             VStack(alignment: .leading, spacing: 3) {
                 Text(transaction.note?.isEmpty == false ? transaction.note! : category.name).font(.body.weight(.semibold)).lineLimit(1).strikethrough(transaction.isRefunded)
-                Text("\(category.name) · \(transaction.occurredAt.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(.secondary)
+                Text("\(category.name) · \(preferences.value.dateFormat.transactionDateString(from: transaction.occurredAt))").font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             SensitiveTransactionMoneyText(amount: transaction.amount, currency: transaction.currency, type: transaction.type, maxIntegerDigits: 4)

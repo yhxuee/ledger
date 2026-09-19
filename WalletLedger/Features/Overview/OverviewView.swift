@@ -438,6 +438,14 @@ struct OverviewMetricDetailSheet: View {
     }
 }
 
+private struct CardHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 200
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        if next > 0 { value = next }
+    }
+}
+
 private struct AccountPickerView: View {
     @EnvironmentObject private var store: LedgerStore
     @Environment(\.dismiss) private var dismiss
@@ -446,62 +454,50 @@ private struct AccountPickerView: View {
         LedgerPalette.primaryAction(for: colorScheme)
     }
     @Binding var selectedAccountID: UUID?
-    @State private var isReordering = false
+    @State private var workingOrder: [UUID] = []
+    @State private var draggedID: UUID? = nil
+    @State private var dragOffset: CGFloat = 0
+    @State private var lastDragTranslation: CGFloat = 0
+    @State private var cardHeight: CGFloat = 200
+    private let stackSpacing: CGFloat = -36
+
+    private var orderedAccounts: [AccountViewModel] {
+        let map = Dictionary(uniqueKeysWithValues: store.accounts.map { ($0.id, $0) })
+        let ordered = workingOrder.compactMap { map[$0] }
+        if ordered.count == store.accounts.count {
+            return ordered
+        }
+        return store.accounts
+    }
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    AccountCardView(account: nil, portfolioBalance: LedgerCalculations.portfolioBalance(store.state), baseCurrency: store.state.settings.baseCurrency, compact: true)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if !isReordering {
-                                selectedAccountID = nil
-                                dismiss()
-                            }
+            ScrollView {
+                VStack(spacing: stackSpacing) {
+                    Button {
+                        if draggedID == nil {
+                            selectedAccountID = nil
+                            dismiss()
                         }
-                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                }
-                Section {
-                    ForEach(store.accounts) { item in
-                        AccountCardView(account: item, baseCurrency: store.state.settings.baseCurrency, compact: true)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                if !isReordering {
-                                    selectedAccountID = item.id
-                                    dismiss()
-                                }
-                            }
-                            .onLongPressGesture {
-                                if !isReordering {
-                                    isReordering = true
-                                }
-                            }
-                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
+                    } label: {
+                        AccountCardView(account: nil, portfolioBalance: LedgerCalculations.portfolioBalance(store.state), baseCurrency: store.state.settings.baseCurrency, compact: true)
                     }
-                    .onMove { offsets, destination in
-                        store.moveAccounts(from: offsets, to: destination)
+                    .buttonStyle(.plain)
+                    .zIndex(0)
+
+                    ForEach(Array(orderedAccounts.enumerated()), id: \.element.id) { index, item in
+                        cardView(for: item, index: index + 1)
                     }
                 }
+                .padding()
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
             .background(LedgerBackground())
-            .environment(\.editMode, isReordering ? .constant(.active) : .constant(.inactive))
             .navigationTitle("Accounts")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
-                        if isReordering {
-                            isReordering = false
-                        } else {
-                            dismiss()
-                        }
+                        dismiss()
                     } label: {
                         Image(systemName: "checkmark")
                             .fontWeight(.semibold)
@@ -513,5 +509,100 @@ private struct AccountPickerView: View {
                 }
             }
         }
+        .onAppear {
+            workingOrder = store.accounts.map(\.id)
+        }
+        .onChange(of: store.accounts) { _, newAccounts in
+            let newIDs = newAccounts.map(\.id)
+            if Set(workingOrder) != Set(newIDs) {
+                workingOrder = newIDs
+            }
+        }
+        .onPreferenceChange(CardHeightPreferenceKey.self) { height in
+            if height > 50 {
+                cardHeight = height
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func cardView(for item: AccountViewModel, index: Int) -> some View {
+        let isDragging = draggedID == item.id
+        AccountCardView(account: item, baseCurrency: store.state.settings.baseCurrency, compact: true)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: CardHeightPreferenceKey.self, value: geo.size.height)
+                }
+            )
+            .scaleEffect(isDragging ? 1.03 : 1.0)
+            .shadow(color: .black.opacity(isDragging ? 0.35 : 0.08), radius: isDragging ? 20 : 8, y: isDragging ? 10 : 3)
+            .offset(y: isDragging ? dragOffset : 0)
+            .zIndex(isDragging ? 1000 : Double(index))
+            .animation(.spring(response: 0.26, dampingFraction: 0.8), value: isDragging)
+            .contentShape(Rectangle())
+            .gesture(dragGesture(for: item))
+            .onTapGesture {
+                if draggedID == nil {
+                    selectedAccountID = item.id
+                    dismiss()
+                }
+            }
+    }
+
+    private func dragGesture(for item: AccountViewModel) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.22)
+            .sequenced(before: DragGesture(coordinateSpace: .global))
+            .onChanged { value in
+                switch value {
+                case .first(true):
+                    if draggedID == nil {
+                        draggedID = item.id
+                        dragOffset = 0
+                        lastDragTranslation = 0
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    }
+                case .second(true, let drag):
+                    if draggedID == nil {
+                        draggedID = item.id
+                        dragOffset = 0
+                        lastDragTranslation = 0
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    }
+                    guard let drag = drag else { return }
+                    let translation = drag.translation.height
+                    let delta = translation - lastDragTranslation
+                    lastDragTranslation = translation
+                    dragOffset += delta
+
+                    let step: CGFloat = max(cardHeight + stackSpacing, 60)
+                    guard let currentIndex = workingOrder.firstIndex(of: item.id) else { return }
+
+                    if dragOffset > step / 2 && currentIndex < workingOrder.count - 1 {
+                        withAnimation(.spring(response: 0.26, dampingFraction: 0.8)) {
+                            workingOrder.swapAt(currentIndex, currentIndex + 1)
+                            dragOffset -= step
+                        }
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    } else if dragOffset < -step / 2 && currentIndex > 0 {
+                        withAnimation(.spring(response: 0.26, dampingFraction: 0.8)) {
+                            workingOrder.swapAt(currentIndex, currentIndex - 1)
+                            dragOffset += step
+                        }
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                default:
+                    break
+                }
+            }
+            .onEnded { _ in
+                if draggedID != nil {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                        dragOffset = 0
+                        draggedID = nil
+                        lastDragTranslation = 0
+                    }
+                    store.setAccountOrder(workingOrder)
+                }
+            }
     }
 }

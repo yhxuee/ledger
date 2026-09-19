@@ -248,44 +248,55 @@ struct TransactionEditorView: View {
 
     private var accountAndDateRow: some View {
         HStack(spacing: 8) {
-            HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Label("Account", systemImage: "creditcard")
-                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                    AccountSelectorMenu(accounts: activeAccounts, selection: $accountID,
-                                        title: "Account",
-                                        display: .logo,
-                                        visibleCharacters: 8, valueAlignment: .trailing)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 14).padding(.trailing, 10)
-                .onChange(of: accountID) { _, newValue in
-                    if !applyingDefaultAccount { accountExplicitlyOverridden = true }
-                    accountPocket = nil
-                    accountAmountOverridden = false
-                    if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
-                    if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
-                    syncAmountFields()
-                }
+            GeometryReader { geometry in
+                let totalWidth = geometry.size.width
+                let accountWidth = totalWidth * 0.42
+                let dateWidth = totalWidth - accountWidth
 
-                Divider().frame(height: 38)
-
-                Button { showingDatePicker = true } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Label("Date", systemImage: "calendar")
-                            .font(.caption2).foregroundStyle(.secondary)
-                        Text(preferences.value.dateFormat.compactString(from: occurredAt))
-                            .font(.subheadline).lineLimit(1)
+                HStack(spacing: 0) {
+                    HStack(spacing: 7) {
+                        Image(systemName: "creditcard")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        AccountSelectorMenu(accounts: activeAccounts, selection: $accountID,
+                                            title: "Account",
+                                            display: .logo,
+                                            visibleCharacters: 6, valueAlignment: .leading)
                     }
-                    .frame(width: 80, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .contentShape(Rectangle())
+                    .frame(width: max(0, accountWidth - 8), alignment: .leading)
+                    .padding(.leading, 14)
+                    .padding(.trailing, 6)
+                    .onChange(of: accountID) { _, newValue in
+                        if !applyingDefaultAccount { accountExplicitlyOverridden = true }
+                        accountPocket = nil
+                        accountAmountOverridden = false
+                        if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
+                        if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
+                        syncAmountFields()
+                    }
+
+                    Divider().frame(height: 20)
+
+                    Button { showingDatePicker = true } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: "calendar")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Text(preferences.value.dateFormat.compactString(from: occurredAt))
+                                .font(.body.weight(.medium))
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(width: max(0, dateWidth - 8), alignment: .leading)
+                        .padding(.leading, 10)
+                        .padding(.trailing, 14)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                .frame(width: totalWidth, height: geometry.size.height)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 7)
+            .frame(height: 50)
             .ledgerGlass(in: Capsule())
 
             Button {
@@ -312,16 +323,18 @@ struct TransactionEditorView: View {
 
     private var transferRow: some View {
         HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 3) {
-                Label("From", systemImage: "creditcard")
-                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                 AccountSelectorMenu(accounts: activeAccounts, selection: $accountID,
                                     title: "From Account",
                                     display: .logo,
-                                    visibleCharacters: 6, valueAlignment: .trailing)
+                                    visibleCharacters: 5, valueAlignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10).padding(.vertical, 7)
+            .padding(.horizontal, 10)
+            .frame(height: 50)
             .ledgerGlass(in: Capsule())
             .onChange(of: accountID) { _, newValue in
                 if !applyingDefaultAccount { accountExplicitlyOverridden = true }
@@ -332,16 +345,18 @@ struct TransactionEditorView: View {
                 syncAmountFields()
             }
 
-            VStack(alignment: .leading, spacing: 3) {
-                Label("To", systemImage: "arrow.right.circle")
-                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                 AccountSelectorMenu(accounts: activeAccounts.filter { $0.id != accountID }, selection: $destinationID,
                                     title: "To Account",
                                     display: .logo,
-                                    visibleCharacters: 6, valueAlignment: .trailing)
+                                    visibleCharacters: 5, valueAlignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10).padding(.vertical, 7)
+            .padding(.horizontal, 10)
+            .frame(height: 50)
             .ledgerGlass(in: Capsule())
             .onChange(of: destinationID) { _, _ in
                 destinationPocket = nil
@@ -350,14 +365,17 @@ struct TransactionEditorView: View {
             }
 
             Button { showingDatePicker = true } label: {
-                VStack(alignment: .leading, spacing: 3) {
-                    Label("Date", systemImage: "calendar")
-                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                     Text(preferences.value.dateFormat.compactString(from: occurredAt))
-                        .font(.subheadline).lineLimit(1)
+                        .font(.body.weight(.medium))
+                        .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10).padding(.vertical, 7)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 8)
+                .frame(height: 50)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

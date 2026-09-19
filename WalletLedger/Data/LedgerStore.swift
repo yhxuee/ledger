@@ -424,6 +424,24 @@ final class LedgerStore: ObservableObject {
         scheduleSave()
     }
 
+    func setAccountOrder(_ orderedIDs: [UUID]) {
+        let active = state.accounts.filter { $0.deletedAt == nil }
+        let map = Dictionary(grouping: active, by: \.id)
+        var newActive: [LedgerAccount] = []
+        for id in orderedIDs {
+            if let account = map[id]?.first {
+                newActive.append(account)
+            }
+        }
+        let orderedSet = Set(orderedIDs)
+        for account in active where !orderedSet.contains(account.id) {
+            newActive.append(account)
+        }
+        newActive.append(contentsOf: state.accounts.filter { $0.deletedAt != nil })
+        state.accounts = newActive
+        scheduleSave()
+    }
+
     func moveAccount(from sourceID: UUID, to destinationID: UUID) {
         guard sourceID != destinationID else { return }
         guard let sourceIndex = state.accounts.firstIndex(where: { $0.id == sourceID }),

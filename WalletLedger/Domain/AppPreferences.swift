@@ -27,6 +27,16 @@ enum AppDateFormat: String, Codable, CaseIterable, Identifiable, Sendable {
         let day = components.day ?? 0
         return self == .monthDay ? String(format: "%02d/%02d", month, day) : String(format: "%02d/%02d", day, month)
     }
+
+    func transactionDateString(from date: Date, calendar: Calendar = .current) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        let month = components.month ?? 0
+        let day = components.day ?? 0
+        let year = abs((components.year ?? 0) % 100)
+        return self == .monthDay
+            ? String(format: "%02d/%02d/%02d", month, day, year)
+            : String(format: "%02d/%02d/%02d", day, month, year)
+    }
 }
 
 enum TransactionEditorLayout: String, Codable, CaseIterable, Identifiable, Sendable {

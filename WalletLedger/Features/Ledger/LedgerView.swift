@@ -1,13 +1,6 @@
 import SwiftUI
 
 struct LedgerView: View {
-    private struct DayGroup: Identifiable {
-        let date: Date
-        let entries: [PurchaseLedgerEntry]
-
-        var id: Date { date }
-    }
-
     @EnvironmentObject private var store: LedgerStore
     @EnvironmentObject private var preferences: AppPreferencesStore
     @State private var query = ""
@@ -34,46 +27,56 @@ struct LedgerView: View {
             return matchesCategory && matchesAccount && matchesRange && matchesDay && (query.isEmpty || searchable.contains(query.lowercased()))
         }
     }
-    private var groups: [DayGroup] {
-        let entries = PurchaseLedgerPresentation.entries(
+
+    private var entries: [PurchaseLedgerEntry] {
+        PurchaseLedgerPresentation.entries(
             transactions: filtered,
             sessions: store.purchaseSessions,
             collapsePurchases: !filtersActive && query.isEmpty
         )
-        return Dictionary(grouping: entries) { Calendar.current.startOfDay(for: $0.occurredAt) }
-            .map { DayGroup(date: $0.key, entries: $0.value) }
-            .sorted { $0.date > $1.date }
     }
 
     var body: some View {
-        VStack(spacing: showingCalendar ? 12 : 0) {
-            if showingCalendar { calendarPanel }
-            List {
-                ForEach(groups) { group in
-                    Section {
-                        ForEach(group.entries) { entry in
-                            switch entry {
-                            case .transaction(let item): transactionButton(item)
-                            case .purchase(let session, let children):
-                                purchaseRow(session: session, children: children)
-                                if expandedPurchaseIDs.contains(session.id) {
-                                    ForEach(children) { transactionButton($0, isPurchaseChild: true) }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                Section {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Transactions")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 18)
+                            .padding(.top, showingCalendar ? 10 : 12)
+                            .padding(.bottom, 2)
+
+                        LazyVStack(spacing: 8) {
+                            ForEach(entries) { entry in
+                                switch entry {
+                                case .transaction(let item):
+                                    transactionButton(item)
+                                case .purchase(let session, let children):
+                                    purchaseRow(session: session, children: children)
+                                    if expandedPurchaseIDs.contains(session.id) {
+                                        ForEach(children) { transactionButton($0, isPurchaseChild: true) }
+                                    }
                                 }
                             }
                         }
-                    } header: {
-                        Text(group.date.formatted(.dateTime.weekday(.wide).month(.wide).day()))
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .textCase(nil)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+
+                        if filtered.isEmpty {
+                            ContentUnavailableView.search(text: query)
+                                .padding(.top, 40)
+                                .frame(maxWidth: .infinity)
+                        }
                     }
-                    .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 4, trailing: 16))
+                } header: {
+                    if showingCalendar {
+                        calendarPanel
+                            .background(LedgerBackground())
+                    }
                 }
-                if filtered.isEmpty { ContentUnavailableView.search(text: query) }
             }
-            .scrollContentBackground(.hidden)
-            .listStyle(.plain)
+            .padding(.bottom, 80)
         }
         .background(LedgerBackground())
         .navigationTitle("Ledger")
@@ -126,10 +129,12 @@ struct LedgerView: View {
     private var calendarPanel: some View {
         LedgerCalendarView(selection: $calendarDay, transactions: store.activeTransactions, accounts: store.accounts.map(\.account))
             .onChange(of: calendarDay) { _, _ in hasCalendarDay = true }
-        .padding(10)
-        .ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .padding(.horizontal, 16).padding(.top, 8)
-        .transition(.move(edge: .top).combined(with: .opacity))
+            .padding(.vertical, 7)
+            .padding(.horizontal, 10)
+            .ledgerGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .padding(.bottom, 6)
     }
 
     private func category(_ id: LedgerCategoryID) -> LedgerCategory { store.state.categories.first { $0.id == id } ?? SeedData.categories.first { $0.id == id } ?? LedgerCategory(id: .other, name: "Other", detail: "Everything else", symbol: "dollarsign.circle.fill", colorHex: "62B28F") }
@@ -142,16 +147,14 @@ struct LedgerView: View {
                 .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
-        .listRowBackground(EmptyView())
-        .listRowSeparator(.hidden)
-        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            if preferences.value.swipeActionOrientation == .refundLeadingDeleteTrailing { refundButton(item) }
-            else { deleteButton(item) }
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            if preferences.value.swipeActionOrientation == .refundLeadingDeleteTrailing { deleteButton(item) }
-            else { refundButton(item) }
+        .contextMenu {
+            if preferences.value.swipeActionOrientation == .refundLeadingDeleteTrailing {
+                refundButton(item)
+                deleteButton(item)
+            } else {
+                deleteButton(item)
+                refundButton(item)
+            }
         }
     }
 
@@ -189,9 +192,6 @@ struct LedgerView: View {
                 _ = expandedPurchaseIDs.insert(session.id)
             }
         }
-        .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
-        .listRowBackground(EmptyView())
-        .listRowSeparator(.hidden)
         .accessibilityHint("Expands the individual purchase transactions")
     }
 

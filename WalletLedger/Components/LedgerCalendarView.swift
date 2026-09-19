@@ -17,8 +17,15 @@ struct LedgerCalendarView: View {
         _displayedMonth = State(initialValue: Calendar.current.date(from: components) ?? selection.wrappedValue)
     }
 
+    private var totalGridCells: Int {
+        let first = calendar.date(from: calendar.dateComponents([.year, .month], from: displayedMonth)) ?? displayedMonth
+        let leading = calendar.component(.weekday, from: first) - 1
+        let daysInMonth = calendar.range(of: .day, in: .month, for: first)?.count ?? 30
+        return (leading + daysInMonth) > 35 ? 42 : 35
+    }
+
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             HStack {
                 Button { moveMonth(-1) } label: { Image(systemName: "chevron.left") }.buttonStyle(.plain)
                 Spacer()
@@ -27,32 +34,48 @@ struct LedgerCalendarView: View {
                 Button { moveMonth(1) } label: { Image(systemName: "chevron.right") }.buttonStyle(.plain)
             }
             .padding(.horizontal, 8)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
-                ForEach(Array(weekdays.enumerated()), id: \.offset) { item in Text(item.element).font(.caption2.weight(.semibold)).foregroundStyle(.secondary).frame(height: 20) }
-                ForEach(0..<42, id: \.self) { index in
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 2) {
+                ForEach(Array(weekdays.enumerated()), id: \.offset) { item in
+                    Text(item.element)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(height: 18)
+                }
+                ForEach(0..<totalGridCells, id: \.self) { index in
                     if let date = date(for: index) {
                         Button { selection = date } label: {
                             let colors = Array(markerColors(for: date).prefix(4))
-                            VStack(spacing: 3) {
-                                Text("\(calendar.component(.day, from: date))").font(.subheadline.weight(calendar.isDate(date, inSameDayAs: selection) ? .bold : .regular))
+                            let isSelected = calendar.isDate(date, inSameDayAs: selection)
+                            VStack(spacing: 2) {
+                                Text("\(calendar.component(.day, from: date))")
+                                    .font(.body.weight(isSelected ? .bold : .regular))
                                 HStack(spacing: 2) {
                                     ForEach(Array(colors.enumerated()), id: \.offset) { item in
                                         Circle().fill(item.element).frame(width: 4, height: 4)
                                     }
-                                }.frame(height: 5)
+                                }.frame(height: 4)
                             }
-                            .frame(maxWidth: .infinity, minHeight: 36)
-                            .background(calendar.isDate(date, inSameDayAs: selection) ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 10))
+                            .frame(maxWidth: .infinity, minHeight: 34)
+                            .background(
+                                isSelected ? Color.accentColor.opacity(0.22) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                            )
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(date.formatted(date: .complete, time: .omitted))
                     } else {
-                        Color.clear.frame(height: 36)
+                        Color.clear.frame(height: 34)
                     }
                 }
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
         .onChange(of: selection) { _, date in
             displayedMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: date)) ?? date
         }
