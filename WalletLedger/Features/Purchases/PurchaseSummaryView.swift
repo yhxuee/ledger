@@ -19,29 +19,121 @@ struct PurchaseSummaryView: View {
         NavigationStack {
             List {
                 if let session {
-                Section("Items") {
-                    ForEach(session.orderedItems) { item in
+                    Section {
+                        VStack(spacing: 10) {
+                            ForEach(session.orderedItems) { item in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(item.note.isEmpty ? "Item" : item.note)
+                                            .font(.body.weight(.medium))
+                                        Text(categoryName(item.categoryID))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    SensitiveMoneyText(amount: item.amount, currency: session.currency, maxIntegerDigits: 4)
+                                        .font(.subheadline.bold())
+                                }
+                                if item.id != session.orderedItems.last?.id {
+                                    Divider()
+                                }
+                            }
+                        }
+                        .padding(16)
+                        .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    } header: {
+                        Text("Items").font(.subheadline.weight(.semibold))
+                    }
+
+                    Section {
                         HStack {
-                            VStack(alignment: .leading, spacing: 3) { Text(item.note); Text(categoryName(item.categoryID)).font(.caption).foregroundStyle(.secondary) }
-                            Spacer(); SensitiveMoneyText(amount: item.amount, currency: session.currency, maxIntegerDigits: 4).font(.subheadline.bold())
+                            Text("Total")
+                                .font(.headline)
+                            Spacer()
+                            SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency, maxIntegerDigits: 4)
+                                .font(.title3.bold())
+                        }
+                        .padding(16)
+                        .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
+
+                    if !readOnly {
+                        Section {
+                            VStack(spacing: 12) {
+                                if let receiptImage {
+                                    Image(uiImage: receiptImage)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(maxHeight: 220)
+                                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                }
+                                Button {
+                                    showingCamera = true
+                                } label: {
+                                    Label(receiptImage == nil ? "Take Receipt Photo" : "Retake Receipt Photo", systemImage: "camera")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                            .padding(16)
+                            .frame(maxWidth: .infinity)
+                            .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                        } header: {
+                            Text("Receipt").font(.subheadline.weight(.semibold))
+                        }
+
+                        Section {
+                            Button {
+                                Task { await finalize() }
+                            } label: {
+                                Text("Create Ledger Transactions")
+                                    .frame(maxWidth: .infinity)
+                                    .fontWeight(.semibold)
+                            }
+                            .glassPrimaryButton()
+                            .disabled(saving)
+                            .padding(.vertical, 4)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                        }
+                    } else if session.receiptAttachmentID != nil {
+                        Section {
+                            Group {
+                                if let storedReceiptImage {
+                                    Image(uiImage: storedReceiptImage)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(maxHeight: 260)
+                                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                } else {
+                                    Label("Receipt stored securely outside the ledger JSON.", systemImage: "doc.viewfinder")
+                                }
+                            }
+                            .padding(16)
+                            .frame(maxWidth: .infinity)
+                            .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                        } header: {
+                            Text("Receipt").font(.subheadline.weight(.semibold))
                         }
                     }
                 }
-                Section { LabeledContent("Total") { SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency, maxIntegerDigits: 4).font(.headline) } }
-                if !readOnly {
-                    Section("Receipt") {
-                        if let receiptImage { Image(uiImage: receiptImage).resizable().scaledToFit().frame(maxHeight: 220).clipShape(RoundedRectangle(cornerRadius: 16)) }
-                        Button { showingCamera = true } label: { Label(receiptImage == nil ? "Take Receipt Photo" : "Retake Receipt Photo", systemImage: "camera") }
-                    }
-                    Section { Button("Create Ledger Transactions") { Task { await finalize() } }.fontWeight(.semibold).disabled(saving) }
-                } else if session.receiptAttachmentID != nil {
-                    Section("Receipt") {
-                        if let storedReceiptImage { Image(uiImage: storedReceiptImage).resizable().scaledToFit().frame(maxHeight: 260).clipShape(RoundedRectangle(cornerRadius: 16)) }
-                        else { Label("Receipt stored securely outside the ledger JSON.", systemImage: "doc.viewfinder") }
-                    }
-                }
-                }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(LedgerBackground())
             .navigationTitle("Purchase Summary").navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) { PurchaseStatusNotice() }
             .toolbar {

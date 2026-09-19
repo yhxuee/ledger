@@ -27,7 +27,7 @@ struct PurchaseStatusNotice: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .ledgerGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .padding(.horizontal, 12)
         .accessibilityElement(children: .contain)
     }

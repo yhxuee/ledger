@@ -428,7 +428,7 @@ struct TransactionEditorView: View {
                     if showsSourcePocket {
                         Divider()
                     }
-                    accountAmountRow(title: type == .transfer ? "From Account Amount" : "Account Amount",
+                    accountAmountRow(title: type == .transfer ? "From Amount" : "Account Amount",
                                      pocket: sourcePocket,
                                      text: $accountAmountText,
                                      overridden: $accountAmountOverridden,
@@ -447,7 +447,7 @@ struct TransactionEditorView: View {
                     if showsSourcePocket || showsSourceAmount || showsDestinationPocket {
                         Divider()
                     }
-                    accountAmountRow(title: "To Account Amount",
+                    accountAmountRow(title: "To Amount",
                                      pocket: targetPocket,
                                      text: $destinationAmountText,
                                      overridden: $destinationAmountOverridden,

@@ -14,19 +14,43 @@ struct PurchaseModeView: View {
             List {
                 ForEach(store.purchaseSessions) { session in
                     Button { selected = session } label: {
-                        HStack {
+                        HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(session.name.isEmpty ? "Untitled Purchase" : session.name).font(.headline)
-                                Text(session.status.title).font(.caption).foregroundStyle(.secondary)
+                                Text(session.name.isEmpty ? "Untitled Purchase" : session.name)
+                                    .font(.headline)
+                                    .lineLimit(1)
+                                Text(session.status.title)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
-                            Spacer()
-                            SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency, maxIntegerDigits: 4).font(.subheadline.bold()).lineLimit(1).minimumScaleFactor(0.85)
-                            Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
+                            Spacer(minLength: 8)
+                            SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency, maxIntegerDigits: 4)
+                                .font(.subheadline.bold())
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.bold())
+                                .foregroundStyle(.tertiary)
                         }
-                    }.buttonStyle(.plain)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .frame(maxWidth: .infinity)
+                        .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                 }
-                if store.purchaseSessions.isEmpty { ContentUnavailableView("No Purchase Lists", systemImage: "cart", description: Text("Create a reusable shopping-style purchase list.")) }
+                if store.purchaseSessions.isEmpty {
+                    ContentUnavailableView("No Purchase Lists", systemImage: "cart", description: Text("Create a reusable shopping-style purchase list."))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(LedgerBackground())
             .navigationTitle("Purchase Mode").navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) { PurchaseStatusNotice() }
             .toolbar {
@@ -106,34 +130,63 @@ struct PurchaseSessionEditorView: View {
         NavigationStack {
             List {
                 Section {
-                    TextField("Purchase Name", text: $session.name)
-                    CurrencyPickerLink(selection: $session.currency, stablecoinDescriptions: false)
-                    Picker("Payment Account", selection: $session.accountID) {
-                        Text("Choose Account").tag(Optional<UUID>.none)
-                        if let id = session.accountID, !store.accounts.contains(where: { $0.id == id }) {
-                            Text("Account unavailable").tag(Optional(id))
+                    VStack(spacing: 12) {
+                        TextField("Purchase Name", text: $session.name)
+                            .font(.headline)
+                        Divider()
+                        CurrencyPickerLink(selection: $session.currency, stablecoinDescriptions: false)
+                        Divider()
+                        Picker("Payment Account", selection: $session.accountID) {
+                            Text("Choose Account").tag(Optional<UUID>.none)
+                            if let id = session.accountID, !store.accounts.contains(where: { $0.id == id }) {
+                                Text("Account unavailable").tag(Optional(id))
+                            }
+                            ForEach(store.accounts) { account in
+                                Text("\(account.account.name) · \(account.account.currency.rawValue)").tag(Optional(account.id))
+                            }
                         }
-                        ForEach(store.accounts) { account in
-                            Text("\(account.account.name) · \(account.account.currency.rawValue)").tag(Optional(account.id))
+                        .pickerStyle(.menu)
+                        if !paymentValid {
+                            Text("Select an active payment account and configure the currency rates before starting.")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    if !paymentValid {
-                        Text("Select an active payment account and configure the currency rates before starting.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity)
+                    .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 }
                 ForEach(session.orderedSections) { section in
                     Section {
                         ForEach(items(in: section.categoryID)) { item in
                             inlineRow(item)
-                                .listRowBackground(Color(hex: category(section.categoryID).colorHex).opacity(0.09))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color(hex: category(section.categoryID).colorHex).opacity(0.05))
+                                .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                                 .swipeActions {
                                     Button("Delete", role: .destructive) { session.items.removeAll { $0.id == item.id } }
                                 }
                         }
                         .onMove { offsets, destination in moveItems(categoryID: section.categoryID, offsets: offsets, destination: destination) }
-                        Button { addItem(categoryID: section.categoryID) } label: { Label("Add Item", systemImage: "plus") }
-                            .listRowBackground(Color(hex: category(section.categoryID).colorHex).opacity(0.09))
+                        Button { addItem(categoryID: section.categoryID) } label: {
+                            Label("Add Item", systemImage: "plus")
+                                .font(.subheadline.weight(.medium))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .background(Color(hex: category(section.categoryID).colorHex).opacity(0.04))
+                                .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                     } header: {
                         HStack {
                             CategoryIcon(category: category(section.categoryID))
@@ -144,18 +197,55 @@ struct PurchaseSessionEditorView: View {
                                 Button("Move Down") { moveSection(section.id, by: 1) }
                             } label: { Image(systemName: "arrow.up.arrow.down") }
                             .accessibilityLabel("Reorder \(category(section.categoryID).name)")
-                        }.foregroundStyle(Color(hex: category(section.categoryID).colorHex))
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color(hex: category(section.categoryID).colorHex))
                     }
                 }
                 Section {
-                    Button { addItem(categoryID: store.state.categories.first?.id ?? .other) } label: { Label("Add Item", systemImage: "plus.circle.fill") }
+                    Button { addItem(categoryID: store.state.categories.first?.id ?? .other) } label: {
+                        Label("Add Item", systemImage: "plus.circle.fill")
+                            .font(.subheadline.weight(.medium))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                 }
                 Section {
-                    Button("Save for Later") { saveDraft(); dismiss() }
-                    Button("Start Purchase") { Task { await startPurchase() } }
-                        .fontWeight(.semibold).disabled(!canStart || starting)
+                    VStack(spacing: 12) {
+                        Button {
+                            saveDraft()
+                            dismiss()
+                        } label: {
+                            Text("Save for Later")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button {
+                            Task { await startPurchase() }
+                        } label: {
+                            Text("Start Purchase")
+                                .frame(maxWidth: .infinity)
+                                .fontWeight(.semibold)
+                        }
+                        .glassPrimaryButton()
+                        .disabled(!canStart || starting)
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity)
+                    .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 }
             }
+            .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(LedgerBackground())
             .scrollDismissesKeyboard(.interactively)
@@ -297,25 +387,52 @@ struct ActivePurchaseView: View {
                                 SensitiveMoneyText(amount: session.completedAmount, currency: session.currency, maxIntegerDigits: 4).font(.title3.bold()).lineLimit(1).minimumScaleFactor(0.85)
                                 HStack { Text("Planned").foregroundStyle(.secondary); SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency, maxIntegerDigits: 4) }.font(.caption)
                             }
-                        }.padding(.vertical, 8)
+                        }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .ledgerGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     }
                     ForEach(session.orderedSections) { section in
-                        Section(category(section.categoryID).name) {
+                        Section {
                             ForEach(session.orderedItems.filter { $0.categoryID == section.categoryID }) { item in
                                 Button { toggle(item, in: session) } label: {
-                                    HStack {
+                                    HStack(spacing: 12) {
                                         Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
-                                        Text(item.note).strikethrough(item.isCompleted)
+                                            .font(.title3)
+                                            .foregroundStyle(item.isCompleted ? primaryActionColor : .secondary)
+                                        Text(item.note.isEmpty ? "Item" : item.note)
+                                            .font(.body)
+                                            .strikethrough(item.isCompleted)
+                                            .foregroundStyle(item.isCompleted ? .secondary : .primary)
                                         Spacer()
                                         SensitiveMoneyText(amount: item.amount, currency: session.currency, maxIntegerDigits: 4)
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(item.isCompleted ? .secondary : .primary)
                                     }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 12)
+                                    .background(Color(hex: category(section.categoryID).colorHex).opacity(0.05))
+                                    .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                                 }
-                                .listRowBackground(Color(hex: category(section.categoryID).colorHex).opacity(0.09))
+                                .buttonStyle(.plain)
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                             }
+                        } header: {
+                            Text(category(section.categoryID).name)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Color(hex: category(section.categoryID).colorHex))
                         }
                     }
                 }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(LedgerBackground())
             .navigationTitle(session?.name ?? "Purchase").navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) { PurchaseStatusNotice() }
             .toolbar {
