@@ -163,7 +163,9 @@ struct OverviewView: View {
         case .sixMonthTrend:
             Button { activeDetailMetric = .sixMonthTrend } label: {
                 MetricCard("6M Trends") {
-                    MiniActivityChart(buckets: sixMonthsSummary.buckets)
+                    SixMonthTrendChart(buckets: sixMonthsSummary.buckets)
+                        .chartXAxis(.hidden)
+                        .frame(height: 45)
                     SensitiveMoneyText(amount: sixMonthsSummary.total, currency: store.state.settings.baseCurrency, compact: true)
                         .font(.headline.bold())
                 }
@@ -239,6 +241,27 @@ private struct MiniPieChart: View {
             .chartLegend(.hidden)
             .frame(height: 45)
         }
+    }
+}
+
+private struct SixMonthTrendChart: View {
+    @EnvironmentObject private var privacy: PrivacyController
+    let buckets: [AnalyticsBucket]
+
+    var body: some View {
+        Chart(buckets) { bucket in
+            AreaMark(x: .value("Period", bucket.label),
+                     y: .value("Amount", privacy.isLocked ? 0 : bucket.value))
+                .interpolationMethod(.catmullRom)
+                .foregroundStyle(Color.blue.opacity(0.10))
+            LineMark(x: .value("Period", bucket.label),
+                     y: .value("Amount", privacy.isLocked ? 0 : bucket.value))
+                .interpolationMethod(.catmullRom)
+                .foregroundStyle(.blue)
+                .lineStyle(StrokeStyle(lineWidth: 2))
+        }
+        .chartYAxis(.hidden)
+        .chartLegend(.hidden)
     }
 }
 
@@ -384,6 +407,14 @@ struct OverviewMetricDetailSheet: View {
                     .chartLegend(.hidden)
                     .frame(height: 200)
                 }
+            } else if metric == .sixMonthTrend {
+                SixMonthTrendChart(buckets: chartBuckets)
+                    .chartXAxis {
+                        AxisMarks(values: chartBuckets.map(\.label)) {
+                            AxisValueLabel()
+                        }
+                    }
+                    .frame(height: 200)
             } else {
                 Chart(chartBuckets) { bucket in
                     BarMark(x: .value("Period", bucket.label), y: .value("Amount", privacy.isLocked ? 0 : bucket.value))
@@ -592,10 +623,7 @@ private struct OverviewPortraitAccountCard: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
             if let account {
-                Text(account.metadataLine)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
+                AccountCardMetadata(account: account)
             }
         }
         .padding(24)
