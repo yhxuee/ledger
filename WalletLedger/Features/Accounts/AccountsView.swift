@@ -18,9 +18,11 @@ struct AccountsView: View {
                         Button { editing = item } label: {
                             HStack(spacing: 14) {
                                 Text(item.account.logo).font(.caption.bold()).frame(width: 42, height: 42).background(LinearGradient(colors: [Color(hex: item.account.cardStyle.startHex), Color(hex: item.account.cardStyle.endHex)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 12))
-                                VStack(alignment: .leading) { Text(item.account.name).font(.headline); Text(item.account.metadataLine).font(.caption).foregroundStyle(.secondary) }
+                                VStack(alignment: .leading) { Text(item.account.name).font(.headline).lineLimit(1); Text(item.account.metadataLine).font(.caption).foregroundStyle(.secondary) }
                                 Spacer()
-                                SensitiveMoneyText(amount: item.balance, currency: item.account.currency).font(.headline.monospacedDigit()).minimumScaleFactor(0.7).lineLimit(1)
+                                SensitiveMoneyText(amount: item.balance, currency: item.account.currency, maxIntegerDigits: 4).font(.headline.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.85)
+                                    .frame(minWidth: LedgerAmountWidth.row, alignment: .trailing)
+                                    .layoutPriority(1)
                                 Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
                             }.padding(15).ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                         }.buttonStyle(.plain)
@@ -160,8 +162,19 @@ private struct AccountEditorView: View {
                             Toggle("Multi-Currency Account", isOn: $account.isMultiCurrency)
                         }
                         if account.usesCurrencyPockets {
-                            Picker("Primary Currency", selection: $account.currency) {
-                                ForEach(account.normalizedPockets) { pocket in Text(pocket.currency.rawValue).tag(pocket.currency) }
+                            LabeledContent("Primary Currency") {
+                                CurrencyQuickPicker(codes: account.pocketCurrencies,
+                                                    selection: account.currency,
+                                                    showsStablecoinNames: false,
+                                                    requiresConfiguredRate: false,
+                                                    onSelect: { account.currency = $0 }) {
+                                    HStack(spacing: 6) {
+                                        Text(account.currency.rawValue).foregroundStyle(.secondary)
+                                        Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.tertiary)
+                                    }
+                                }
+                                .accessibilityLabel("Primary Currency")
+                                .accessibilityValue(account.currency.rawValue)
                             }
                             ForEach(account.normalizedPockets) { pocket in
                                 LabeledContent(pocket.currency.rawValue) {
@@ -169,11 +182,12 @@ private struct AccountEditorView: View {
                                 }
                             }
                             .onDelete(perform: removePockets)
-                            Menu {
-                                ForEach(store.availableCurrencies.filter { !account.pocketCurrencies.contains($0) }) { code in
-                                    Button(code.rawValue) { addPocket(code) }
-                                }
-                            } label: {
+                            CurrencyQuickPicker(codes: CurrencySelection.addable(excluding: account.pocketCurrencies),
+                                                selection: account.currency,
+                                                otherCurrencies: true,
+                                                otherPageCodes: store.availableCurrencies.filter { !account.pocketCurrencies.contains($0) },
+                                                showsStablecoinNames: false,
+                                                onSelect: { addPocket($0) }) {
                                 Label("Add Currency", systemImage: "plus")
                             }
                         } else {

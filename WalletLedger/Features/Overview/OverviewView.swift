@@ -57,7 +57,7 @@ struct OverviewView: View {
             .accessibilityHint("Opens Analytics")
             Button { showingBudgetDetail = true } label: {
                 MetricCard("Budget / Remain") {
-                    SensitiveMoneyText(amount: usage.budget - usage.spent, currency: usageCurrency).font(.title2.bold()).minimumScaleFactor(0.65).lineLimit(1)
+                    SensitiveMoneyText(amount: usage.budget - usage.spent, currency: usageCurrency, maxIntegerDigits: 6).font(.title2.bold()).minimumScaleFactor(0.75).lineLimit(1)
                     ProgressView(value: privacy.isLocked ? 0 : min(max(usage.ratio, 0), 1)).tint(usage.ratio > 1 ? .red : LedgerPalette.coral)
                     SensitiveValueText("\(Int(usage.ratio * 100))% of monthly budget used", maskLength: 8).font(.caption).foregroundStyle(.secondary)
                 }.frame(minHeight: 146)

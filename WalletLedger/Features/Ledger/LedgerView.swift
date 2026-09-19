@@ -156,8 +156,12 @@ struct LedgerView: View {
                     Text("\(children.count) items · Purchase").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                SensitiveMoneyText(amount: PurchaseLedgerPresentation.displayedTotal(children, session: session, rates: store.state.settings.rates), currency: session.currency)
+                SensitiveMoneyText(amount: PurchaseLedgerPresentation.displayedTotal(children, session: session, rates: store.state.settings.rates), currency: session.currency, maxIntegerDigits: 4)
                     .font(.subheadline.monospacedDigit().weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                    .frame(minWidth: LedgerAmountWidth.row, alignment: .trailing)
+                    .layoutPriority(1)
                 Image(systemName: expandedPurchaseIDs.contains(session.id) ? "chevron.down" : "chevron.right")
                     .font(.caption.bold()).foregroundStyle(.tertiary)
             }

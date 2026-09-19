@@ -133,11 +133,7 @@ struct TransactionEditorView: View {
     private var detailsPanel: some View {
         VStack(spacing: 0) {
             LabeledContent(type == .transfer ? "From Account" : "Account") {
-                Picker(type == .transfer ? "From Account" : "Account", selection: $accountID) {
-                    ForEach(activeAccounts) { Text($0.name).tag(Optional($0.id)) }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
+                AccountSelectorMenu(accounts: activeAccounts, selection: $accountID, title: type == .transfer ? "From Account" : "Account")
             }
             .onChange(of: accountID) { _, newValue in
                 if !applyingDefaultAccount { accountExplicitlyOverridden = true }
@@ -165,11 +161,7 @@ struct TransactionEditorView: View {
             if type == .transfer {
                 Divider()
                 LabeledContent("To Account") {
-                    Picker("To Account", selection: $destinationID) {
-                        ForEach(activeAccounts.filter { $0.id != accountID }) { Text($0.name).tag(Optional($0.id)) }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
+                    AccountSelectorMenu(accounts: activeAccounts.filter { $0.id != accountID }, selection: $destinationID, title: "To Account")
                 }
                 .onChange(of: destinationID) { _, _ in
                     destinationPocket = nil

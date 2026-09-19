@@ -12,7 +12,18 @@ struct SensitiveMoneyText: View {
     let amount: Double
     let currency: CurrencyCode
     var compact = false
-    var body: some View { SensitiveValueText(LedgerFormat.money(amount, currency: currency, compact: compact), maskLength: 8) }
+    /// Width-constrained variant: caps the integer digits and scales into K / M / B / T.
+    var maxIntegerDigits: Int? = nil
+    var body: some View { SensitiveValueText(LedgerFormat.money(amount, currency: currency, compact: compact, maxIntegerDigits: maxIntegerDigits), maskLength: 8) }
+}
+
+/// Transaction-row amounts keep the canonical currency code semantics (`HKD 9999.99K`).
+struct SensitiveTransactionMoneyText: View {
+    let amount: Double
+    let currency: CurrencyCode
+    let type: LedgerTransactionType
+    var maxIntegerDigits: Int? = nil
+    var body: some View { SensitiveValueText(LedgerFormat.transaction(amount, currency: currency, type: type, maxIntegerDigits: maxIntegerDigits), maskLength: 8) }
 }
 
 struct SensitiveNumericField: View {

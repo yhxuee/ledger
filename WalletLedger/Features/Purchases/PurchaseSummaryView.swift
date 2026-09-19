@@ -19,11 +19,11 @@ struct PurchaseSummaryView: View {
                     ForEach(session.orderedItems) { item in
                         HStack {
                             VStack(alignment: .leading, spacing: 3) { Text(item.note); Text(categoryName(item.categoryID)).font(.caption).foregroundStyle(.secondary) }
-                            Spacer(); SensitiveMoneyText(amount: item.amount, currency: session.currency).font(.subheadline.bold())
+                            Spacer(); SensitiveMoneyText(amount: item.amount, currency: session.currency, maxIntegerDigits: 4).font(.subheadline.bold())
                         }
                     }
                 }
-                Section { LabeledContent("Total") { SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency).font(.headline) } }
+                Section { LabeledContent("Total") { SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency, maxIntegerDigits: 4).font(.headline) } }
                 if !readOnly {
                     Section("Receipt") {
                         if let receiptImage { Image(uiImage: receiptImage).resizable().scaledToFit().frame(maxHeight: 220).clipShape(RoundedRectangle(cornerRadius: 16)) }

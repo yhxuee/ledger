@@ -25,7 +25,15 @@ struct SettingsView: View {
                     SettingsLinkRow("Language", systemImage: "globe", detail: "English · Not configurable yet").foregroundStyle(.secondary)
                 }
                 SettingsGlassSection("Functions") {
-                    NavigationLink { BaseCurrencyEditorView() } label: { SettingsLinkRow("Base Currency", systemImage: "coloncurrencysign.circle", detail: store.state.settings.baseCurrency.rawValue) }
+                    CurrencyQuickPicker(codes: CurrencySelection.commonWithStablecoins,
+                                        selection: store.state.settings.baseCurrency,
+                                        otherCurrencies: true,
+                                        showsStablecoinNames: false,
+                                        onSelect: { code in store.updateSettings { $0.baseCurrency = code } }) {
+                        SettingsLinkRow("Base Currency", systemImage: "coloncurrencysign.circle", detail: store.state.settings.baseCurrency.rawValue)
+                    }
+                    .accessibilityLabel("Base Currency")
+                    .accessibilityValue(store.state.settings.baseCurrency.rawValue)
                     Divider()
                     NavigationLink { ExchangeRateEditorView() } label: { SettingsLinkRow("Exchange Rates", systemImage: "arrow.left.arrow.right", detail: store.state.settings.automaticRates ? "Automatic" : "Manual") }
                     Divider()

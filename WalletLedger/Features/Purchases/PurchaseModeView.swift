@@ -16,7 +16,7 @@ struct PurchaseModeView: View {
                                 Text(session.status.title).font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency, compact: true).font(.subheadline.bold())
+                            SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency, maxIntegerDigits: 4).font(.subheadline.bold()).lineLimit(1).minimumScaleFactor(0.85)
                             Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
                         }
                     }.buttonStyle(.plain)
@@ -250,8 +250,8 @@ struct ActivePurchaseView: View {
                                 .frame(width: 64, height: 64)
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("\(session.completedItemCount) / \(session.items.count) items").font(.headline)
-                                SensitiveMoneyText(amount: session.completedAmount, currency: session.currency).font(.title3.bold())
-                                HStack { Text("Planned").foregroundStyle(.secondary); SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency) }.font(.caption)
+                                SensitiveMoneyText(amount: session.completedAmount, currency: session.currency, maxIntegerDigits: 4).font(.title3.bold()).lineLimit(1).minimumScaleFactor(0.85)
+                                HStack { Text("Planned").foregroundStyle(.secondary); SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency, maxIntegerDigits: 4) }.font(.caption)
                             }
                         }.padding(.vertical, 8)
                     }
@@ -263,7 +263,7 @@ struct ActivePurchaseView: View {
                                         Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
                                         Text(item.note).strikethrough(item.isCompleted)
                                         Spacer()
-                                        SensitiveMoneyText(amount: item.amount, currency: session.currency)
+                                        SensitiveMoneyText(amount: item.amount, currency: session.currency, maxIntegerDigits: 4)
                                     }
                                 }
                                 .listRowBackground(Color(hex: category(section.categoryID).colorHex).opacity(0.09))

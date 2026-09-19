@@ -24,32 +24,6 @@ struct DefaultExpenseAccountsView: View {
     }
 }
 
-struct BaseCurrencyEditorView: View {
-    @EnvironmentObject private var store: LedgerStore
-    @State private var query = ""
-    private var currencies: [CurrencyDescriptor] {
-        store.currencyCatalog.filter { query.isEmpty || $0.code.rawValue.localizedCaseInsensitiveContains(query) || $0.name.localizedCaseInsensitiveContains(query) }
-    }
-    var body: some View {
-        List(currencies) { currency in
-            let available = CurrencyRates.reference(currency.code, in: store.state.settings.rates) != nil
-            Button {
-                guard available else { return }
-                store.updateSettings { $0.baseCurrency = currency.code }
-            } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) { Text(currency.code.rawValue).font(.body.weight(.semibold)) }
-                    Spacer()
-                    if !available { Text("Set rate first").font(.caption).foregroundStyle(.secondary) }
-                    if store.state.settings.baseCurrency == currency.code { Image(systemName: "checkmark").fontWeight(.semibold) }
-                }
-            }.disabled(!available)
-        }
-        .navigationTitle("Base Currency").navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, prompt: "Currency code or name")
-    }
-}
-
 struct ExchangeRateEditorView: View {
     @EnvironmentObject private var store: LedgerStore
     @State private var query = ""
@@ -243,15 +217,31 @@ struct RecurringRuleEditorView: View {
                     Picker(type == .transfer ? "From Account" : "Account", selection: $accountID) { ForEach(accounts) { Text($0.name).tag(Optional($0.id)) } }
                     if type == .transfer { Picker("To Account", selection: $destinationID) { ForEach(accounts.filter { $0.id != accountID }) { Text($0.name).tag(Optional($0.id)) } } }
                     LabeledContent("Amount") { SensitiveValueContent { TextField("0", value: $amount, format: .number.precision(.fractionLength(2))).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($amountFocused) } }
-                    Picker("Currency", selection: $currency) { ForEach(store.availableCurrencies) { Text($0.rawValue).tag($0) } }
-                    if sourceAccount?.hasMultiplePockets == true {
-                        Picker(type == .transfer ? "From Account Currency" : "Account Currency", selection: $accountCurrency) {
-                            ForEach(sourceAccount?.normalizedPockets ?? []) { pocket in Text(pocket.currency.rawValue).tag(Optional(pocket.currency)) }
+                    LabeledContent("Currency") {
+                        CurrencyQuickPicker(codes: CurrencySelection.commonWithStablecoins,
+                                            selection: currency,
+                                            otherCurrencies: true,
+                                            onSelect: { currency = $0 }) {
+                            HStack(spacing: 6) {
+                                Text(currency.rawValue).foregroundStyle(.secondary)
+                                Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.tertiary)
+                            }
+                        }
+                        .accessibilityLabel("Currency")
+                        .accessibilityValue(currency.rawValue)
+                    }
+                    if let sourceAccount, sourceAccount.hasMultiplePockets {
+                        LabeledContent(type == .transfer ? "From Account Currency" : "Account Currency") {
+                            AccountPocketPicker(account: sourceAccount,
+                                                selection: Binding(get: { accountCurrency ?? sourceAccount.defaultPocket(for: currency) }, set: { accountCurrency = $0 }),
+                                                title: "Account Currency")
                         }
                     }
-                    if type == .transfer, destinationAccount?.hasMultiplePockets == true {
-                        Picker("To Account Currency", selection: $destinationCurrency) {
-                            ForEach(destinationAccount?.normalizedPockets ?? []) { pocket in Text(pocket.currency.rawValue).tag(Optional(pocket.currency)) }
+                    if type == .transfer, let destinationAccount, destinationAccount.hasMultiplePockets {
+                        LabeledContent("To Account Currency") {
+                            AccountPocketPicker(account: destinationAccount,
+                                                selection: Binding(get: { destinationCurrency ?? destinationAccount.defaultPocket(for: currency) }, set: { destinationCurrency = $0 }),
+                                                title: "To Account Currency")
                         }
                     }
                     if type != .transfer { Picker("Category", selection: $categoryID) { ForEach(store.state.categories) { Text($0.name).tag($0.id) } } }

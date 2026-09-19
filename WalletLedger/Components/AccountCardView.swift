@@ -32,8 +32,8 @@ struct AccountCardView: View {
                 Spacer(minLength: 8)
                 Text(account?.account.type.rawValue ?? "Portfolio").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 Text(account?.account.name ?? portfolioTitle).font((compact ? Font.headline : .title3).weight(.bold)).lineLimit(1)
-                SensitiveMoneyText(amount: account?.balance ?? portfolioBalance, currency: account?.account.currency ?? baseCurrency)
-                    .font(.system(size: compact ? 24 : 34, weight: .bold, design: .rounded)).minimumScaleFactor(0.6).lineLimit(1)
+                SensitiveMoneyText(amount: account?.balance ?? portfolioBalance, currency: account?.account.currency ?? baseCurrency, maxIntegerDigits: 7)
+                    .font(.system(size: compact ? 24 : 34, weight: .bold, design: .rounded)).lineLimit(1).minimumScaleFactor(0.75)
                 if account == nil, let portfolioAssets, let portfolioLiabilities {
                     HStack(spacing: 24) {
                         portfolioMetric("Total Assets", value: portfolioAssets)
@@ -55,7 +55,7 @@ struct AccountCardView: View {
     private func portfolioMetric(_ title: String, value: Double) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title.uppercased()).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
-            SensitiveMoneyText(amount: value, currency: baseCurrency, compact: true).font(.caption.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
+            SensitiveMoneyText(amount: value, currency: baseCurrency, maxIntegerDigits: 6).font(.caption.weight(.bold)).lineLimit(1).minimumScaleFactor(0.75)
         }
     }
 }

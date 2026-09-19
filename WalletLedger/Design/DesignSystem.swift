@@ -53,17 +53,32 @@ extension Color {
     }
 }
 
+/// Shared width budgets for the constrained money columns.
+///
+/// `LedgerAmountWidth.row` fits the widest row amount the compact formatter can produce
+/// (`HKD 9999.99K`, 12 characters) on a single line without shrinking the text.
+enum LedgerAmountWidth {
+    static let row: CGFloat = 120
+}
+
 enum LedgerFormat {
     /// Normal monetary display: the currency symbol (`$100.00`, `£25.00`, `¥500.00`, `€20.00`).
     /// This is the formatter for every monetary amount except transaction-list rows.
-    static func money(_ amount: Double, currency: CurrencyCode, compact: Bool = false) -> String {
-        LedgerMoneyFormat.symbol(amount, currency: currency, compact: compact)
+    /// `compact` switches to the shared K / M / B / T formatter; `maxIntegerDigits` additionally
+    /// caps the integer width for layouts that cannot grow (`HKD 9999.99K`).
+    static func money(_ amount: Double, currency: CurrencyCode, compact: Bool = false, maxIntegerDigits: Int? = nil) -> String {
+        if let maxIntegerDigits { return LedgerMoneyFormat.compactSymbol(amount, currency: currency, maxIntegerDigits: maxIntegerDigits) }
+        return LedgerMoneyFormat.symbol(amount, currency: currency, compact: compact)
     }
 
     /// Transaction-list display: the canonical currency code (`HKD 100.00`, `+USD 25.00`).
     /// Reserved for Latest Transactions and the main Ledger transaction rows only.
-    static func transaction(_ amount: Double, currency: CurrencyCode, type: LedgerTransactionType) -> String {
-        LedgerMoneyFormat.code(amount, currency: currency, signPrefix: type == .income ? "+" : "")
+    /// `maxIntegerDigits` is the width-constrained variant (`HKD 9999.99K`).
+    static func transaction(_ amount: Double, currency: CurrencyCode, type: LedgerTransactionType, maxIntegerDigits: Int? = nil) -> String {
+        if let maxIntegerDigits {
+            return LedgerMoneyFormat.compactCode(amount, currency: currency, signPrefix: type == .income ? "+" : "", maxIntegerDigits: maxIntegerDigits)
+        }
+        return LedgerMoneyFormat.code(amount, currency: currency, signPrefix: type == .income ? "+" : "")
     }
 }
 
