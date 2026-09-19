@@ -89,7 +89,7 @@ struct SettingsView: View {
             NavigationLink {
                 LayoutSettingsView()
             } label: {
-                SettingsLinkRow("Layout", systemImage: "rectangle.grid.1x2", detail: preferences.value.transactionLayout.title)
+                SettingsLinkRow("Layout", systemImage: "rectangle.grid.1x2", detail: nil)
             }
             .foregroundStyle(.primary)
 

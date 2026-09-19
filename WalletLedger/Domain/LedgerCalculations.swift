@@ -232,10 +232,10 @@ enum LedgerCalculations {
                 bucketMode = .day
                 let weekday = calendar.component(.weekday, from: startOfToday)
                 start = calendar.date(byAdding: .day, value: -(weekday - 1), to: startOfToday) ?? startOfToday
-                let weekdayLabels = ["U", "M", "T", "W", "R", "F", "S"]
                 buckets = (0..<7).map { offset in
                     let date = calendar.date(byAdding: .day, value: offset, to: start) ?? start
-                    return .init(id: dayKey(date), label: weekdayLabels[offset], value: 0)
+                    let label = date.formatted(.dateTime.weekday(.abbreviated)).uppercased()
+                    return .init(id: dayKey(date), label: label, value: 0)
                 }
             case .month:
                 bucketMode = .weekOfMonth

@@ -414,6 +414,16 @@ final class LedgerStore: ObservableObject {
         scheduleSave()
     }
 
+    func moveAccounts(from offsets: IndexSet, to destination: Int) {
+        var active = state.accounts.filter { $0.deletedAt == nil }
+        guard destination >= 0, destination <= active.count else { return }
+        active.move(fromOffsets: offsets, toOffset: destination)
+        var newAccounts = active
+        newAccounts.append(contentsOf: state.accounts.filter { $0.deletedAt != nil })
+        state.accounts = newAccounts
+        scheduleSave()
+    }
+
     func moveAccount(from sourceID: UUID, to destinationID: UUID) {
         guard sourceID != destinationID else { return }
         guard let sourceIndex = state.accounts.firstIndex(where: { $0.id == sourceID }),

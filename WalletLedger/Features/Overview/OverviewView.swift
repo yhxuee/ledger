@@ -301,6 +301,21 @@ struct OverviewMetricDetailSheet: View {
 
     private var segmentTotal: Double { segments.reduce(0) { $0 + $1.value } }
 
+    private var chartBuckets: [AnalyticsBucket] {
+        if metric == .weeklyActivity {
+            let calendar = Calendar.current
+            let startOfToday = calendar.startOfDay(for: .now)
+            let weekday = calendar.component(.weekday, from: startOfToday)
+            let startOfWeek = calendar.date(byAdding: .day, value: -(weekday - 1), to: startOfToday) ?? startOfToday
+            return summary.buckets.enumerated().map { offset, bucket in
+                let date = calendar.date(byAdding: .day, value: offset, to: startOfWeek) ?? .now
+                let label = date.formatted(.dateTime.weekday(.abbreviated)).uppercased()
+                return AnalyticsBucket(id: bucket.id, label: label, value: bucket.value)
+            }
+        }
+        return summary.buckets
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -370,7 +385,7 @@ struct OverviewMetricDetailSheet: View {
                     .frame(height: 200)
                 }
             } else {
-                Chart(summary.buckets) { bucket in
+                Chart(chartBuckets) { bucket in
                     BarMark(x: .value("Period", bucket.label), y: .value("Amount", privacy.isLocked ? 0 : bucket.value))
                         .foregroundStyle(LedgerPalette.coral.gradient)
                         .cornerRadius(6)
@@ -431,51 +446,62 @@ private struct AccountPickerView: View {
         LedgerPalette.primaryAction(for: colorScheme)
     }
     @Binding var selectedAccountID: UUID?
-    @State private var hoverTargetID: UUID?
+    @State private var isReordering = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVStack(spacing: -36) {
-                    Button { selectedAccountID = nil; dismiss() } label: {
-                        AccountCardView(account: nil, portfolioBalance: LedgerCalculations.portfolioBalance(store.state), baseCurrency: store.state.settings.baseCurrency, compact: true)
-                    }
-                    .buttonStyle(.plain)
-
-                    ForEach(store.accounts) { item in
-                        Button {
-                            selectedAccountID = item.id
-                            dismiss()
-                        } label: {
-                            AccountCardView(account: item, baseCurrency: store.state.settings.baseCurrency, compact: true)
-                        }
-                        .buttonStyle(.plain)
-                        .scaleEffect(hoverTargetID == item.id ? 0.98 : 1.0)
-                        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: hoverTargetID)
-                        .draggable(item.id.uuidString) {
-                            AccountCardView(account: item, baseCurrency: store.state.settings.baseCurrency, compact: true)
-                                .frame(width: 320)
-                        }
-                        .dropDestination(for: String.self) { items, _ in
-                            hoverTargetID = nil
-                            guard let first = items.first, let sourceID = UUID(uuidString: first) else { return false }
-                            guard sourceID != item.id else { return false }
-                            withAnimation(.snappy) {
-                                store.moveAccount(from: sourceID, to: item.id)
+            List {
+                Section {
+                    AccountCardView(account: nil, portfolioBalance: LedgerCalculations.portfolioBalance(store.state), baseCurrency: store.state.settings.baseCurrency, compact: true)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if !isReordering {
+                                selectedAccountID = nil
+                                dismiss()
                             }
-                            return true
-                        } isTargeted: { targeted in
-                            hoverTargetID = targeted ? item.id : nil
                         }
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                }
+                Section {
+                    ForEach(store.accounts) { item in
+                        AccountCardView(account: item, baseCurrency: store.state.settings.baseCurrency, compact: true)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if !isReordering {
+                                    selectedAccountID = item.id
+                                    dismiss()
+                                }
+                            }
+                            .onLongPressGesture {
+                                if !isReordering {
+                                    isReordering = true
+                                }
+                            }
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                     }
-                }.padding()
+                    .onMove { offsets, destination in
+                        store.moveAccounts(from: offsets, to: destination)
+                    }
+                }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(LedgerBackground())
+            .environment(\.editMode, isReordering ? .constant(.active) : .constant(.inactive))
             .navigationTitle("Accounts")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
-                        dismiss()
+                        if isReordering {
+                            isReordering = false
+                        } else {
+                            dismiss()
+                        }
                     } label: {
                         Image(systemName: "checkmark")
                             .fontWeight(.semibold)

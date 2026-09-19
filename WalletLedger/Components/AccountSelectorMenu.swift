@@ -1,20 +1,40 @@
 import SwiftUI
 
+enum AccountSelectorDisplay {
+    case name
+    case logo
+}
+
 /// One-line account selector for the transaction editor.
 ///
-/// The selected name never wraps: it marquees inside a reserved ~15 character window, while the
-/// full list keeps every complete name and VoiceOver always receives the whole name.
+/// When display is .logo, the collapsed state displays account.logo (e.g. DC), right-aligned without wrapping,
+/// while the opened menu shows "DC   Daily Checking".
+/// VoiceOver always receives the full name.
 struct AccountSelectorMenu: View {
     let accounts: [LedgerAccount]
     @Binding var selection: UUID?
     var title: String
     var placeholder = "Select Account"
+    var display: AccountSelectorDisplay = .name
     /// Visible width reserved for roughly this many English characters.
     var visibleCharacters = 15
     var valueAlignment: Alignment = .leading
 
+    private var selectedAccount: LedgerAccount? {
+        accounts.first { $0.id == selection }
+    }
+
     private var selectedName: String {
-        accounts.first { $0.id == selection }?.name ?? placeholder
+        selectedAccount?.name ?? placeholder
+    }
+
+    private var displayedText: String {
+        switch display {
+        case .name:
+            return selectedName
+        case .logo:
+            return selectedAccount?.logo ?? placeholder
+        }
     }
 
     var body: some View {
@@ -23,14 +43,25 @@ struct AccountSelectorMenu: View {
                 Button {
                     selection = account.id
                 } label: {
-                    if account.id == selection { Label(account.name, systemImage: "checkmark") }
-                    else { Text(account.name) }
+                    let itemText = display == .logo ? "\(account.logo)   \(account.name)" : account.name
+                    if account.id == selection {
+                        Label(itemText, systemImage: "checkmark")
+                    } else {
+                        Text(itemText)
+                    }
                 }
             }
         } label: {
             HStack(spacing: 6) {
-                MarqueeText(text: selectedName, font: .body, visibleCharacters: visibleCharacters, alignment: valueAlignment)
-                    .foregroundStyle(selection == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                if display == .logo {
+                    Text(displayedText)
+                        .font(.body.weight(.medium))
+                        .lineLimit(1)
+                        .foregroundStyle(selection == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                } else {
+                    MarqueeText(text: displayedText, font: .body, visibleCharacters: visibleCharacters, alignment: valueAlignment)
+                        .foregroundStyle(selection == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                }
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2)
                     .foregroundStyle(.secondary)

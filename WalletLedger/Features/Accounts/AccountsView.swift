@@ -4,53 +4,76 @@ import UIKit
 
 struct AccountsView: View {
     @EnvironmentObject private var store: LedgerStore
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var stockRefresh = StockQuoteRefreshService.shared
     @State private var editing: AccountViewModel?
     @State private var creating = false
     @State private var deleting: LedgerAccount?
-    @State private var hoverTargetID: UUID?
+    @State private var isReordering = false
     private var portfolio: (netWorth: Double, assets: Double, liabilities: Double) { LedgerCalculations.portfolioSummary(store.state) }
+    private var primaryActionColor: Color { LedgerPalette.primaryAction(for: colorScheme) }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
+        List {
+            Section {
                 AccountsPortfolioSummaryView(netWorth: portfolio.netWorth, assets: portfolio.assets, liabilities: portfolio.liabilities, currency: store.state.settings.baseCurrency)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                 if store.accounts.contains(where: { $0.account.type == .stocks }), let status = stockRefresh.status {
                     Text(status).font(.caption).foregroundStyle(.secondary)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 4, trailing: 16))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                 }
-                LazyVStack(spacing: 10) {
-                    ForEach(store.accounts) { item in
-                        Button { editing = item } label: {
-                            accountRowContent(item)
-                        }
-                        .buttonStyle(.plain)
-                        .scaleEffect(hoverTargetID == item.id ? 0.98 : 1.0)
-                        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: hoverTargetID)
-                        .draggable(item.id.uuidString) {
-                            accountRowContent(item)
-                                .frame(width: 320)
-                        }
-                        .dropDestination(for: String.self) { items, _ in
-                            hoverTargetID = nil
-                            guard let first = items.first, let sourceID = UUID(uuidString: first) else { return false }
-                            guard sourceID != item.id else { return false }
-                            withAnimation(.snappy) {
-                                store.moveAccount(from: sourceID, to: item.id)
+            }
+            Section {
+                ForEach(store.accounts) { item in
+                    accountRowContent(item)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if !isReordering {
+                                editing = item
                             }
-                            return true
-                        } isTargeted: { targeted in
-                            hoverTargetID = targeted ? item.id : nil
                         }
-                    }
+                        .onLongPressGesture {
+                            if !isReordering {
+                                isReordering = true
+                            }
+                        }
+                        .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                 }
-            }.padding()
+                .onMove { offsets, destination in
+                    store.moveAccounts(from: offsets, to: destination)
+                }
+            }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
         .background(LedgerBackground())
+        .environment(\.editMode, isReordering ? .constant(.active) : .constant(.inactive))
         .navigationTitle("Accounts")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { ToolbarIconButton(systemName: "plus", label: "Add account") { creating = true } }
-            if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
-            ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() }
+            if isReordering {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        isReordering = false
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .fontWeight(.semibold)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.circle)
+                    .tint(primaryActionColor)
+                    .accessibilityLabel("Done")
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) { ToolbarIconButton(systemName: "plus", label: "Add account") { creating = true } }
+                if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
+                ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() }
+            }
         }
         .sheet(item: $editing) { item in
             AccountEditorView(item: item) { deleting = $0 }
@@ -78,7 +101,9 @@ struct AccountsView: View {
                 SensitiveMoneyText(amount: item.balance, currency: item.account.currency, maxIntegerDigits: 4).font(.headline.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.85)
                     .frame(minWidth: LedgerAmountWidth.row, alignment: .trailing)
                     .layoutPriority(1)
-                Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
+                if !isReordering {
+                    Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
+                }
             }
             if item.account.type == .stocks, let stock = item.account.stockMetadata {
                 StockValuationView(stock: stock).font(.subheadline)

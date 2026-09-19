@@ -40,10 +40,12 @@ struct TransactionEditorView: View {
     @State private var noteAttachmentID: String?
     @State private var removedAttachmentID: String?
     @State private var saving = false
+    @State private var showingNoteEditor: Bool
     @FocusState private var noteFocused: Bool
 
     init(transaction: LedgerTransaction? = nil) {
         original = transaction
+        _showingNoteEditor = State(initialValue: transaction != nil)
         let initialType = transaction?.type ?? .expense
         _type = State(initialValue: initialType)
         _accountID = State(initialValue: transaction?.accountID)
@@ -72,6 +74,9 @@ struct TransactionEditorView: View {
     }
     private var activeAccounts: [LedgerAccount] { store.accounts.map(\.account) }
     private var canSave: Bool { abs(amount) > 0 && accountID != nil && (type != .transfer || (destinationID != nil && destinationID != accountID)) }
+    private var hasNote: Bool {
+        !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || noteImage != nil || noteAttachmentID != nil
+    }
 
     private var sourceAccount: LedgerAccount? { accountID.flatMap { id in activeAccounts.first { $0.id == id } } }
     private var destinationAccount: LedgerAccount? { destinationID.flatMap { id in activeAccounts.first { $0.id == id } } }
@@ -147,6 +152,11 @@ struct TransactionEditorView: View {
                         Spacer()
                         Button("Done") {
                             noteFocused = false
+                            if type != .transfer {
+                                withAnimation(.snappy) {
+                                    showingNoteEditor = false
+                                }
+                            }
                         }
                     }
                 }
@@ -205,7 +215,9 @@ struct TransactionEditorView: View {
             amountPanel
             accountAndDateRow
             detailsPanel
-            noteEditor
+            if showingNoteEditor {
+                noteEditor
+            }
             keypad
         } else {
             amountPanel
@@ -215,11 +227,15 @@ struct TransactionEditorView: View {
                 accountAndDateRow
             }
             detailsPanel
+            if type == .transfer {
+                noteEditor
+            } else if showingNoteEditor {
+                noteEditor
+            }
+            keypad
             if type != .transfer {
                 categoryPicker
             }
-            noteEditor
-            keypad
         }
     }
 
@@ -231,44 +247,67 @@ struct TransactionEditorView: View {
     }
 
     private var accountAndDateRow: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 3) {
-                Label("Account", systemImage: "creditcard")
-                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                AccountSelectorMenu(accounts: activeAccounts, selection: $accountID,
-                                    title: "Account",
-                                    visibleCharacters: 11, valueAlignment: .trailing)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 12).padding(.trailing, 10)
-            .onChange(of: accountID) { _, newValue in
-                if !applyingDefaultAccount { accountExplicitlyOverridden = true }
-                accountPocket = nil
-                accountAmountOverridden = false
-                if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
-                if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
-                syncAmountFields()
-            }
-
-            Divider().frame(height: 38)
-
-            Button { showingDatePicker = true } label: {
+        HStack(spacing: 8) {
+            HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Label("Date", systemImage: "calendar")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    Text(preferences.value.dateFormat.compactString(from: occurredAt))
-                        .font(.subheadline).lineLimit(1)
+                    Label("Account", systemImage: "creditcard")
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    AccountSelectorMenu(accounts: activeAccounts, selection: $accountID,
+                                        title: "Account",
+                                        display: .logo,
+                                        visibleCharacters: 8, valueAlignment: .trailing)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
-                .frame(width: 80, alignment: .leading)
-                .padding(.horizontal, 11)
-                .contentShape(Rectangle())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 14).padding(.trailing, 10)
+                .onChange(of: accountID) { _, newValue in
+                    if !applyingDefaultAccount { accountExplicitlyOverridden = true }
+                    accountPocket = nil
+                    accountAmountOverridden = false
+                    if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
+                    if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
+                    syncAmountFields()
+                }
+
+                Divider().frame(height: 38)
+
+                Button { showingDatePicker = true } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Label("Date", systemImage: "calendar")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Text(preferences.value.dateFormat.compactString(from: occurredAt))
+                            .font(.subheadline).lineLimit(1)
+                    }
+                    .frame(width: 80, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 7)
+            .ledgerGlass(in: Capsule())
+
+            Button {
+                withAnimation(.snappy) {
+                    showingNoteEditor.toggle()
+                    if showingNoteEditor {
+                        noteFocused = true
+                    } else {
+                        noteFocused = false
+                    }
+                }
+            } label: {
+                Image(systemName: hasNote ? "square.and.pencil.circle.fill" : "square.and.pencil")
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(hasNote ? primaryActionColor : .secondary)
+                    .frame(width: 50, height: 50)
             }
             .buttonStyle(.plain)
+            .ledgerGlass(interactive: true, in: Circle())
+            .accessibilityLabel("Note")
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 7)
-        .ledgerGlass(in: Capsule())
     }
 
     private var transferRow: some View {
@@ -278,7 +317,8 @@ struct TransactionEditorView: View {
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 AccountSelectorMenu(accounts: activeAccounts, selection: $accountID,
                                     title: "From Account",
-                                    visibleCharacters: 8, valueAlignment: .trailing)
+                                    display: .logo,
+                                    visibleCharacters: 6, valueAlignment: .trailing)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10).padding(.vertical, 7)
@@ -297,7 +337,8 @@ struct TransactionEditorView: View {
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 AccountSelectorMenu(accounts: activeAccounts.filter { $0.id != accountID }, selection: $destinationID,
                                     title: "To Account",
-                                    visibleCharacters: 8, valueAlignment: .trailing)
+                                    display: .logo,
+                                    visibleCharacters: 6, valueAlignment: .trailing)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10).padding(.vertical, 7)
@@ -439,38 +480,35 @@ struct TransactionEditorView: View {
     /// Editable actual account-side amount. Prefilled from the cached FX rate, but a value the user
     /// types becomes authoritative and is never overwritten afterwards.
     private func accountAmountRow(title: String, pocket: CurrencyCode, text: Binding<String>, overridden: Binding<Bool>, suggestion: Binding<Double>, estimated: Double) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                Text(title)
-                Spacer(minLength: 8)
-                HStack(spacing: 6) {
-                    Text(pocket.rawValue).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    SensitiveValueContent(maskLength: 8) {
-                        TextField("0.00", text: text)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 96)
-                    }
-                }
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(Color.primary.opacity(0.06), in: Capsule())
-            }
+        HStack(spacing: 10) {
+            Text(title)
+            Spacer(minLength: 8)
             if overridden.wrappedValue {
                 Button {
                     overridden.wrappedValue = false
                     suggestion.wrappedValue = estimated
                     text.wrappedValue = Self.amountText(estimated)
                 } label: {
-                    Label("Reset to estimated \(LedgerFormat.money(estimated, currency: pocket))", systemImage: "arrow.counterclockwise")
-                        .font(.caption)
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-            } else {
-                Text("Estimated from current FX rate").font(.caption2).foregroundStyle(.secondary)
+                .accessibilityLabel("Reset to estimated amount")
             }
+            HStack(spacing: 6) {
+                Text(pocket.rawValue).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                SensitiveValueContent(maskLength: 8) {
+                    TextField("0.00", text: text)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 96)
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(Color.primary.opacity(0.06), in: Capsule())
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .onChange(of: text.wrappedValue) { _, newValue in
             // A value equal to the FX suggestion is still a suggestion, not a manual override.
             if let value = Double(newValue), abs(value - suggestion.wrappedValue) > 0.005 { overridden.wrappedValue = true }

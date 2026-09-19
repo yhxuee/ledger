@@ -4324,6 +4324,22 @@
           }
         }
       }
+    },
+    "Reset to estimated amount": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置为估算金额"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重設為估算金額"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
