@@ -19,7 +19,7 @@ struct CloudSharingView: UIViewControllerRepresentable {
     final class Coordinator: NSObject, UICloudSharingControllerDelegate {
         let dismiss: DismissAction
         init(dismiss: DismissAction) { self.dismiss = dismiss }
-        func itemTitle(for csc: UICloudSharingController) -> String? { "Wallet Ledger" }
+        func itemTitle(for csc: UICloudSharingController) -> String? { "Finsy" }
         func cloudSharingController(_ csc: UICloudSharingController, failedToSaveShareWithError error: Error) { dismiss() }
         func cloudSharingControllerDidSaveShare(_ csc: UICloudSharingController) { dismiss() }
         func cloudSharingControllerDidStopSharing(_ csc: UICloudSharingController) { dismiss() }
