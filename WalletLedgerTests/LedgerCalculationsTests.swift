@@ -254,7 +254,7 @@ final class LedgerCalculationsTests: XCTestCase {
             PurchaseItem(id: UUID(), categoryID: .food, note: "Fruit", amount: 30, displayOrder: 0, isCompleted: true, completedAt: .now, resolvedAccountID: accountID, linkedTransactionID: nil),
             PurchaseItem(id: UUID(), categoryID: .shopping, note: "Soap", amount: 20, displayOrder: 1, isCompleted: true, completedAt: .now, resolvedAccountID: accountID, linkedTransactionID: nil)
         ]
-        state.purchaseSessions = [.init(id: sessionID, ledgerBookID: UUID(), name: "Groceries", status: .awaitingSummary, sections: [], items: items, createdAt: .now, startedAt: .now, completedAt: .now, receiptAttachmentID: nil)]
+        state.purchaseSessions = [.init(id: sessionID, ledgerBookID: UUID(), name: "Groceries", status: .awaitingSummary, sections: [], items: items, createdAt: .now, startedAt: .now, completedAt: .now, receiptAttachmentID: nil, currency: .HKD, accountID: accountID)]
         let store = LedgerStore(stateForTesting: state)
         try store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)
         try store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)

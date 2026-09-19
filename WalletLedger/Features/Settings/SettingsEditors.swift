@@ -32,13 +32,13 @@ struct BaseCurrencyEditorView: View {
     }
     var body: some View {
         List(currencies) { currency in
-            let available = store.state.settings.rates[currency.code] != nil
+            let available = CurrencyRates.reference(currency.code, in: store.state.settings.rates) != nil
             Button {
                 guard available else { return }
                 store.updateSettings { $0.baseCurrency = currency.code }
             } label: {
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) { Text(currency.code.rawValue).font(.body.weight(.semibold)); Text(currency.name).font(.caption).foregroundStyle(.secondary) }
+                    VStack(alignment: .leading, spacing: 2) { Text(currency.code.rawValue).font(.body.weight(.semibold)) }
                     Spacer()
                     if !available { Text("Set rate first").font(.caption).foregroundStyle(.secondary) }
                     if store.state.settings.baseCurrency == currency.code { Image(systemName: "checkmark").fontWeight(.semibold) }
@@ -71,12 +71,12 @@ struct ExchangeRateEditorView: View {
             Section("1 unit equals") {
                 ForEach(currencies) { currency in
                     HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) { Text(currency.code.rawValue).font(.body.weight(.semibold)); Text(currency.name).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                        VStack(alignment: .leading, spacing: 2) { Text(currency.code.rawValue).font(.body.weight(.semibold)) }
                         Spacer(minLength: 8)
                         SensitiveValueContent {
                             TextField("Rate", value: rateBinding(currency.code), format: .number.precision(.fractionLength(0...8)))
                                 .keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(width: 112)
-                                .focused($focusedRate, equals: currency.code).disabled(automatic)
+                                .focused($focusedRate, equals: currency.code).disabled(automatic || currency.code.isUSDStablecoin)
                         }
                         Text(base.rawValue).font(.caption).foregroundStyle(.secondary)
                     }
@@ -92,12 +92,12 @@ struct ExchangeRateEditorView: View {
         Binding(get: { automatic }, set: { value in focusedRate = nil; store.updateSettings { $0.automaticRates = value }; if value { Task { await refresh(showConfirmation: false) } } })
     }
     private func rateBinding(_ currency: CurrencyCode) -> Binding<Double> {
-        Binding(get: { (store.state.settings.rates[currency] ?? 1) / (store.state.settings.rates[base] ?? 1) }, set: { shown in
-            guard !automatic else { return }
+        Binding(get: { (CurrencyRates.reference(currency, in: store.state.settings.rates) ?? 1) / (CurrencyRates.reference(base, in: store.state.settings.rates) ?? 1) }, set: { shown in
+            guard !automatic, !currency.isUSDStablecoin else { return }
             store.updateSettings {
                 let safe = max(0.00000001, shown)
-                if currency == .HKD && base != .HKD { $0.rates[base] = 1 / safe }
-                else { $0.rates[currency] = safe * ($0.rates[base] ?? 1) }
+                if currency == .HKD && base != .HKD { $0.rates[base.referenceCurrency] = 1 / safe }
+                else { $0.rates[currency] = safe * (CurrencyRates.reference(base, in: $0.rates) ?? 1) }
                 $0.rates[.HKD] = 1
             }
         })
@@ -238,7 +238,7 @@ struct RecurringRuleEditorView: View {
                     Picker(type == .transfer ? "From Account" : "Account", selection: $accountID) { ForEach(accounts) { Text($0.name).tag(Optional($0.id)) } }
                     if type == .transfer { Picker("To Account", selection: $destinationID) { ForEach(accounts.filter { $0.id != accountID }) { Text($0.name).tag(Optional($0.id)) } } }
                     LabeledContent("Amount") { SensitiveValueContent { TextField("0", value: $amount, format: .number.precision(.fractionLength(2))).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($amountFocused) } }
-                    Picker("Currency", selection: $currency) { ForEach(store.availableCurrencies) { Text("\($0.rawValue) · \($0.name)").tag($0) } }
+                    Picker("Currency", selection: $currency) { ForEach(store.availableCurrencies) { Text($0.rawValue).tag($0) } }
                     if type != .transfer { Picker("Category", selection: $categoryID) { ForEach(store.state.categories) { Text($0.name).tag($0.id) } } }
                     TextField("Note (optional)", text: $note)
                 }

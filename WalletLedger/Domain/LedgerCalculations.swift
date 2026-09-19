@@ -6,8 +6,8 @@ enum LedgerCalculations {
 
     static func convert(_ amount: Double, from: CurrencyCode, to: CurrencyCode, rates: [CurrencyCode: Double]) -> Double {
         guard amount.isFinite else { return 0 }
-        let fromRate = validRate(rates[from])
-        let toRate = validRate(rates[to])
+        let fromRate = validRate(CurrencyRates.reference(from, in: rates))
+        let toRate = validRate(CurrencyRates.reference(to, in: rates))
         let result = amount * fromRate / toRate
         return result.isFinite ? result : 0
     }
@@ -15,7 +15,7 @@ enum LedgerCalculations {
     static func historical(_ transaction: LedgerTransaction, to target: CurrencyCode, rates: [CurrencyCode: Double]) -> Double {
         guard transaction.amount.isFinite else { return 0 }
         let snapshotRate = validRate(transaction.exchangeRateAtTransaction)
-        let result = transaction.amount * snapshotRate / validRate(rates[target])
+        let result = transaction.amount * snapshotRate / validRate(CurrencyRates.reference(target, in: rates))
         return result.isFinite ? result : 0
     }
 

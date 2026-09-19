@@ -33,6 +33,7 @@ enum BackupCodec {
         }
         guard ["wallet-ledger-ios", "wallet-ledger-overview"].contains(envelope.metadata.app) else { throw BackupError.wrongApplication }
         guard envelope.metadata.schemaVersion <= currentSchemaVersion else { throw BackupError.futureSchema(envelope.metadata.schemaVersion) }
+        PurchaseRules.migrateDevelopmentSessions(in: &envelope.data)
         try validate(envelope.data)
         envelope.metadata.accountCount = envelope.data.accounts.filter { $0.deletedAt == nil }.count
         envelope.metadata.transactionCount = envelope.data.transactions.filter { $0.deletedAt == nil }.count
@@ -91,6 +92,10 @@ enum BackupCodec {
         let purchaseSessionIDs = (state.purchaseSessions ?? []).map(\.id)
         guard Set(purchaseSessionIDs).count == purchaseSessionIDs.count else { throw BackupError.duplicateID("purchase session") }
         for session in state.purchaseSessions ?? [] {
+            if let accountID = session.accountID { guard knownAccounts.contains(accountID) else { throw BackupError.missingAccount } }
+            if session.status == .active || session.status == .awaitingSummary {
+                guard session.accountID != nil else { throw BackupError.invalidValue("purchase payment account") }
+            }
             let sectionIDs = session.sections.map(\.id), itemIDs = session.items.map(\.id)
             guard Set(sectionIDs).count == sectionIDs.count, Set(itemIDs).count == itemIDs.count else { throw BackupError.duplicateID("purchase item") }
             guard session.sections.allSatisfy({ categoryIDs.contains($0.categoryID) }) else { throw BackupError.invalidValue("purchase section") }
@@ -100,9 +105,9 @@ enum BackupCodec {
                 if let transactionID = item.linkedTransactionID { guard transactionsByID[transactionID] != nil else { throw BackupError.invalidValue("purchase transaction link") } }
             }
         }
-        let usedCurrencies = Set(state.accounts.map(\.currency) + state.transactions.map(\.currency) + (state.recurringRules ?? []).map(\.currency) + [state.settings.baseCurrency, .HKD])
+        let usedCurrencies = Set(state.accounts.map(\.currency) + state.transactions.map(\.currency) + (state.recurringRules ?? []).map(\.currency) + (state.purchaseSessions ?? []).map(\.currency) + [state.settings.baseCurrency, .HKD])
         for currency in usedCurrencies {
-            guard let rate = state.settings.rates[currency], rate.isFinite, rate > 0 else { throw BackupError.invalidValue("exchange rate \(currency.rawValue)") }
+            guard CurrencyRates.reference(currency, in: state.settings.rates) != nil else { throw BackupError.invalidValue("exchange rate \(currency.rawValue)") }
         }
     }
 }

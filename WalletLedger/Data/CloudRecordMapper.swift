@@ -31,6 +31,9 @@ struct CloudPurchaseSessionHeader: Codable, Hashable {
     var startedAt: Date?
     var completedAt: Date?
     var receiptAttachmentID: String?
+    var currency: CurrencyCode? = nil
+    var accountID: UUID? = nil
+    var updatedAt: Date? = nil
 }
 
 enum CloudRecordMapper {
@@ -49,14 +52,14 @@ enum CloudRecordMapper {
         records.append(try record(type: CloudRecordType.budget, name: "budget", value: book.state.settings.budgetPlan, zoneID: zone, updatedAt: book.state.settings.updatedAt, version: 1))
         records += try (book.state.recurringRules ?? []).map { try record(type: CloudRecordType.recurring, name: "recurring-\($0.id.uuidString)", value: $0, zoneID: zone, updatedAt: $0.updatedAt, version: 1) }
         for session in book.state.purchaseSessions ?? [] {
-            let header = CloudPurchaseSessionHeader(id: session.id, ledgerBookID: session.ledgerBookID, name: session.name, status: session.status, sections: session.sections, createdAt: session.createdAt, startedAt: session.startedAt, completedAt: session.completedAt, receiptAttachmentID: session.receiptAttachmentID)
-            let sessionRecord = try record(type: CloudRecordType.purchaseSession, name: "purchase-\(session.id.uuidString)", value: header, zoneID: zone, updatedAt: session.completedAt ?? session.startedAt ?? session.createdAt, version: 1)
+            let header = CloudPurchaseSessionHeader(id: session.id, ledgerBookID: session.ledgerBookID, name: session.name, status: session.status, sections: session.sections, createdAt: session.createdAt, startedAt: session.startedAt, completedAt: session.completedAt, receiptAttachmentID: session.receiptAttachmentID, currency: session.currency, accountID: session.accountID, updatedAt: session.updatedAt)
+            let sessionRecord = try record(type: CloudRecordType.purchaseSession, name: "purchase-\(session.id.uuidString)", value: header, zoneID: zone, updatedAt: session.updatedAt ?? session.completedAt ?? session.startedAt ?? session.createdAt, version: 1)
             if let identifier = session.receiptAttachmentID, let folder = attachmentFolder {
                 let file = folder.appending(path: identifier)
                 if FileManager.default.fileExists(atPath: file.path) { sessionRecord["receipt"] = CKAsset(fileURL: file) }
             }
             records.append(sessionRecord)
-            records += try session.items.map { try record(type: CloudRecordType.purchaseItem, name: "purchase-item-\($0.id.uuidString)", value: $0, zoneID: zone, updatedAt: $0.completedAt ?? session.createdAt, version: 1, parentName: sessionRecord.recordID.recordName) }
+            records += try session.items.map { try record(type: CloudRecordType.purchaseItem, name: "purchase-item-\($0.id.uuidString)", value: $0, zoneID: zone, updatedAt: session.updatedAt ?? $0.completedAt ?? session.createdAt, version: 1, parentName: sessionRecord.recordID.recordName) }
         }
         return records
     }
@@ -90,9 +93,10 @@ enum CloudRecordMapper {
                 if !FileManager.default.fileExists(atPath: destination.path) { try? FileManager.default.copyItem(at: sourceURL, to: destination) }
                 if FileManager.default.fileExists(atPath: destination.path) { receiptIdentifier = identifier }
             }
-            return PurchaseSession(id: header.id, ledgerBookID: header.ledgerBookID, name: header.name, status: header.status, sections: header.sections, items: items, createdAt: header.createdAt, startedAt: header.startedAt, completedAt: header.completedAt, receiptAttachmentID: receiptIdentifier)
+            return PurchaseSession(id: header.id, ledgerBookID: header.ledgerBookID, name: header.name, status: header.status, sections: header.sections, items: items, createdAt: header.createdAt, startedAt: header.startedAt, completedAt: header.completedAt, receiptAttachmentID: receiptIdentifier, currency: header.currency ?? settings.baseCurrency, accountID: header.accountID, updatedAt: header.updatedAt, requiresCurrencyMigration: header.currency == nil, requiresPaymentMigration: header.currency == nil)
         }
-        let state = LedgerState(schemaVersion: metadata.schemaVersion, accounts: accounts, transactions: transactions, categories: categories, settings: settings, recurringRules: recurring, purchaseSessions: sessions)
+        var state = LedgerState(schemaVersion: metadata.schemaVersion, accounts: accounts, transactions: transactions, categories: categories, settings: settings, recurringRules: recurring, purchaseSessions: sessions)
+        PurchaseRules.migrateDevelopmentSessions(in: &state)
         try BackupCodec.validate(state)
         return LedgerBook(id: metadata.id, name: metadata.name, state: state, createdAt: metadata.createdAt, updatedAt: metadata.updatedAt, storageKind: participant ? .cloudParticipant : .cloudOwner, cloudZoneName: metadataRecord.recordID.zoneID.zoneName, cloudZoneOwnerName: metadataRecord.recordID.zoneID.ownerName)
     }

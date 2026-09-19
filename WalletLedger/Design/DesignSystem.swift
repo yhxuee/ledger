@@ -57,9 +57,9 @@ enum LedgerFormat {
     static func money(_ amount: Double, currency: CurrencyCode, compact: Bool = false) -> String {
         if compact && abs(amount) >= 1_000 {
             let value = amount / 1_000
-            return "\(currency.symbol)\(currency.symbol.count > 1 ? " " : "")\(value.formatted(.number.precision(.fractionLength(abs(value) >= 10 ? 0 : 1))))k"
+            return "\(currency.rawValue) \(value.formatted(.number.precision(.fractionLength(abs(value) >= 10 ? 0 : 1))))k"
         }
-        return "\(currency.symbol)\(currency.symbol.count > 1 ? " " : "")\(amount.formatted(.number.precision(.fractionLength(2))))"
+        return "\(currency.rawValue) \(amount.formatted(.number.precision(.fractionLength(2))))"
     }
 
     static func transaction(_ amount: Double, currency: CurrencyCode, type: LedgerTransactionType) -> String {

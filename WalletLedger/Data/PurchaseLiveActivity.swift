@@ -1,101 +1,87 @@
 import ActivityKit
 import Foundation
 
-struct PurchaseSharedSnapshot: Codable, Hashable {
-    var session: PurchaseSession
-    var currencyCode: CurrencyCode
-    var updatedAt: Date
-}
+enum PurchaseActivityResult: Equatable, Sendable {
+    case started(activityID: String), updated, ended, notRunning
+    case liveActivitiesDisabled
+    case sharedStateFailed(String)
+    case requestFailed(String)
 
-enum PurchaseSharedStateStore {
-    static let appGroupIdentifier = "group.org.medx.WalletLedger"
-
-    static func url(sessionID: UUID) -> URL? {
-        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)?
-            .appending(path: "active-purchase-\(sessionID.uuidString).json")
-    }
-
-    static func write(session: PurchaseSession, currency: CurrencyCode) throws {
-        guard let url = url(sessionID: session.id) else { throw PurchaseSharedStateError.appGroupUnavailable }
-        let data = try JSONEncoder.purchaseShared.encode(PurchaseSharedSnapshot(session: session, currencyCode: currency, updatedAt: .now))
-        try data.write(to: url, options: [.atomic, .completeFileProtection])
-    }
-
-    static func read(sessionID: UUID) -> PurchaseSharedSnapshot? {
-        guard let url = url(sessionID: sessionID), let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder.purchaseShared.decode(PurchaseSharedSnapshot.self, from: data)
-    }
-
-    static func updateItem(sessionID: UUID, itemID: UUID, completed: Bool) throws -> PurchaseSharedSnapshot {
-        guard var snapshot = read(sessionID: sessionID), let index = snapshot.session.items.firstIndex(where: { $0.id == itemID }) else { throw PurchaseSharedStateError.notFound }
-        snapshot.session.items[index].isCompleted = completed
-        snapshot.session.items[index].completedAt = completed ? .now : nil
-        if snapshot.session.items.allSatisfy(\.isCompleted) {
-            snapshot.session.status = .awaitingSummary
-            snapshot.session.completedAt = .now
-        } else {
-            snapshot.session.status = .active
-            snapshot.session.completedAt = nil
-        }
-        snapshot.updatedAt = .now
-        guard let url = url(sessionID: sessionID) else { throw PurchaseSharedStateError.appGroupUnavailable }
-        try JSONEncoder.purchaseShared.encode(snapshot).write(to: url, options: [.atomic, .completeFileProtection])
-        return snapshot
-    }
-
-    static func resetLocalSnapshots() throws {
-        guard let folder = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) else { return }
-        for url in try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) where url.lastPathComponent.hasPrefix("active-purchase-") && url.pathExtension == "json" {
-            try FileManager.default.removeItem(at: url)
+    var userMessage: String? {
+        switch self {
+        case .started, .updated, .ended, .notRunning: nil
+        case .liveActivitiesDisabled:
+            "Your purchase is active in the app. Live Activities are unavailable or disabled. Enable Live Activities for Wallet Ledger in Settings to show shopping progress on the Lock Screen."
+        case .sharedStateFailed(let detail):
+            "Your purchase is saved. Live Activity shared storage is unavailable: \(detail)"
+        case .requestFailed(let detail):
+            "Your purchase is active in the app, but the Live Activity could not start: \(detail)"
         }
     }
 }
 
-enum PurchaseSharedStateError: LocalizedError {
-    case appGroupUnavailable, notFound
-    var errorDescription: String? {
-        switch self { case .appGroupUnavailable: "The shared purchase container is unavailable."; case .notFound: "The active purchase item was not found." }
-    }
+protocol PurchaseActivityStarting: Sendable {
+    func start(session: PurchaseSession) async -> PurchaseActivityResult
 }
 
-private extension JSONEncoder {
-    static var purchaseShared: JSONEncoder { let coder = JSONEncoder(); coder.dateEncodingStrategy = .iso8601; return coder }
-}
-
-private extension JSONDecoder {
-    static var purchaseShared: JSONDecoder { let coder = JSONDecoder(); coder.dateDecodingStrategy = .iso8601; return coder }
-}
-
-actor PurchaseLiveActivityController {
+actor PurchaseLiveActivityController: PurchaseActivityStarting {
     static let shared = PurchaseLiveActivityController()
+    private let snapshotWriter: @Sendable (PurchaseSession) throws -> Void
+    private let activitiesEnabled: @Sendable () -> Bool
+    private let requestActivity: @Sendable (PurchaseActivityAttributes, PurchaseActivityAttributes.ContentState) throws -> String
 
-    func startOrUpdate(session: PurchaseSession, currency: CurrencyCode) async {
-        try? PurchaseSharedStateStore.write(session: session, currency: currency)
-        let state = contentState(session)
+    init(
+        snapshotWriter: @escaping @Sendable (PurchaseSession) throws -> Void = { try PurchaseSharedStateStore.write(session: $0) },
+        activitiesEnabled: @escaping @Sendable () -> Bool = { ActivityAuthorizationInfo().areActivitiesEnabled },
+        requestActivity: @escaping @Sendable (PurchaseActivityAttributes, PurchaseActivityAttributes.ContentState) throws -> String = {
+            try Activity.request(attributes: $0, content: ActivityContent(state: $1, staleDate: nil), pushType: nil).id
+        }
+    ) {
+        self.snapshotWriter = snapshotWriter
+        self.activitiesEnabled = activitiesEnabled
+        self.requestActivity = requestActivity
+    }
+
+    func start(session: PurchaseSession) async -> PurchaseActivityResult {
+        await perform(session: session, requestIfNeeded: true)
+    }
+
+    func update(session: PurchaseSession) async -> PurchaseActivityResult {
+        await perform(session: session, requestIfNeeded: false)
+    }
+
+    private func perform(session: PurchaseSession, requestIfNeeded: Bool) async -> PurchaseActivityResult {
+        do { try snapshotWriter(session) }
+        catch { return .sharedStateFailed(error.localizedDescription) }
+        let state = PurchaseActivityAttributes.ContentState.make(session: session)
         if let activity = Activity<PurchaseActivityAttributes>.activities.first(where: { $0.attributes.sessionID == session.id }) {
             await activity.update(ActivityContent(state: state, staleDate: nil))
-            if state.isCompleted {
+            if session.status == .completed || session.status == .cancelled {
                 await activity.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .default)
+                return .ended
             }
-            return
+            return .updated
         }
-        guard session.status == .active, ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-        let attributes = PurchaseActivityAttributes(sessionID: session.id, title: session.name, currencyCode: currency.rawValue)
-        _ = try? Activity.request(attributes: attributes, content: ActivityContent(state: state, staleDate: nil), pushType: nil)
+        guard requestIfNeeded, session.status == .active else { return .notRunning }
+        guard activitiesEnabled() else { return .liveActivitiesDisabled }
+        let attributes = PurchaseActivityAttributes(sessionID: session.id, title: session.name, currencyCode: session.currency.rawValue)
+        do {
+            return .started(activityID: try requestActivity(attributes, state))
+        } catch {
+            let failure = error as NSError
+            return .requestFailed("\(failure.domain) (\(failure.code)): \(failure.localizedDescription)")
+        }
+    }
+
+    func end(sessionID: UUID) async {
+        for activity in Activity<PurchaseActivityAttributes>.activities where activity.attributes.sessionID == sessionID {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
     }
 
     func endAll() async {
         for activity in Activity<PurchaseActivityAttributes>.activities {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
-    }
-
-    private func contentState(_ session: PurchaseSession) -> PurchaseActivityAttributes.ContentState {
-        let total = session.items.reduce(0) { $0 + $1.amount }
-        let completed = session.items.filter(\.isCompleted).reduce(0) { $0 + $1.amount }
-        let previews = session.items.filter { !$0.isCompleted }.sorted { $0.displayOrder < $1.displayOrder }.prefix(3).map {
-            PurchaseActivityAttributes.ItemPreview(id: $0.id, name: $0.note, amount: $0.amount)
-        }
-        return .init(totalPlannedAmount: total, completedAmount: completed, completionFraction: total > 0 ? completed / total : 0, nextItems: previews, isCompleted: session.status == .awaitingSummary || session.status == .completed)
     }
 }

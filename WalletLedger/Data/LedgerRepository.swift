@@ -14,7 +14,10 @@ struct LocalLedgerRepository: LedgerRepository {
     func loadLibrary() throws -> LedgerLibrary? {
         let url = Self.storageFolder.appending(path: "library.json")
         guard let data = try? Data(contentsOf: url) else { return nil }
-        if let current = try? BackupCodec.decoder().decode(LedgerLibrary.self, from: data), current.schemaVersion >= 2 { return current }
+        if var current = try? BackupCodec.decoder().decode(LedgerLibrary.self, from: data), current.schemaVersion >= 2 {
+            for index in current.books.indices { PurchaseRules.migrateDevelopmentSessions(in: &current.books[index].state) }
+            return current
+        }
         if let old = try? BackupCodec.decoder().decode(LedgerLibraryV1.self, from: data), old.schemaVersion <= 1 { return SchemaMigration.migrate(old) }
         throw BackupError.invalidFormat
     }

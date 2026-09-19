@@ -12,7 +12,7 @@ struct AccountsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                AccountCardView(account: nil, portfolioBalance: portfolio.netWorth, baseCurrency: store.state.settings.baseCurrency, portfolioTitle: "Net Worth", portfolioAssets: portfolio.assets, portfolioLiabilities: portfolio.liabilities)
+                AccountsPortfolioSummaryView(netWorth: portfolio.netWorth, assets: portfolio.assets, liabilities: portfolio.liabilities, currency: store.state.settings.baseCurrency)
                 LazyVStack(spacing: 10) {
                     ForEach(store.accounts) { item in
                         Button { editing = item } label: {
@@ -80,7 +80,7 @@ private struct AccountEditorView: View {
                             if value == .loan, account.loanMetadata == nil { account.loanMetadata = .init(annualPercentageRate: 0, interestInterval: nil, customIntervalDays: 30, linkedRecurringRuleID: nil) }
                             if value != .loan { interestEnabled = false }
                         }
-                    Picker("Currency", selection: $account.currency) { ForEach(store.availableCurrencies) { Text("\($0.rawValue) · \($0.name)").tag($0) } }
+                    CurrencyPickerLink(selection: $account.currency)
                         .onChange(of: account.currency) { oldValue, newValue in
                             desiredBalance = LedgerCalculations.convert(desiredBalance, from: oldValue, to: newValue, rates: store.state.settings.rates)
                         }

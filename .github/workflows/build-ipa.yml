@@ -24,13 +24,13 @@ jobs:
         if: inputs.reproduce_original_analytics == true
         run: git show dabddfd:WalletLedger/Features/Analytics/AnalyticsView.swift > WalletLedger/Features/Analytics/AnalyticsView.swift
 
-      - name: Render Analytics on iOS Simulator
+      - name: Run domain and rendering tests on iOS Simulator
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if "iPhone" in x["name"]))')
           xcodebuild test \
             -scheme WalletLedger \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            -only-testing:WalletLedgerTests/AnalyticsRenderingTests \
+            -only-testing:WalletLedgerTests \
             -parallel-testing-enabled NO \
             -resultBundlePath AnalyticsRendering.xcresult \
             CODE_SIGNING_ALLOWED=NO

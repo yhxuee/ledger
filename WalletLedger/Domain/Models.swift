@@ -1,64 +1,5 @@
 import Foundation
 
-struct CurrencyCode: RawRepresentable, Codable, Hashable, Identifiable, Sendable, CaseIterable, CodingKeyRepresentable {
-    let rawValue: String
-    var id: String { rawValue }
-
-    private static let supportedCodes = "AED AFN ALL AMD ANG AOA ARS AUD AWG AZN BAM BBD BDT BHD BIF BMD BND BOB BRL BSD BTN BWP BYN BZD CAD CDF CHF CLP CMD CNH CNY COP CRC CUP CVE CZK DJF DKK DOP DZD EGP ERN ETB EUR FJD FKP GBP GEL GGP GHS GIP GMD GNF GTQ GYD HKD HNL HTG HUF IDR ILS IMP INR IQD IRR ISK JEP JMD JOD JPY KES KGS KHR KMF KPW KRW KWD KYD KZT LAK LBP LKR LRD LSL LYD MAD MDL MGA MKD MMK MNT MOP MRO MRU MUR MVR MWK MXN MYR MZN NAD NGN NIO NOK NPR NZD OMR PAB PEN PGK PHP PKR PLN PYG QAR RON RSD RUB RWF SAR SBD SCR SDG SEK SGD SHP SLE SOS SRD SSP STN SVC SYP SZL THB TJS TMT TND TOP TRY TTD TWD TZS UAH UGX USD UYU UZS VES VND VUV WST XAF XAG XAU XCD XCG XDR XOF XPD XPF XPT YER ZAR ZMW ZWG"
-    static let allCases = supportedCodes.split(separator: " ").map { CurrencyCode(unchecked: String($0)) }
-
-    static let HKD = CurrencyCode(unchecked: "HKD")
-    static let USD = CurrencyCode(unchecked: "USD")
-    static let CNY = CurrencyCode(unchecked: "CNY")
-    static let MYR = CurrencyCode(unchecked: "MYR")
-    static let EUR = CurrencyCode(unchecked: "EUR")
-    static let GBP = CurrencyCode(unchecked: "GBP")
-    static let JPY = CurrencyCode(unchecked: "JPY")
-
-    init?(rawValue: String) {
-        let normalized = rawValue.uppercased()
-        guard normalized.count == 3, normalized.unicodeScalars.allSatisfy({ CharacterSet.uppercaseLetters.contains($0) }) else { return nil }
-        self.rawValue = normalized
-    }
-
-    private init(unchecked rawValue: String) { self.rawValue = rawValue }
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let value = try container.decode(String.self)
-        guard let currency = Self(rawValue: value) else {
-            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unsupported currency code: \(value)")
-        }
-        self = currency
-    }
-    func encode(to encoder: Encoder) throws { var container = encoder.singleValueContainer(); try container.encode(rawValue) }
-
-    var name: String { Locale.current.localizedString(forCurrencyCode: rawValue) ?? rawValue }
-    var symbol: String {
-        switch rawValue {
-        case "HKD", "USD", "AUD", "CAD", "NZD", "SGD", "TWD": "$"
-        case "CNY", "JPY": "¥"
-        case "MYR": "RM"
-        case "EUR": "€"
-        case "GBP": "£"
-        case "KRW": "₩"
-        case "INR": "₹"
-        case "THB": "฿"
-        default: rawValue
-        }
-    }
-}
-
-struct CurrencyDescriptor: Identifiable, Codable, Hashable, Sendable {
-    var code: CurrencyCode
-    var name: String
-    var symbol: String?
-    var id: CurrencyCode { code }
-
-    static var bundled: [CurrencyDescriptor] {
-        CurrencyCode.allCases.map { .init(code: $0, name: $0.name, symbol: $0.symbol == $0.rawValue ? nil : $0.symbol) }
-    }
-}
-
 enum AccountType: String, Codable, CaseIterable, Identifiable, Sendable {
     case checking = "Checking"
     case savings = "Savings"
@@ -119,24 +60,6 @@ struct ExchangeRateSettings: Codable, Hashable, Sendable {
     var automatic: Bool
     var updatedAt: Date?
 }
-
-struct LedgerCategoryID: RawRepresentable, Codable, Hashable, Identifiable, Sendable {
-    let rawValue: String
-    var id: String { rawValue }
-
-    init(rawValue: String) { self.rawValue = rawValue }
-    init(from decoder: Decoder) throws { rawValue = try decoder.singleValueContainer().decode(String.self) }
-    func encode(to encoder: Encoder) throws { var container = encoder.singleValueContainer(); try container.encode(rawValue) }
-
-    static let food = Self(rawValue: "food")
-    static let transport = Self(rawValue: "transport")
-    static let shopping = Self(rawValue: "shopping")
-    static let utilities = Self(rawValue: "utilities")
-    static let other = Self(rawValue: "other")
-    static let builtIns: [Self] = [.food, .transport, .shopping, .utilities, .other]
-}
-
-enum SyncStatus: String, Codable, Sendable { case synced, pending, conflict }
 
 struct CardStyle: Codable, Hashable, Sendable {
     var startHex: String
@@ -200,41 +123,6 @@ struct LedgerTransaction: Identifiable, Codable, Hashable, Sendable {
     var isReversal: Bool { reversalOfTransactionID != nil }
     var isRefunded: Bool { reversalTransactionID != nil }
     var isLockedByReversal: Bool { isReversal || isRefunded }
-}
-
-enum PurchaseSessionStatus: String, Codable, CaseIterable, Sendable {
-    case draft, active, awaitingSummary, completed, cancelled
-}
-
-struct PurchaseCategorySection: Identifiable, Codable, Hashable, Sendable {
-    var id: UUID
-    var categoryID: LedgerCategoryID
-    var displayOrder: Int
-}
-
-struct PurchaseItem: Identifiable, Codable, Hashable, Sendable {
-    var id: UUID
-    var categoryID: LedgerCategoryID
-    var note: String
-    var amount: Double
-    var displayOrder: Int
-    var isCompleted: Bool
-    var completedAt: Date?
-    var resolvedAccountID: UUID?
-    var linkedTransactionID: UUID?
-}
-
-struct PurchaseSession: Identifiable, Codable, Hashable, Sendable {
-    var id: UUID
-    var ledgerBookID: UUID
-    var name: String
-    var status: PurchaseSessionStatus
-    var sections: [PurchaseCategorySection]
-    var items: [PurchaseItem]
-    var createdAt: Date
-    var startedAt: Date?
-    var completedAt: Date?
-    var receiptAttachmentID: String?
 }
 
 struct RecurringRule: Identifiable, Codable, Hashable, Sendable {
