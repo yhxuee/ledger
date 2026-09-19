@@ -183,7 +183,7 @@ struct VerticalOverviewHeroLayout: Layout {
                         .minimumScaleFactor(0.7)
                         .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil, minHeight: isSideColumn ? nil : 146)
+                .frame(maxWidth: .infinity, minHeight: isSideColumn ? nil : 146, maxHeight: isSideColumn ? .infinity : nil)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil)
@@ -202,7 +202,7 @@ struct VerticalOverviewHeroLayout: Layout {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil, minHeight: isSideColumn ? nil : 146)
+                .frame(maxWidth: .infinity, minHeight: isSideColumn ? nil : 146, maxHeight: isSideColumn ? .infinity : nil)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil)
@@ -216,7 +216,7 @@ struct VerticalOverviewHeroLayout: Layout {
                         .minimumScaleFactor(0.7)
                         .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil, minHeight: isSideColumn ? nil : 146)
+                .frame(maxWidth: .infinity, minHeight: isSideColumn ? nil : 146, maxHeight: isSideColumn ? .infinity : nil)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil)
@@ -230,7 +230,7 @@ struct VerticalOverviewHeroLayout: Layout {
                         .minimumScaleFactor(0.7)
                         .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil, minHeight: isSideColumn ? nil : 146)
+                .frame(maxWidth: .infinity, minHeight: isSideColumn ? nil : 146, maxHeight: isSideColumn ? .infinity : nil)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil)
@@ -246,7 +246,7 @@ struct VerticalOverviewHeroLayout: Layout {
                         .minimumScaleFactor(0.7)
                         .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil, minHeight: isSideColumn ? nil : 146)
+                .frame(maxWidth: .infinity, minHeight: isSideColumn ? nil : 146, maxHeight: isSideColumn ? .infinity : nil)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil)
