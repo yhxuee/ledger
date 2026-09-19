@@ -13,6 +13,22 @@ struct AnalyticsView: View {
     @State private var hasCustomRange = false
     private var summary: AnalyticsSummary { LedgerCalculations.analytics(store.state, range: range, categories: selectedCategories, accountIDs: selectedAccounts, customRange: hasCustomRange ? rangeStart...rangeEnd : nil) }
 
+    private struct CategorySegment: Identifiable {
+        let category: LedgerCategory
+        let value: Double
+        var id: LedgerCategoryID { category.id }
+    }
+
+    private var categorySegments: [CategorySegment] {
+        store.state.categories.compactMap { category in
+            let value = summary.categoryTotals[category.id, default: 0]
+            guard value.isFinite, value > 0 else { return nil }
+            return CategorySegment(category: category, value: value)
+        }
+    }
+
+    private var categorySegmentTotal: Double { categorySegments.reduce(0) { $0 + $1.value } }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
@@ -45,10 +61,17 @@ struct AnalyticsView: View {
     private var categoryChart: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack { VStack(alignment: .leading) { Text("Category Breakdown").font(.headline); Text(summary.subtitle).font(.caption).foregroundStyle(.secondary) }; Spacer(); SensitiveMoneyText(amount: summary.total, currency: store.state.settings.baseCurrency, compact: true).font(.title3.bold()) }
-            Chart(store.state.categories) { category in
-                SectorMark(angle: .value("Spent", privacy.isLocked ? 0 : summary.categoryTotals[category.id, default: 0]), innerRadius: .ratio(0.62), angularInset: 1.5)
-                    .foregroundStyle(Color(hex: category.colorHex)).cornerRadius(4)
-            }.chartLegend(.hidden).frame(height: 190)
+            if privacy.isLocked || categorySegments.isEmpty {
+                ContentUnavailableView("No Spending", systemImage: "chart.pie")
+                    .frame(maxWidth: .infinity, minHeight: 190)
+            } else {
+                Chart(categorySegments) { segment in
+                    SectorMark(angle: .value("Spent", segment.value), innerRadius: .ratio(0.62), angularInset: 1.5)
+                        .foregroundStyle(Color(hex: segment.category.colorHex)).cornerRadius(4)
+                }
+                .chartLegend(.hidden)
+                .frame(height: 190)
+            }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 110))]) {
                 ForEach(store.state.categories) { category in HStack { Circle().fill(Color(hex: category.colorHex)).frame(width: 8, height: 8); Text(category.name).font(.caption); Spacer(); Text(percent(category.id)).font(.caption.bold()) } }
             }
@@ -88,7 +111,14 @@ struct AnalyticsView: View {
         }
     }
     private func stat(_ title: String, _ value: Double) -> some View { MetricCard(title) { SensitiveMoneyText(amount: value, currency: store.state.settings.baseCurrency, compact: true).font(.headline.bold()).minimumScaleFactor(0.6).lineLimit(1) } }
-    private func percent(_ category: LedgerCategoryID) -> String { privacy.isLocked ? "***" : (summary.total > 0 ? "\(Int((summary.categoryTotals[category, default: 0] / summary.total * 100).rounded()))%" : "0%") }
+    private func percent(_ category: LedgerCategoryID) -> String {
+        guard !privacy.isLocked else { return "***" }
+        let value = summary.categoryTotals[category, default: 0]
+        guard value.isFinite, value > 0, categorySegmentTotal.isFinite, categorySegmentTotal > 0 else { return "0%" }
+        let percentage = (value / categorySegmentTotal * 100).rounded()
+        guard percentage.isFinite else { return "0%" }
+        return "\(Int(percentage))%"
+    }
     private var filtersActive: Bool { !selectedCategories.isEmpty || !selectedAccounts.isEmpty || hasCustomRange }
     private var axisLabels: [String] {
         let labels = summary.buckets.map(\.label)

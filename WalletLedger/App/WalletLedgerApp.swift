@@ -21,8 +21,8 @@ struct WalletLedgerApp: App {
                 }
                 .task(id: store.activeBookID) {
                     await privacy.unlockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
-                    try? await store.refreshCurrencyCatalogIfNeeded()
-                    try? await store.refreshExchangeRatesIfNeeded()
+                    _ = try? await store.refreshCurrencyCatalogIfNeeded()
+                    _ = try? await store.refreshExchangeRatesIfNeeded()
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
@@ -30,7 +30,7 @@ struct WalletLedgerApp: App {
                         store.processDueRecurring()
                         Task {
                             await privacy.unlockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
-                            try? await store.refreshExchangeRatesIfNeeded()
+                            _ = try? await store.refreshExchangeRatesIfNeeded()
                         }
                     } else {
                         privacy.lockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)

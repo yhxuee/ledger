@@ -5,11 +5,23 @@ enum LedgerCalculations {
     static func activeTransactions(_ state: LedgerState) -> [LedgerTransaction] { state.transactions.filter { $0.deletedAt == nil } }
 
     static func convert(_ amount: Double, from: CurrencyCode, to: CurrencyCode, rates: [CurrencyCode: Double]) -> Double {
-        amount * (rates[from] ?? 1) / (rates[to] ?? 1)
+        guard amount.isFinite else { return 0 }
+        let fromRate = validRate(rates[from])
+        let toRate = validRate(rates[to])
+        let result = amount * fromRate / toRate
+        return result.isFinite ? result : 0
     }
 
     static func historical(_ transaction: LedgerTransaction, to target: CurrencyCode, rates: [CurrencyCode: Double]) -> Double {
-        transaction.amount * transaction.exchangeRateAtTransaction / (rates[target] ?? 1)
+        guard transaction.amount.isFinite else { return 0 }
+        let snapshotRate = validRate(transaction.exchangeRateAtTransaction)
+        let result = transaction.amount * snapshotRate / validRate(rates[target])
+        return result.isFinite ? result : 0
+    }
+
+    private static func validRate(_ value: Double?) -> Double {
+        guard let value, value.isFinite, value > 0 else { return 1 }
+        return value
     }
 
     static func expenseEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode) -> Double? {

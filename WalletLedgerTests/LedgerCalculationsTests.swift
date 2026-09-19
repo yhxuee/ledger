@@ -290,6 +290,19 @@ final class LedgerCalculationsTests: XCTestCase {
         XCTAssertEqual(decoded.effectiveStorageKind, .cloudOwner)
     }
 
+    func testAnalyticsRemainsFiniteWithInvalidPersistedRates() {
+        var state = SeedData.make()
+        state.settings.rates[state.settings.baseCurrency] = 0
+        state.transactions[0].exchangeRateAtTransaction = .infinity
+        let summary = LedgerCalculations.analytics(state, range: .week)
+        XCTAssertTrue(summary.total.isFinite)
+        XCTAssertTrue(summary.average.isFinite)
+        XCTAssertTrue(summary.minimum.isFinite)
+        XCTAssertTrue(summary.maximum.isFinite)
+        XCTAssertTrue(summary.buckets.allSatisfy { $0.value.isFinite })
+        XCTAssertTrue(summary.categoryTotals.values.allSatisfy(\.isFinite))
+    }
+
     private func makeTransaction(type: LedgerTransactionType, source: LedgerAccount, destination: LedgerAccount? = nil, amount: Double) -> LedgerTransaction {
         .init(id: UUID(), userID: SeedData.localUserID, type: type, accountID: source.id, destinationAccountID: destination?.id, amount: amount, currency: source.currency, accountAmount: amount, destinationAmount: destination == nil ? nil : amount, categoryID: .food, occurredAt: .now, note: nil, exchangeRateAtTransaction: SeedData.rates[source.currency] ?? 1, createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending)
     }

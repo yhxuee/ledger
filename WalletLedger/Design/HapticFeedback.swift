@@ -3,14 +3,14 @@ import UIKit
 enum HapticFeedback {
     static func selection(enabled: Bool) {
         guard enabled else { return }
-        UISelectionFeedbackGenerator().selectionChanged()
+        Task { @MainActor in UISelectionFeedbackGenerator().selectionChanged() }
     }
     static func warning(enabled: Bool) {
         guard enabled else { return }
-        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        Task { @MainActor in UINotificationFeedbackGenerator().notificationOccurred(.warning) }
     }
     static func success(enabled: Bool) {
         guard enabled else { return }
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        Task { @MainActor in UINotificationFeedbackGenerator().notificationOccurred(.success) }
     }
 }

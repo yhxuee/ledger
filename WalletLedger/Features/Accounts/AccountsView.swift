@@ -102,7 +102,7 @@ private struct AccountEditorView: View {
                     ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(presets, id: \.self) { style in Button { account.cardStyle = style } label: { RoundedRectangle(cornerRadius: 12).fill(LinearGradient(colors: [Color(hex: style.startHex), Color(hex: style.endHex)], startPoint: .topLeading, endPoint: .bottomTrailing)).frame(width: 74, height: 48).overlay { if account.cardStyle == style { Image(systemName: "checkmark.circle.fill").foregroundStyle(.white) } } }.buttonStyle(.plain) } } }
                     ColorPicker("Start Color", selection: Binding(get: { Color(hex: account.cardStyle.startHex) }, set: { account.cardStyle.startHex = $0.rgbHex }))
                     ColorPicker("End Color", selection: Binding(get: { Color(hex: account.cardStyle.endHex) }, set: { account.cardStyle.endHex = $0.rgbHex }))
-                    PhotosPicker(selection: $photoItem, matching: .images) { Label(account.cardImageData == nil ? "Choose Card Photo" : "Replace Card Photo", systemImage: "photo") }
+                    PhotosPicker(selection: $photoItem, matching: .images) { Label("Choose Card Photo", systemImage: "photo") }
                     if account.cardImageData != nil { Button("Remove Card Photo", role: .destructive) { account.cardImageData = nil; photoItem = nil } }
                 }
                 if !isNew { Section { Button("Delete Account", role: .destructive) { onDelete(account); dismiss() } } }
