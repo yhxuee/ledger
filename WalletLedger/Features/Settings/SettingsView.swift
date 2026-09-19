@@ -165,6 +165,15 @@ struct SettingsView: View {
             Divider()
 
             NavigationLink {
+                TaxRateEditorView()
+            } label: {
+                SettingsLinkRow("Tax Rates", systemImage: "percent", detail: nil)
+            }
+            .foregroundStyle(.primary)
+
+            Divider()
+
+            NavigationLink {
                 BudgetEditorView()
             } label: {
                 SettingsLinkRow("Budget", systemImage: "chart.pie", detail: store.state.settings.budgetPlan.mode.title)

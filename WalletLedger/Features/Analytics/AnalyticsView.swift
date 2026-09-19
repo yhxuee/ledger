@@ -1,10 +1,18 @@
 import Charts
 import SwiftUI
 
+private enum AnalyticsPage: Hashable {
+    case expense, income, tax
+}
+
 struct AnalyticsView: View {
     @EnvironmentObject private var store: LedgerStore
     @EnvironmentObject private var privacy: PrivacyController
-    @State private var activeType: LedgerTransactionType = .expense
+    @State private var activePage: AnalyticsPage = .expense
+    private var activeType: LedgerTransactionType { activePage == .income ? .income : .expense }
+    @State private var taxExpenseCategories = Set<LedgerCategoryID>()
+    @State private var taxIncomeCategories = Set<LedgerCategoryID>()
+    @State private var taxAccounts = Set<UUID>()
     @State private var range: AnalyticsRange = .week
     @State private var selectedExpenseCategories = Set<LedgerCategoryID>()
     @State private var selectedIncomeCategories = Set<LedgerCategoryID>()
@@ -47,20 +55,24 @@ struct AnalyticsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Type", selection: $activeType) {
-                Text("Expense").tag(LedgerTransactionType.expense)
-                Text("Income").tag(LedgerTransactionType.income)
+            Picker("Type", selection: $activePage) {
+                Text("Expense").tag(AnalyticsPage.expense)
+                Text("Income").tag(AnalyticsPage.income)
+                Text("Tax").tag(AnalyticsPage.tax)
             }
             .pickerStyle(.segmented)
             .padding(.horizontal)
             .padding(.top, 8)
             .padding(.bottom, 6)
 
-            TabView(selection: $activeType) {
+            TabView(selection: $activePage) {
                 pageView(for: .expense)
-                    .tag(LedgerTransactionType.expense)
+                    .tag(AnalyticsPage.expense)
                 pageView(for: .income)
-                    .tag(LedgerTransactionType.income)
+                    .tag(AnalyticsPage.income)
+                TaxAnalyticsPage(range: $range, customRange: hasCustomRange ? rangeStart...rangeEnd : nil,
+                                 categories: taxExpenseCategories.union(taxIncomeCategories), accountIDs: taxAccounts)
+                    .tag(AnalyticsPage.tax)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
         }
@@ -69,12 +81,25 @@ struct AnalyticsView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Menu {
+                    if activePage == .tax {
+                        Menu("Expense Categories") {
+                            ForEach(store.state.categories.filter { $0.kind == .expense }) { category in
+                                Toggle(category.name, isOn: taxCategoryBinding(category.id, income: false))
+                            }
+                        }
+                        Menu("Income Categories") {
+                            ForEach(store.state.categories.filter { $0.kind == .income }) { category in
+                                Toggle(category.name, isOn: taxCategoryBinding(category.id, income: true))
+                            }
+                        }
+                    } else {
                     Menu {
                         ForEach(currentCategories) { category in
                             Toggle(category.name, isOn: categoryBinding(category.id, for: activeType))
                         }
                     } label: {
                         Label(activeType == .income ? "Income Categories" : "Expense Categories", systemImage: "tag")
+                    }
                     }
                     Menu {
                         ForEach(store.accounts) { item in
@@ -105,10 +130,14 @@ struct AnalyticsView: View {
                 hasCustomRange = true
             }
         }
-        .onChange(of: store.activeBookID) { _, _ in clearFilters() }
+        .onChange(of: store.activeBookID) { _, _ in
+            selectedExpenseCategories.removeAll(); selectedIncomeCategories.removeAll(); selectedAccounts.removeAll()
+            taxExpenseCategories.removeAll(); taxIncomeCategories.removeAll(); taxAccounts.removeAll()
+            hasCustomRange = false
+        }
         .onReceive(store.$requestedAnalyticsType) { newType in
             if let newType {
-                withAnimation(.snappy) { activeType = newType }
+                withAnimation(.snappy) { activePage = newType == .income ? .income : .expense }
                 store.requestedAnalyticsType = nil
             }
         }
@@ -248,7 +277,10 @@ struct AnalyticsView: View {
     }
 
     private var filtersActive: Bool {
-        !selectedExpenseCategories.isEmpty || !selectedIncomeCategories.isEmpty || !selectedAccounts.isEmpty || hasCustomRange
+        if activePage == .tax {
+            return !taxExpenseCategories.isEmpty || !taxIncomeCategories.isEmpty || !taxAccounts.isEmpty || hasCustomRange
+        }
+        return !selectedExpenseCategories.isEmpty || !selectedIncomeCategories.isEmpty || !selectedAccounts.isEmpty || hasCustomRange
     }
 
     private func axisLabels(for summary: AnalyticsSummary) -> [String] {
@@ -295,14 +327,33 @@ struct AnalyticsView: View {
 
     private func accountBinding(_ id: UUID) -> Binding<Bool> {
         Binding(
-            get: { selectedAccounts.contains(id) },
+            get: { activePage == .tax ? taxAccounts.contains(id) : selectedAccounts.contains(id) },
             set: { enabled in
-                if enabled { selectedAccounts.insert(id) } else { selectedAccounts.remove(id) }
+                if activePage == .tax {
+                    if enabled { taxAccounts.insert(id) } else { taxAccounts.remove(id) }
+                } else {
+                    if enabled { selectedAccounts.insert(id) } else { selectedAccounts.remove(id) }
+                }
             }
         )
     }
 
+    private func taxCategoryBinding(_ id: LedgerCategoryID, income: Bool) -> Binding<Bool> {
+        Binding(get: { income ? taxIncomeCategories.contains(id) : taxExpenseCategories.contains(id) }, set: { enabled in
+            if income {
+                if enabled { taxIncomeCategories.insert(id) } else { taxIncomeCategories.remove(id) }
+            } else {
+                if enabled { taxExpenseCategories.insert(id) } else { taxExpenseCategories.remove(id) }
+            }
+        })
+    }
+
     private func clearFilters() {
+        if activePage == .tax {
+            taxExpenseCategories.removeAll(); taxIncomeCategories.removeAll(); taxAccounts.removeAll()
+            hasCustomRange = false
+            return
+        }
         selectedExpenseCategories.removeAll()
         selectedIncomeCategories.removeAll()
         selectedAccounts.removeAll()

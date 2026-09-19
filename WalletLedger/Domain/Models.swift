@@ -320,6 +320,12 @@ struct LedgerTransaction: Identifiable, Codable, Hashable, Sendable {
     var version: Int
     var syncStatus: SyncStatus
 
+    var taxRate: Double? = nil
+    var taxAmount: Double? = nil
+    var taxBaseAmount: Double? = nil
+    var taxInputMode: TaxInputMode? = nil
+    var isTaxExempt: Bool? = nil
+
     var isReversal: Bool { reversalOfTransactionID != nil }
     var isRefunded: Bool { reversalTransactionID != nil }
     var isLockedByReversal: Bool { isReversal || isRefunded }
@@ -409,6 +415,7 @@ struct LedgerCategory: Identifiable, Codable, Hashable, Sendable {
 }
 
 struct LedgerSettings: Codable, Hashable, Sendable {
+    var taxSettings: TaxSettings? = nil
     var userID: String
     var baseCurrency: CurrencyCode
     var exchangeRates: ExchangeRateSettings

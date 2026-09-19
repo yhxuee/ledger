@@ -13,7 +13,13 @@ enum RefundEngine {
         let exactSourceAmount = original.accountAmount ?? LedgerCalculations.convert(original.amount, from: original.currency, to: sourcePocket, rates: state.settings.rates)
         switch original.type {
         case .expense, .income:
-            return .init(id: UUID(), userID: original.userID, type: original.type == .expense ? .income : .expense, accountID: original.accountID, destinationAccountID: nil, amount: original.amount, currency: original.currency, accountAmount: exactSourceAmount, destinationAmount: nil, accountCurrency: original.accountCurrency, destinationAccountCurrency: nil, categoryID: original.categoryID, occurredAt: now, note: "REFUND \(title)", exchangeRateAtTransaction: original.exchangeRateAtTransaction, reversalOfTransactionID: original.id, createdAt: now, updatedAt: now, deletedAt: nil, version: 1, syncStatus: .pending)
+            var reversal = LedgerTransaction(id: UUID(), userID: original.userID, type: original.type == .expense ? .income : .expense, accountID: original.accountID, destinationAccountID: nil, amount: original.amount, currency: original.currency, accountAmount: exactSourceAmount, destinationAmount: nil, accountCurrency: original.accountCurrency, destinationAccountCurrency: nil, categoryID: original.categoryID, occurredAt: now, note: "REFUND \(title)", exchangeRateAtTransaction: original.exchangeRateAtTransaction, reversalOfTransactionID: original.id, createdAt: now, updatedAt: now, deletedAt: nil, version: 1, syncStatus: .pending)
+            reversal.taxRate = original.taxRate
+            reversal.taxAmount = original.taxAmount
+            reversal.taxBaseAmount = original.taxBaseAmount
+            reversal.taxInputMode = original.taxInputMode
+            reversal.isTaxExempt = original.isTaxExempt
+            return reversal
         case .transfer:
             guard let destinationID = original.destinationAccountID,
                   let destination = state.accounts.first(where: { $0.id == destinationID && $0.deletedAt == nil }) else { return nil }

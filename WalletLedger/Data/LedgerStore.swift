@@ -139,7 +139,7 @@ final class LedgerStore: ObservableObject {
     }
 
     @discardableResult
-    func addTransaction(type: LedgerTransactionType, accountID: UUID, destinationAccountID: UUID?, amount: Double, currency: CurrencyCode, categoryID: LedgerCategoryID, occurredAt: Date, note: String?, noteAttachmentID: String? = nil, purchaseSessionID: UUID? = nil, purchaseItemID: UUID? = nil, accountCurrency: CurrencyCode? = nil, accountAmount: Double? = nil, destinationAccountCurrency: CurrencyCode? = nil, destinationAmount: Double? = nil) -> LedgerTransaction? {
+    func addTransaction(type: LedgerTransactionType, accountID: UUID, destinationAccountID: UUID?, amount: Double, currency: CurrencyCode, categoryID: LedgerCategoryID, occurredAt: Date, note: String?, noteAttachmentID: String? = nil, purchaseSessionID: UUID? = nil, purchaseItemID: UUID? = nil, accountCurrency: CurrencyCode? = nil, accountAmount: Double? = nil, destinationAccountCurrency: CurrencyCode? = nil, destinationAmount: Double? = nil, taxSnapshot: TaxSnapshot? = nil) -> LedgerTransaction? {
         guard amount.isFinite, amount > 0, CurrencyRates.reference(currency, in: state.settings.rates) != nil, let source = state.accounts.first(where: { $0.id == accountID && $0.deletedAt == nil }) else { return nil }
         let destination = destinationAccountID.flatMap { id in state.accounts.first(where: { $0.id == id && $0.deletedAt == nil }) }
         guard type != .transfer || (destination != nil && destination?.id != source.id) else { return nil }
@@ -160,7 +160,8 @@ final class LedgerStore: ObservableObject {
             guard value.isFinite else { return nil }
             resolvedDestinationAmount = value
         }
-        let item = LedgerTransaction(id: UUID(), userID: state.settings.userID, type: type, accountID: source.id, destinationAccountID: type == .transfer ? destination?.id : nil, amount: amount, currency: currency, accountAmount: resolvedAccountAmount, destinationAmount: resolvedDestinationAmount, accountCurrency: source.usesCurrencyPockets ? sourcePocket : nil, destinationAccountCurrency: resolvedDestinationPocket, categoryID: type == .transfer ? .other : categoryID, occurredAt: occurredAt, note: note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty, noteAttachmentID: noteAttachmentID, exchangeRateAtTransaction: CurrencyRates.reference(currency, in: rates) ?? 1, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending)
+        var item = LedgerTransaction(id: UUID(), userID: state.settings.userID, type: type, accountID: source.id, destinationAccountID: type == .transfer ? destination?.id : nil, amount: amount, currency: currency, accountAmount: resolvedAccountAmount, destinationAmount: resolvedDestinationAmount, accountCurrency: source.usesCurrencyPockets ? sourcePocket : nil, destinationAccountCurrency: resolvedDestinationPocket, categoryID: type == .transfer ? .other : categoryID, occurredAt: occurredAt, note: note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty, noteAttachmentID: noteAttachmentID, exchangeRateAtTransaction: CurrencyRates.reference(currency, in: rates) ?? 1, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending)
+        item.applyTax(taxSnapshot)
         state.transactions.insert(item, at: 0)
         scheduleSave()
         return item
@@ -176,6 +177,7 @@ final class LedgerStore: ObservableObject {
             item.accountCurrency == original.accountCurrency && item.destinationAccountCurrency == original.destinationAccountCurrency
         let scale = original.amount > 0 ? item.amount / original.amount : 1
         var updated = item
+        if updated.type == .transfer { updated.applyTax(nil) }
         updated.accountCurrency = source.usesCurrencyPockets ? sourcePocket : nil
         // A supplied account amount that differs from the stored one is a manual override and is
         // authoritative. An untouched value follows an amount edit (previous behaviour).

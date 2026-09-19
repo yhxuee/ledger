@@ -67,17 +67,30 @@ enum SeedData {
                     _ currency: CurrencyCode, _ amount: Double,
                     destination: LedgerAccount? = nil, destinationPocket: CurrencyCode? = nil) {
             guard date >= startDate, date <= now else { return }
+            let categoryValue = categories.first { $0.id == category }
+            let demoSettings = LedgerSettings(userID: localUserID, baseCurrency: .HKD,
+                                              exchangeRates: .init(rates: rates, automatic: false, updatedAt: nil),
+                                              defaultExpenseAccountByCategory: [:], budgetPlan: .empty(now: now),
+                                              backupReminders: true, lastBackupAt: nil, updatedAt: now)
+            let mode: TaxInputMode = id.isMultiple(of: 2) ? .beforeTax : .finalAmount
+            let tax = categoryValue.flatMap {
+                TaxCalculations.resolve(entered: amount, type: type, rate: demoSettings.taxRate(for: $0),
+                                        mode: mode, exempt: id.isMultiple(of: 17))
+            }
+            let finalAmount = rounded(tax?.finalAmount ?? amount)
             let sourceCurrency = source.defaultPocket(for: currency)
             let targetCurrency = destination.map { destinationPocket ?? $0.defaultPocket(for: currency) }
-            transactions.append(.init(
+            var transaction = LedgerTransaction(
                 id: demoID(id), userID: localUserID, type: type, accountID: source.id,
-                destinationAccountID: destination?.id, amount: rounded(amount), currency: currency,
-                accountAmount: posting(rounded(amount), currency, sourceCurrency),
-                destinationAmount: targetCurrency.map { posting(rounded(amount), currency, $0) },
+                destinationAccountID: destination?.id, amount: finalAmount, currency: currency,
+                accountAmount: posting(finalAmount, currency, sourceCurrency),
+                destinationAmount: targetCurrency.map { posting(finalAmount, currency, $0) },
                 accountCurrency: sourceCurrency, destinationAccountCurrency: targetCurrency,
                 categoryID: category, occurredAt: date, note: note,
                 exchangeRateAtTransaction: rates[currency] ?? 1,
-                createdAt: date, updatedAt: date, deletedAt: nil, version: 1, syncStatus: .synced))
+                createdAt: date, updatedAt: date, deletedAt: nil, version: 1, syncStatus: .synced)
+            transaction.applyTax(tax)
+            transactions.append(transaction)
         }
         // Account indexes refer to the stable declaration order above. Amounts stay
         // denominated in their original currencies; append handles pocket postings.

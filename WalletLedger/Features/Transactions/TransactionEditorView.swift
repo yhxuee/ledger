@@ -41,6 +41,10 @@ struct TransactionEditorView: View {
     @State private var removedAttachmentID: String?
     @State private var saving = false
     @State private var showingNoteEditor: Bool
+    @State private var taxRate: Double?
+    @State private var taxInputMode: TaxInputMode
+    @State private var isTaxExempt: Bool
+    @State private var taxChanged = false
     @FocusState private var noteFocused: Bool
 
     init(transaction: LedgerTransaction? = nil) {
@@ -55,7 +59,11 @@ struct TransactionEditorView: View {
         _categoryID = State(initialValue: transaction?.categoryID ?? defaultCat)
         _occurredAt = State(initialValue: transaction?.occurredAt ?? .now)
         _note = State(initialValue: transaction?.note ?? "")
-        let rawAmount = transaction?.amount ?? 0
+        _taxRate = State(initialValue: initialType == .transfer ? nil : transaction?.taxRate)
+        _taxInputMode = State(initialValue: initialType == .transfer ? .finalAmount : (transaction?.taxInputMode ?? .finalAmount))
+        _isTaxExempt = State(initialValue: initialType == .transfer ? false : (transaction?.isTaxExempt ?? false))
+        let rawAmount = initialType != .transfer && transaction?.taxInputMode == .beforeTax
+            ? (transaction?.taxBaseAmount ?? transaction?.amount ?? 0) : (transaction?.amount ?? 0)
         _isNegative = State(initialValue: rawAmount < 0)
         _minorUnits = State(initialValue: String(Int((abs(rawAmount) * 100).rounded())))
         _accountExplicitlyOverridden = State(initialValue: transaction != nil)
@@ -68,10 +76,33 @@ struct TransactionEditorView: View {
 
     private static func amountText(_ value: Double) -> String { String(format: "%.2f", value) }
 
-    private var amount: Double {
+    private var enteredAmount: Double {
         let val = (Double(minorUnits) ?? 0) / 100
         return isNegative ? -val : val
     }
+    private var taxSnapshot: TaxSnapshot? {
+        guard type != .transfer else { return nil }
+        if !taxChanged, let original { return original.taxSnapshot }
+        guard let taxRate else { return nil }
+        return TaxCalculations.resolve(entered: enteredAmount, type: type, rate: taxRate,
+                                       mode: taxInputMode, exempt: isTaxExempt)
+    }
+    private var amount: Double {
+        guard type != .transfer else { return enteredAmount }
+        if !taxChanged, let original { return original.amount }
+        return (isNegative ? -1 : 1) * TaxCalculations.rounded(taxSnapshot?.finalAmount ?? abs(enteredAmount))
+    }
+    private func reloadTaxRate() {
+        taxChanged = true
+        if type == .transfer {
+            taxRate = nil
+            taxInputMode = .finalAmount
+            isTaxExempt = false
+        } else if let category = availableCategories.first(where: { $0.id == categoryID }) {
+            taxRate = store.state.settings.taxRate(for: category)
+        }
+    }
+
     private var activeAccounts: [LedgerAccount] { store.accounts.map(\.account) }
     private var canSave: Bool { abs(amount) > 0 && accountID != nil && (type != .transfer || (destinationID != nil && destinationID != accountID)) }
     private var hasNote: Bool {
@@ -163,6 +194,7 @@ struct TransactionEditorView: View {
             }
         }
         .onAppear {
+            if original == nil { reloadTaxRate() }
             if accountID == nil { applyDefaultAccount(for: categoryID) }
             if destinationID == nil { destinationID = activeAccounts.first(where: { $0.id != accountID })?.id }
             if original == nil { syncAmountFields() } else { prefillStoredAmounts() }
@@ -171,6 +203,7 @@ struct TransactionEditorView: View {
             }
         }
         .onChange(of: categoryID) { _, category in
+            reloadTaxRate()
             if (type == .expense || type == .income) && !accountExplicitlyOverridden {
                 applyDefaultAccount(for: category)
             }
@@ -184,14 +217,24 @@ struct TransactionEditorView: View {
             if (newType == .expense || newType == .income) && !accountExplicitlyOverridden {
                 applyDefaultAccount(for: categoryID)
             }
+            reloadTaxRate()
         }
         .onChange(of: currency) { _, _ in
+            taxChanged = true
             // The pocket default depends on the denomination, so re-resolve it and drop stale guesses.
             accountPocket = nil
             destinationPocket = nil
             accountAmountOverridden = false
             destinationAmountOverridden = false
             syncAmountFields()
+        }
+        .onChange(of: enteredAmount) { _, _ in taxChanged = true }
+        .onChange(of: taxInputMode) { _, _ in
+            taxChanged = true
+            if taxRate == nil && type != .transfer { reloadTaxRate() }
+        }
+        .onChange(of: store.state.settings.taxSettings) { _, _ in
+            if original == nil || original?.categoryID != categoryID || original?.type != type { reloadTaxRate() }
         }
         .onChange(of: amount) { _, _ in syncAmountFields() }
         .sheet(isPresented: $showingCategoryEditor) {
@@ -239,16 +282,80 @@ struct TransactionEditorView: View {
         }
     }
 
+    private var effectiveDisplayTaxRate: Double {
+        if let taxRate { return taxRate }
+        if let category = availableCategories.first(where: { $0.id == categoryID }) {
+            return store.state.settings.taxRate(for: category)
+        }
+        return type == .expense ? 0.09 : 0.15
+    }
+
     private var amountPanel: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             TransactionCurrencyPicker(selection: $currency)
-            SensitiveMoneyText(amount: amount, currency: currency)
+            SensitiveMoneyText(amount: enteredAmount, currency: currency)
                 .font(.system(size: 58, weight: .bold, design: .rounded))
                 .minimumScaleFactor(0.5)
                 .lineLimit(1)
+            if type != .transfer {
+                taxSummaryLine
+                taxModeControl
+                if taxInputMode == .beforeTax {
+                    taxTotalLine
+                }
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
+    }
+
+    private var taxSummaryLine: some View {
+        Button {
+            if taxRate == nil { reloadTaxRate() }
+            isTaxExempt.toggle()
+            taxChanged = true
+            HapticFeedback.selection(enabled: preferences.value.hapticFeedbackEnabled)
+        } label: {
+            HStack(spacing: 5) {
+                Text("Tax \(TaxCalculations.percent(effectiveDisplayTaxRate)) \u{00B7}")
+                SensitiveValueText(LedgerMoneyFormat.code(taxSnapshot?.hypotheticalTax ?? 0, currency: currency))
+                if isTaxExempt {
+                    Text("Tax Free")
+                        .font(.system(size: 10, weight: .semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(Color.secondary.opacity(0.15), in: Capsule())
+                }
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .strikethrough(isTaxExempt)
+            .opacity(isTaxExempt ? 0.65 : 1.0)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Tax Free")
+        .accessibilityValue(isTaxExempt ? "On" : "Off")
+    }
+
+    private var taxModeControl: some View {
+        Picker("Tax input", selection: $taxInputMode) {
+            Text(type == .income ? "After Tax" : "Tax Included").tag(TaxInputMode.finalAmount)
+            Text("Before Tax").tag(TaxInputMode.beforeTax)
+        }
+        .pickerStyle(.segmented)
+        .frame(maxWidth: 240)
+    }
+
+    private var taxTotalLine: some View {
+        HStack(spacing: 6) {
+            Text(type == .income ? "Net Received" : "Total")
+                .foregroundStyle(.secondary)
+            SensitiveMoneyText(amount: amount, currency: currency)
+                .fontWeight(.semibold)
+        }
+        .font(.caption)
     }
 
     private var accountAndDateRow: some View {
@@ -675,9 +782,10 @@ struct TransactionEditorView: View {
             original.accountAmount = sourcePostingValue
             original.destinationAccountCurrency = type == .transfer ? destinationAccountCurrency : nil
             original.destinationAmount = type == .transfer ? destinationPostingValue : nil
+            if taxChanged || type == .transfer { original.applyTax(taxSnapshot) }
             store.updateTransaction(original)
         } else {
-            guard store.addTransaction(type: type, accountID: accountID, destinationAccountID: destinationID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: savedAttachmentID, accountCurrency: sourceAccountCurrency, accountAmount: sourcePostingValue, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: type == .transfer ? destinationPostingValue : nil) != nil else {
+            guard store.addTransaction(type: type, accountID: accountID, destinationAccountID: destinationID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: savedAttachmentID, accountCurrency: sourceAccountCurrency, accountAmount: sourcePostingValue, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: type == .transfer ? destinationPostingValue : nil, taxSnapshot: taxSnapshot) != nil else {
                 if noteImageChanged, let savedAttachmentID { try? await AttachmentStore.shared.delete(identifier: savedAttachmentID) }
                 store.presentedError = "The transaction could not be saved."
                 return
