@@ -63,9 +63,12 @@ struct TaxAnalyticsPage: View {
     }
 
     private func shortDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = preferences.value.dateFormat == .monthDayYear ? "MM/dd" : "dd/MM"
-        return formatter.string(from: date)
+        let components = Calendar.current.dateComponents([.month, .day], from: date)
+        let month = components.month ?? 0
+        let day = components.day ?? 0
+        return preferences.value.dateFormat == .monthDay
+            ? String(format: "%02d/%02d", month, day)
+            : String(format: "%02d/%02d", day, month)
     }
 
     var body: some View {
