@@ -240,10 +240,15 @@ struct TransactionEditorView: View {
     }
 
     private var amountPanel: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             TransactionCurrencyPicker(selection: $currency)
-            SensitiveMoneyText(amount: amount, currency: currency).font(.system(size: 48, weight: .bold, design: .rounded)).minimumScaleFactor(0.55).lineLimit(1)
-        }.frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 12).ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            SensitiveMoneyText(amount: amount, currency: currency)
+                .font(.system(size: 58, weight: .bold, design: .rounded))
+                .minimumScaleFactor(0.5)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
     }
 
     private var accountAndDateRow: some View {
@@ -420,7 +425,9 @@ struct TransactionEditorView: View {
                     }
                 }
                 if showsSourceAmount {
-                    if showsSourcePocket { Divider() }
+                    if showsSourcePocket {
+                        Divider()
+                    }
                     accountAmountRow(title: type == .transfer ? "From Account Amount" : "Account Amount",
                                      pocket: sourcePocket,
                                      text: $accountAmountText,
@@ -429,13 +436,17 @@ struct TransactionEditorView: View {
                                      estimated: estimatedSourceAmount)
                 }
                 if showsDestinationPocket {
-                    Divider()
+                    if showsSourcePocket || showsSourceAmount {
+                        Divider()
+                    }
                     LabeledContent("To Account Currency") {
                         AccountPocketPicker(account: destinationAccount ?? activeAccountPlaceholder, selection: targetPocketBinding, title: "To Account Currency")
                     }
                 }
                 if showsDestinationAmount {
-                    Divider()
+                    if showsSourcePocket || showsSourceAmount || showsDestinationPocket {
+                        Divider()
+                    }
                     accountAmountRow(title: "To Account Amount",
                                      pocket: targetPocket,
                                      text: $destinationAmountText,
