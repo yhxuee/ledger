@@ -4,6 +4,7 @@ struct TransactionRow: View {
     @EnvironmentObject private var preferences: AppPreferencesStore
     let transaction: LedgerTransaction
     let category: LedgerCategory
+    var showsDate = true
     var body: some View {
         HStack(spacing: 12) {
             CategoryIcon(category: category, font: .system(size: 17, weight: .semibold))
@@ -16,7 +17,13 @@ struct TransactionRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .strikethrough(transaction.isRefunded)
-                Text("\(category.name) · \(preferences.value.dateFormat.transactionDateString(from: transaction.occurredAt))")
+                Group {
+                    if showsDate {
+                        Text("\(category.name) · \(preferences.value.dateFormat.transactionDateString(from: transaction.occurredAt))")
+                    } else {
+                        Text(category.name)
+                    }
+                }
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

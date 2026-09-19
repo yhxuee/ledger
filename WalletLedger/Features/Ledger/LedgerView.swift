@@ -36,38 +36,61 @@ struct LedgerView: View {
         )
     }
 
+    private struct DateGroup: Identifiable {
+        let day: Date
+        let entries: [PurchaseLedgerEntry]
+        var id: Date { day }
+    }
+
+    private var dateGroups: [DateGroup] {
+        // Group presentation entries, keeping each Purchase and its children together.
+        let grouped = Dictionary(grouping: entries) { Calendar.current.startOfDay(for: $0.occurredAt) }
+        return grouped.keys.sorted(by: >).map { day in
+            DateGroup(day: day, entries: grouped[day, default: []])
+        }
+    }
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 Section {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Transactions")
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                            .padding(.horizontal, 18)
-                            .padding(.top, showingCalendar ? 10 : 12)
-                            .padding(.bottom, 2)
+                    ForEach(dateGroups) { group in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(preferences.value.dateFormat.transactionDateString(from: group.day))
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 2)
 
-                        LazyVStack(spacing: 8) {
-                            ForEach(entries) { entry in
-                                switch entry {
-                                case .transaction(let item):
-                                    transactionButton(item)
-                                case .purchase(let session, let children):
-                                    purchaseRow(session: session, children: children)
-                                    if expandedPurchaseIDs.contains(session.id) {
-                                        ForEach(children) { transactionButton($0, isPurchaseChild: true) }
+                            VStack(spacing: 0) {
+                                ForEach(group.entries) { entry in
+                                    if entry.id != group.entries.first?.id {
+                                        Divider().padding(.leading, 67)
+                                    }
+                                    switch entry {
+                                    case .transaction(let item):
+                                        transactionButton(item)
+                                    case .purchase(let session, let children):
+                                        purchaseRow(session: session, children: children)
+                                        if expandedPurchaseIDs.contains(session.id) {
+                                            ForEach(children) { child in
+                                                Divider().padding(.leading, 67)
+                                                transactionButton(child, isPurchaseChild: true)
+                                            }
+                                        }
                                     }
                                 }
                             }
+                            .ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                         }
                         .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                        .padding(.bottom, 4)
+                    }
 
-                        if filtered.isEmpty {
-                            ContentUnavailableView.search(text: query)
-                                .padding(.top, 40)
-                                .frame(maxWidth: .infinity)
-                        }
+                    if filtered.isEmpty {
+                        ContentUnavailableView.search(text: query)
+                            .padding(.top, 40)
+                            .frame(maxWidth: .infinity)
                     }
                 } header: {
                     if showingCalendar {
@@ -141,10 +164,9 @@ struct LedgerView: View {
 
     private func transactionButton(_ item: LedgerTransaction, isPurchaseChild: Bool = false) -> some View {
         Button { if !item.isLockedByReversal { editing = item } } label: {
-            TransactionRow(transaction: item, category: category(item.categoryID))
+            TransactionRow(transaction: item, category: category(item.categoryID), showsDate: false)
                 .padding(.leading, isPurchaseChild ? 22 : 14).padding(.trailing, 14)
                 .frame(maxWidth: .infinity)
-                .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -184,7 +206,6 @@ struct LedgerView: View {
             }
             .padding(.horizontal, 14).padding(.vertical, 9)
             .frame(maxWidth: .infinity)
-            .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
         .onLongPressGesture {

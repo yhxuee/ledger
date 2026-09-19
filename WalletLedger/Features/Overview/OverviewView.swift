@@ -438,11 +438,16 @@ struct OverviewMetricDetailSheet: View {
     }
 }
 
-private struct CardHeightPreferenceKey: PreferenceKey {
-    static let defaultValue: CGFloat = 200
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        let next = nextValue()
-        if next > 0 { value = next }
+/// A snapshot in persisted account order. Images are decoded when accounts change,
+/// never from the per-frame carousel effect.
+private struct OverviewPickerCard: Identifiable {
+    let account: AccountViewModel?
+    let image: UIImage?
+    var id: String { account?.id.uuidString ?? "all-accounts" }
+
+    init(account: AccountViewModel?) {
+        self.account = account
+        self.image = account?.account.cardImageData.flatMap { UIImage(data: $0) }
     }
 }
 
@@ -450,203 +455,162 @@ private struct AccountPickerView: View {
     @EnvironmentObject private var store: LedgerStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
-    private var primaryActionColor: Color {
-        LedgerPalette.primaryAction(for: colorScheme)
-    }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var selectedAccountID: UUID?
-    @State private var workingOrder: [UUID] = []
-    @State private var draggedID: UUID? = nil
-    @State private var sourceIndex: Int? = nil
-    @State private var targetIndex: Int? = nil
-    @State private var dragTranslation: CGFloat = 0
-    @State private var isSettling = false
-    @State private var cardHeight: CGFloat = 200
-    private let stackSpacing: CGFloat = -36
-
-    private var step: CGFloat {
-        max(cardHeight + stackSpacing, 60)
-    }
-
-    private var orderedAccounts: [AccountViewModel] {
-        let map = Dictionary(uniqueKeysWithValues: store.accounts.map { ($0.id, $0) })
-        let ordered = workingOrder.compactMap { map[$0] }
-        if ordered.count == store.accounts.count {
-            return ordered
-        }
-        return store.accounts
-    }
+    @State private var cards: [OverviewPickerCard] = []
+    @State private var centeredID: String?
+    @State private var portfolioBalance: Double = 0
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: stackSpacing) {
-                    Button {
-                        if draggedID == nil && !isSettling {
-                            selectedAccountID = nil
-                            dismiss()
-                        }
-                    } label: {
-                        AccountCardView(account: nil, portfolioBalance: LedgerCalculations.portfolioBalance(store.state), baseCurrency: store.state.settings.baseCurrency, compact: true)
-                    }
-                    .buttonStyle(.plain)
-                    .zIndex(0)
+            GeometryReader { geometry in
+                let cardWidth = geometry.size.width * 0.74
+                let cardHeight = cardWidth * 1.36
+                let sideInset = (geometry.size.width - cardWidth) / 2
 
-                    ForEach(Array(orderedAccounts.enumerated()), id: \.element.id) { index, item in
-                        cardView(for: item, index: index)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 12) {
+                        ForEach(cards) { card in
+                            Button {
+                                if centeredID == card.id {
+                                    selectedAccountID = card.account?.id
+                                    dismiss()
+                                } else {
+                                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) {
+                                        centeredID = card.id
+                                    }
+                                }
+                            } label: {
+                                OverviewPortraitAccountCard(
+                                    card: card,
+                                    portfolioBalance: portfolioBalance,
+                                    baseCurrency: store.state.settings.baseCurrency
+                                )
+                                .frame(width: cardWidth, height: cardHeight)
+                            }
+                            .buttonStyle(.plain)
+                            .visualEffect { content, proxy in
+                                let distance = (proxy.frame(in: .scrollView(axis: .horizontal)).midX - geometry.size.width / 2) / (cardWidth + 12)
+                                let progress = max(-1.0, min(1.0, distance))
+                                let magnitude = abs(progress)
+                                return content
+                                    .rotationEffect(.degrees(reduceMotion ? 0 : Double(progress * 7)), anchor: .bottom)
+                                    .scaleEffect(1 - magnitude * 0.08)
+                                    .blur(radius: magnitude * 3)
+                                    .opacity(1 - Double(magnitude) * 0.35)
+                                    .offset(y: reduceMotion ? 0 : magnitude * 18)
+                            }
+                            .accessibilityAddTraits(centeredID == card.id ? .isSelected : [])
+                            .id(card.id)
+                        }
                     }
+                    .scrollTargetLayout()
+                    .padding(.vertical, 32)
                 }
-                .padding()
+                .contentMargins(.horizontal, sideInset, for: .scrollContent)
+                .scrollTargetBehavior(.viewAligned)
+                .scrollPosition(id: $centeredID, anchor: .center)
+                .scrollClipDisabled()
+                .frame(height: cardHeight + 64)
+                .frame(maxHeight: .infinity, alignment: .center)
             }
-            .coordinateSpace(name: "AccountStackSpace")
-            .scrollDisabled(draggedID != nil)
             .background(LedgerBackground())
             .navigationTitle("Accounts")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "checkmark")
-                            .fontWeight(.semibold)
+                    Button { dismiss() } label: {
+                        Image(systemName: "checkmark").fontWeight(.semibold)
                     }
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.circle)
-                    .tint(primaryActionColor)
+                    .tint(LedgerPalette.primaryAction(for: colorScheme))
                     .accessibilityLabel("Done")
                 }
             }
         }
         .onAppear {
-            workingOrder = store.accounts.map(\.id)
+            refreshCards(store.accounts)
+            centeredID = selectedAccountID?.uuidString ?? "all-accounts"
         }
-        .onChange(of: store.accounts) { _, newAccounts in
-            let newIDs = newAccounts.map(\.id)
-            if Set(workingOrder) != Set(newIDs) {
-                workingOrder = newIDs
-            }
-        }
-        .onPreferenceChange(CardHeightPreferenceKey.self) { height in
-            if draggedID == nil, height > 50 {
-                cardHeight = height
-            }
+        .onChange(of: store.accounts) { _, accounts in refreshCards(accounts) }
+        .onChange(of: store.state.settings) { _, _ in
+            portfolioBalance = LedgerCalculations.portfolioBalance(store.state)
         }
     }
 
-    private func cardOffset(for index: Int, isDragging: Bool) -> CGFloat {
-        if isDragging {
-            return dragTranslation
+    private func refreshCards(_ accounts: [AccountViewModel]) {
+        portfolioBalance = LedgerCalculations.portfolioBalance(store.state)
+        // accountViews preserves state.accounts order; this picker never writes order.
+        cards = [OverviewPickerCard(account: nil)] + accounts.map { OverviewPickerCard(account: $0) }
+        if let centeredID, !cards.contains(where: { $0.id == centeredID }) {
+            self.centeredID = "all-accounts"
         }
-        guard let s = sourceIndex, let t = targetIndex else { return 0 }
-        if s < t {
-            if index > s && index <= t {
-                return -step
-            }
-        } else if s > t {
-            if index >= t && index < s {
-                return step
-            }
-        }
-        return 0
+    }
+}
+
+/// Dedicated portrait layout; the normal Overview hero card remains horizontal.
+private struct OverviewPortraitAccountCard: View {
+    let card: OverviewPickerCard
+    let portfolioBalance: Double
+    let baseCurrency: CurrencyCode
+
+    private var account: LedgerAccount? { card.account?.account }
+    private var style: CardStyle {
+        account?.cardStyle ?? .init(startHex: "F2C7D8", endHex: "B9D9F1")
     }
 
-    @ViewBuilder
-    private func cardView(for item: AccountViewModel, index: Int) -> some View {
-        let isDragging = draggedID == item.id
-        let otherOffset = cardOffset(for: index, isDragging: false)
-        let effectiveOffset = isDragging ? dragTranslation : otherOffset
-
-        AccountCardView(account: item, baseCurrency: store.state.settings.baseCurrency, compact: true)
-            .background(
-                Group {
-                    if index == 0 {
-                        GeometryReader { geo in
-                            Color.clear.preference(key: CardHeightPreferenceKey.self, value: geo.size.height)
-                        }
-                    }
-                }
-            )
-            .scaleEffect(isDragging ? 1.03 : 1.0)
-            .shadow(color: .black.opacity(isDragging ? 0.35 : 0.08), radius: isDragging ? 20 : 8, y: isDragging ? 10 : 3)
-            .offset(y: effectiveOffset)
-            .zIndex(isDragging ? 1000 : Double(index + 1))
-            .animation(.interactiveSpring(response: 0.22, dampingFraction: 0.86), value: isDragging)
-            .animation(isDragging ? nil : .interactiveSpring(response: 0.22, dampingFraction: 0.86), value: otherOffset)
-            .contentShape(Rectangle())
-            .gesture(dragGesture(for: item, index: index))
-            .onTapGesture {
-                if draggedID == nil && !isSettling {
-                    selectedAccountID = item.id
-                    dismiss()
-                }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text(account?.logo ?? "ALL")
+                    .font(.caption.weight(.bold))
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .background(.white.opacity(0.32), in: Capsule())
+                Spacer()
+                Image(systemName: account?.type.symbol ?? "wallet.bifold.fill")
+                    .font(.title2)
             }
-    }
-
-    private func dragGesture(for item: AccountViewModel, index: Int) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.22)
-            .sequenced(before: DragGesture(coordinateSpace: .named("AccountStackSpace")))
-            .onChanged { value in
-                guard !isSettling else { return }
-                switch value {
-                case .first(true):
-                    if draggedID == nil {
-                        draggedID = item.id
-                        sourceIndex = index
-                        targetIndex = index
-                        dragTranslation = 0
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    }
-                case .second(true, let drag):
-                    if draggedID == nil {
-                        draggedID = item.id
-                        sourceIndex = index
-                        targetIndex = index
-                        dragTranslation = 0
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    }
-                    guard let drag = drag, let s = sourceIndex else { return }
-                    dragTranslation = drag.translation.height
-
-                    let rawDelta = Int((drag.translation.height / step).rounded())
-                    let count = orderedAccounts.count
-                    let newTarget = min(max(s + rawDelta, 0), count - 1)
-                    if newTarget != targetIndex {
-                        targetIndex = newTarget
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    }
-                default:
-                    break
-                }
+            Spacer(minLength: 12)
+            Text(account?.name ?? "Net Worth")
+                .font(.title2.bold())
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+            Text(account?.type.rawValue ?? "Portfolio")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            SensitiveMoneyText(amount: card.account?.balance ?? portfolioBalance,
+                               currency: account?.currency ?? baseCurrency,
+                               maxIntegerDigits: 4)
+                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+            if let account {
+                Text(account.metadataLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
             }
-            .onEnded { _ in
-                guard let s = sourceIndex, let t = targetIndex, draggedID == item.id else {
-                    draggedID = nil
-                    sourceIndex = nil
-                    targetIndex = nil
-                    dragTranslation = 0
-                    return
-                }
-
-                isSettling = true
-                let targetSlotOffset = CGFloat(t - s) * step
-                withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.86)) {
-                    dragTranslation = targetSlotOffset
-                }
-
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                    if s != t && s < workingOrder.count && t < workingOrder.count {
-                        var newOrder = workingOrder
-                        let moved = newOrder.remove(at: s)
-                        newOrder.insert(moved, at: t)
-                        workingOrder = newOrder
-                        store.setAccountOrder(newOrder)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background {
+            LinearGradient(colors: [Color(hex: style.startHex), Color(hex: style.endHex)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .overlay {
+                    if let image = card.image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .overlay(LinearGradient(colors: [.black.opacity(0.08), .black.opacity(0.48)],
+                                                    startPoint: .topLeading, endPoint: .bottomTrailing))
                     }
-                    draggedID = nil
-                    sourceIndex = nil
-                    targetIndex = nil
-                    dragTranslation = 0
-                    isSettling = false
                 }
-            }
+                .clipped()
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 25, style: .continuous))
+        .foregroundStyle(card.image == nil ? Color.black.opacity(0.84) : Color.white)
+        .accessibilityElement(children: .combine)
     }
 }
