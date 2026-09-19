@@ -124,15 +124,38 @@ final class LedgerStore: ObservableObject {
         scheduleSave()
     }
 
+    /// Resolves a requested currency pocket against an account.
+    /// Single-currency accounts only ever post to their primary currency; a multi-currency
+    /// account rejects an unknown pocket rather than silently redirecting the money.
+    private func resolvedPocket(_ requested: CurrencyCode?, for account: LedgerAccount) -> CurrencyCode? {
+        guard let requested else { return account.currency }
+        guard account.usesCurrencyPockets else { return account.currency }
+        return account.pocketCurrencies.contains(requested) ? requested : nil
+    }
+
     @discardableResult
-    func addTransaction(type: LedgerTransactionType, accountID: UUID, destinationAccountID: UUID?, amount: Double, currency: CurrencyCode, categoryID: LedgerCategoryID, occurredAt: Date, note: String?, purchaseSessionID: UUID? = nil, purchaseItemID: UUID? = nil) -> LedgerTransaction? {
+    func addTransaction(type: LedgerTransactionType, accountID: UUID, destinationAccountID: UUID?, amount: Double, currency: CurrencyCode, categoryID: LedgerCategoryID, occurredAt: Date, note: String?, purchaseSessionID: UUID? = nil, purchaseItemID: UUID? = nil, accountCurrency: CurrencyCode? = nil, accountAmount: Double? = nil, destinationAccountCurrency: CurrencyCode? = nil, destinationAmount: Double? = nil) -> LedgerTransaction? {
         guard amount.isFinite, amount > 0, CurrencyRates.reference(currency, in: state.settings.rates) != nil, let source = state.accounts.first(where: { $0.id == accountID && $0.deletedAt == nil }) else { return nil }
         let destination = destinationAccountID.flatMap { id in state.accounts.first(where: { $0.id == id && $0.deletedAt == nil }) }
         guard type != .transfer || (destination != nil && destination?.id != source.id) else { return nil }
         let rates = state.settings.rates
         guard CurrencyRates.reference(source.currency, in: rates) != nil,
               destination.map({ CurrencyRates.reference($0.currency, in: rates) != nil }) ?? true else { return nil }
-        let item = LedgerTransaction(id: UUID(), userID: state.settings.userID, type: type, accountID: source.id, destinationAccountID: type == .transfer ? destination?.id : nil, amount: amount, currency: currency, accountAmount: LedgerCalculations.convert(amount, from: currency, to: source.currency, rates: rates), destinationAmount: type == .transfer ? destination.map { LedgerCalculations.convert(amount, from: currency, to: $0.currency, rates: rates) } : nil, categoryID: type == .transfer ? .other : categoryID, occurredAt: occurredAt, note: note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty, exchangeRateAtTransaction: CurrencyRates.reference(currency, in: rates) ?? 1, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending)
+        guard let sourcePocket = resolvedPocket(accountCurrency, for: source) else { return nil }
+        // `accountAmount` is authoritative: it is the actual amount posted to the pocket and may
+        // differ from the FX estimate (bank spread, fees, settlement rate).
+        let resolvedAccountAmount = accountAmount ?? LedgerCalculations.convert(amount, from: currency, to: sourcePocket, rates: rates)
+        guard resolvedAccountAmount.isFinite else { return nil }
+        var resolvedDestinationPocket: CurrencyCode?
+        var resolvedDestinationAmount: Double?
+        if type == .transfer, let destination {
+            guard let destinationPocket = resolvedPocket(destinationAccountCurrency, for: destination) else { return nil }
+            resolvedDestinationPocket = destination.usesCurrencyPockets ? destinationPocket : nil
+            let value = destinationAmount ?? LedgerCalculations.convert(amount, from: currency, to: destinationPocket, rates: rates)
+            guard value.isFinite else { return nil }
+            resolvedDestinationAmount = value
+        }
+        let item = LedgerTransaction(id: UUID(), userID: state.settings.userID, type: type, accountID: source.id, destinationAccountID: type == .transfer ? destination?.id : nil, amount: amount, currency: currency, accountAmount: resolvedAccountAmount, destinationAmount: resolvedDestinationAmount, accountCurrency: source.usesCurrencyPockets ? sourcePocket : nil, destinationAccountCurrency: resolvedDestinationPocket, categoryID: type == .transfer ? .other : categoryID, occurredAt: occurredAt, note: note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty, exchangeRateAtTransaction: CurrencyRates.reference(currency, in: rates) ?? 1, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending)
         state.transactions.insert(item, at: 0)
         scheduleSave()
         return item
@@ -141,23 +164,38 @@ final class LedgerStore: ObservableObject {
     func updateTransaction(_ item: LedgerTransaction) {
         guard let index = state.transactions.firstIndex(where: { $0.id == item.id }), !state.transactions[index].isLockedByReversal, let source = state.accounts.first(where: { $0.id == item.accountID }) else { return }
         guard item.amount.isFinite, item.amount > 0, source.deletedAt == nil else { return }
+        guard let sourcePocket = resolvedPocket(item.accountCurrency, for: source) else { return }
         let original = state.transactions[index]
         let keepsFX = item.currency == original.currency && item.accountID == original.accountID &&
-            item.destinationAccountID == original.destinationAccountID && item.type == original.type
+            item.destinationAccountID == original.destinationAccountID && item.type == original.type &&
+            item.accountCurrency == original.accountCurrency && item.destinationAccountCurrency == original.destinationAccountCurrency
         let scale = original.amount > 0 ? item.amount / original.amount : 1
         var updated = item
-        updated.accountAmount = keepsFX
-            ? original.accountAmount.map { $0 * scale }
-            : LedgerCalculations.convert(item.amount, from: item.currency, to: source.currency, rates: state.settings.rates)
+        updated.accountCurrency = source.usesCurrencyPockets ? sourcePocket : nil
+        // A supplied account amount that differs from the stored one is a manual override and is
+        // authoritative. An untouched value follows an amount edit (previous behaviour).
+        if keepsFX, item.accountAmount == original.accountAmount, let existing = original.accountAmount {
+            updated.accountAmount = existing * scale
+        } else if let supplied = item.accountAmount, supplied.isFinite {
+            updated.accountAmount = supplied
+        } else {
+            updated.accountAmount = LedgerCalculations.convert(item.amount, from: item.currency, to: sourcePocket, rates: state.settings.rates)
+        }
         if item.type == .transfer, let destinationID = item.destinationAccountID, let destination = state.accounts.first(where: { $0.id == destinationID }) {
-            guard destination.deletedAt == nil else { return }
-            updated.destinationAmount = keepsFX
-                ? original.destinationAmount.map { $0 * scale }
-                : LedgerCalculations.convert(item.amount, from: item.currency, to: destination.currency, rates: state.settings.rates)
+            guard destination.deletedAt == nil, let destinationPocket = resolvedPocket(item.destinationAccountCurrency, for: destination) else { return }
+            updated.destinationAccountCurrency = destination.usesCurrencyPockets ? destinationPocket : nil
+            if keepsFX, item.destinationAmount == original.destinationAmount, let existing = original.destinationAmount {
+                updated.destinationAmount = existing * scale
+            } else if let supplied = item.destinationAmount, supplied.isFinite {
+                updated.destinationAmount = supplied
+            } else {
+                updated.destinationAmount = LedgerCalculations.convert(item.amount, from: item.currency, to: destinationPocket, rates: state.settings.rates)
+            }
             updated.categoryID = .other
         } else {
             updated.destinationAccountID = nil
             updated.destinationAmount = nil
+            updated.destinationAccountCurrency = nil
         }
         updated.exchangeRateAtTransaction = keepsFX ? original.exchangeRateAtTransaction : (CurrencyRates.reference(item.currency, in: state.settings.rates) ?? 1)
         updated.updatedAt = .now
@@ -230,18 +268,62 @@ final class LedgerStore: ObservableObject {
         state.transactions[index].syncStatus = .pending
     }
 
-    func saveAccount(_ draft: LedgerAccount, desiredBalance: Double) {
+    /// A pocket that still holds money cannot be removed until it is cleared or transferred out.
+    func pocketRemovalMessage(for draft: LedgerAccount) -> String? {
+        guard let existing = state.accounts.first(where: { $0.id == draft.id }), existing.usesCurrencyPockets else { return nil }
+        let kept = Set(draft.normalizedPockets.map(\.currency))
+        for pocket in existing.normalizedPockets where !kept.contains(pocket.currency) {
+            let balance = LedgerCalculations.pocketBalance(pocket.currency, for: existing, in: state)
+            guard balance.isFinite, abs(balance) > 0.005 else { continue }
+            return "\(pocket.currency.rawValue) pocket still holds \(LedgerFormat.money(balance, currency: pocket.currency)). Clear or transfer it first."
+        }
+        return nil
+    }
+
+    /// Saves an account. `desiredPocketBalances` holds one entry per pocket; pockets that are not
+    /// listed keep their stored opening balance, and a pocket's opening balance absorbs its own
+    /// ledger delta so the requested balance is what the user sees.
+    func saveAccount(_ draft: LedgerAccount, desiredBalance: Double, desiredPocketBalances: [CurrencyCode: Double] = [:]) {
         var account = draft
-        var zeroOpening = draft
-        zeroOpening.openingBalance = 0
-        let ledgerDelta = LedgerCalculations.balance(for: zeroOpening, in: state)
+        // Stocks settle in the market currency, so normalise before any balance arithmetic.
+        if account.type == .stocks {
+            let market = account.stockMetadata?.market ?? .US
+            account.stockMetadata = .init(market: market, symbol: market.normalize(account.stockMetadata?.symbol ?? ""))
+            account.currency = market.settlementCurrency
+            account.isMultiCurrency = false
+            account.currencyPockets = []
+        }
+        account.isMultiCurrency = account.usesCurrencyPockets
+        var pockets = account.normalizedPockets
         let previousRuleID = state.accounts.first(where: { $0.id == draft.id })?.loanMetadata?.linkedRecurringRuleID
-        if let current = state.accounts.first(where: { $0.id == draft.id }) {
+
+        if account.usesCurrencyPockets {
+            for index in pockets.indices {
+                let currency = pockets[index].currency
+                var zeroOpening = account
+                zeroOpening.openingBalance = 0
+                zeroOpening.currencyPockets = [.init(currency: currency, openingBalance: 0)]
+                let ledgerDelta = LedgerCalculations.pocketBalance(currency, for: zeroOpening, in: state)
+                let desired = desiredPocketBalances[currency] ?? (pockets[index].openingBalance + ledgerDelta)
+                pockets[index].openingBalance = desired - ledgerDelta
+            }
+            account.currencyPockets = pockets
+            // The primary currency stays mirrored for readers that only understand `openingBalance`.
+            if let primary = pockets.first(where: { $0.currency == account.currency }) { account.openingBalance = primary.openingBalance }
+        } else {
+            var zeroOpening = draft
+            zeroOpening.openingBalance = 0
+            zeroOpening.isMultiCurrency = false
+            zeroOpening.currencyPockets = []
+            let ledgerDelta = LedgerCalculations.balance(for: zeroOpening, in: state)
             account.openingBalance = desiredBalance - ledgerDelta
+            account.currencyPockets = [.init(currency: account.currency, openingBalance: account.openingBalance)]
+        }
+
+        if let current = state.accounts.first(where: { $0.id == draft.id }) {
             account.version = current.version + 1
             account.createdAt = current.createdAt
         } else {
-            account.openingBalance = desiredBalance - ledgerDelta
             account.version = 1
         }
         account.updatedAt = .now
@@ -481,10 +563,13 @@ final class LedgerStore: ObservableObject {
         try PurchaseRules.validatePayment(session, in: state)
         try PurchaseRules.validateItems(session, in: state)
         guard let accountID = session.accountID else { throw PurchaseFinalizationError.paymentAccountUnavailable }
+        guard let paymentAccount = state.accounts.first(where: { $0.id == accountID && $0.deletedAt == nil }) else { throw PurchaseFinalizationError.paymentAccountUnavailable }
+        // Post each child to the pocket that already holds the purchase currency, else the primary pocket.
+        let purchasePocket = paymentAccount.defaultPocket(for: session.currency)
         // Validate the entire purchase before adding any financial children.
         for itemIndex in sessions[sessionIndex].items.indices where sessions[sessionIndex].items[itemIndex].linkedTransactionID == nil {
             let item = sessions[sessionIndex].items[itemIndex]
-            guard let transaction = addTransaction(type: .expense, accountID: accountID, destinationAccountID: nil, amount: item.amount, currency: session.currency, categoryID: item.categoryID, occurredAt: item.completedAt ?? .now, note: item.note, purchaseSessionID: sessionID, purchaseItemID: item.id) else { throw PurchaseFinalizationError.invalidItem }
+            guard let transaction = addTransaction(type: .expense, accountID: accountID, destinationAccountID: nil, amount: item.amount, currency: session.currency, categoryID: item.categoryID, occurredAt: item.completedAt ?? .now, note: item.note, purchaseSessionID: sessionID, purchaseItemID: item.id, accountCurrency: purchasePocket) else { throw PurchaseFinalizationError.invalidItem }
             sessions[sessionIndex].items[itemIndex].linkedTransactionID = transaction.id
         }
         sessions[sessionIndex].receiptAttachmentID = receiptAttachmentID ?? session.receiptAttachmentID
@@ -566,7 +651,7 @@ final class LedgerStore: ObservableObject {
             while rules[index].nextRunAt <= now && executions < 100 {
                 let rule = rules[index]
                 let amount = recurringAmount(for: rule)
-                if amount > 0 { addTransaction(type: rule.type, accountID: rule.accountID, destinationAccountID: rule.destinationAccountID, amount: amount, currency: rule.currency, categoryID: rule.categoryID, occurredAt: rule.nextRunAt, note: rule.note) }
+                if amount > 0 { addTransaction(type: rule.type, accountID: rule.accountID, destinationAccountID: rule.destinationAccountID, amount: amount, currency: rule.currency, categoryID: rule.categoryID, occurredAt: rule.nextRunAt, note: rule.note, accountCurrency: rule.accountCurrency, destinationAccountCurrency: rule.destinationAccountCurrency) }
                 rules[index].nextRunAt = nextDate(after: rule.nextRunAt, interval: rule.interval, customDays: rule.customIntervalDays)
                 rules[index].updatedAt = now
                 executions += 1
@@ -601,13 +686,15 @@ final class LedgerStore: ObservableObject {
 
     func replace(with envelope: LedgerBackupEnvelope) {
         do {
-            try BackupCodec.validate(envelope.data)
+            var importedState = envelope.data
+            SchemaMigration.normalize(&importedState)
+            try BackupCodec.validate(importedState)
             if activeBook.effectiveStorageKind == .local {
-                state = envelope.data
+                state = importedState
             } else {
                 commitActiveBook()
                 let now = Date.now
-                let imported = LedgerBook(id: UUID(), name: "Imported Ledger", state: envelope.data, createdAt: now, updatedAt: now, storageKind: .local, cloudZoneName: nil, cloudZoneOwnerName: nil)
+                let imported = LedgerBook(id: UUID(), name: "Imported Ledger", state: importedState, createdAt: now, updatedAt: now, storageKind: .local, cloudZoneName: nil, cloudZoneOwnerName: nil)
                 books.append(imported)
                 activeBookID = imported.id
                 state = imported.state
@@ -669,8 +756,9 @@ final class LedgerStore: ObservableObject {
     nonisolated private static var storageFolder: URL { LocalLedgerRepository.storageFolder }
 
     private static func loadLibrary() -> LedgerLibrary? {
-        guard let library = try? localRepository.loadLibrary() else { return nil }
+        guard var library = try? localRepository.loadLibrary() else { return nil }
         guard !library.books.isEmpty else { return nil }
+        SchemaMigration.normalize(&library)
         guard library.books.allSatisfy({ (try? BackupCodec.validate($0.state)) != nil }) else { return nil }
         return library
     }
@@ -683,6 +771,7 @@ final class LedgerStore: ObservableObject {
         else if let old = try? BackupCodec.decoder().decode(LedgerStateV1.self, from: data), old.schemaVersion <= 1 { state = SchemaMigration.migrate(old) }
         else { return nil }
         PurchaseRules.migrateDevelopmentSessions(in: &state)
+        SchemaMigration.normalize(&state)
         guard (try? BackupCodec.validate(state)) != nil else { return nil }
         return state
     }

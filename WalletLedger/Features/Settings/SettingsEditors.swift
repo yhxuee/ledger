@@ -213,6 +213,8 @@ struct RecurringRuleEditorView: View {
     @State private var destinationID: UUID?
     @State private var amount: Double
     @State private var currency: CurrencyCode
+    @State private var accountCurrency: CurrencyCode?
+    @State private var destinationCurrency: CurrencyCode?
     @State private var categoryID: LedgerCategoryID
     @State private var note: String
     @State private var interval: RecurringInterval
@@ -225,10 +227,13 @@ struct RecurringRuleEditorView: View {
         originalID = rule?.id; originalCreatedAt = rule?.createdAt ?? .now
         _type = State(initialValue: rule?.type ?? .expense); _accountID = State(initialValue: rule?.accountID); _destinationID = State(initialValue: rule?.destinationAccountID)
         _amount = State(initialValue: rule?.amount ?? 0); _currency = State(initialValue: rule?.currency ?? .HKD); _categoryID = State(initialValue: rule?.categoryID ?? .food)
+        _accountCurrency = State(initialValue: rule?.accountCurrency); _destinationCurrency = State(initialValue: rule?.destinationAccountCurrency)
         _note = State(initialValue: rule?.note ?? importDraft?.title ?? ""); _interval = State(initialValue: rule?.interval ?? importDraft?.interval ?? .monthly); _customDays = State(initialValue: rule?.customIntervalDays ?? importDraft?.customDays ?? 14)
         _nextRunAt = State(initialValue: rule?.nextRunAt ?? importDraft?.nextRunAt ?? .now); _isEnabled = State(initialValue: rule?.isEnabled ?? true)
     }
     private var accounts: [LedgerAccount] { store.accounts.map(\.account) }
+    private var sourceAccount: LedgerAccount? { accountID.flatMap { id in accounts.first { $0.id == id } } }
+    private var destinationAccount: LedgerAccount? { destinationID.flatMap { id in accounts.first { $0.id == id } } }
     private var canSave: Bool { amount > 0 && accountID != nil && (type != .transfer || (destinationID != nil && destinationID != accountID)) }
     var body: some View {
         NavigationStack {
@@ -239,6 +244,16 @@ struct RecurringRuleEditorView: View {
                     if type == .transfer { Picker("To Account", selection: $destinationID) { ForEach(accounts.filter { $0.id != accountID }) { Text($0.name).tag(Optional($0.id)) } } }
                     LabeledContent("Amount") { SensitiveValueContent { TextField("0", value: $amount, format: .number.precision(.fractionLength(2))).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($amountFocused) } }
                     Picker("Currency", selection: $currency) { ForEach(store.availableCurrencies) { Text($0.rawValue).tag($0) } }
+                    if sourceAccount?.hasMultiplePockets == true {
+                        Picker(type == .transfer ? "From Account Currency" : "Account Currency", selection: $accountCurrency) {
+                            ForEach(sourceAccount?.normalizedPockets ?? []) { pocket in Text(pocket.currency.rawValue).tag(Optional(pocket.currency)) }
+                        }
+                    }
+                    if type == .transfer, destinationAccount?.hasMultiplePockets == true {
+                        Picker("To Account Currency", selection: $destinationCurrency) {
+                            ForEach(destinationAccount?.normalizedPockets ?? []) { pocket in Text(pocket.currency.rawValue).tag(Optional(pocket.currency)) }
+                        }
+                    }
                     if type != .transfer { Picker("Category", selection: $categoryID) { ForEach(store.state.categories) { Text($0.name).tag($0.id) } } }
                     TextField("Note (optional)", text: $note)
                 }
@@ -256,7 +271,9 @@ struct RecurringRuleEditorView: View {
     }
     private func save() {
         guard let accountID else { return }; let now = Date.now
-        store.saveRecurringRule(.init(id: originalID ?? UUID(), userID: store.state.settings.userID, type: type, accountID: accountID, destinationAccountID: type == .transfer ? destinationID : nil, amount: amount, currency: currency, categoryID: type == .transfer ? .other : categoryID, note: note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : note, interval: interval, customIntervalDays: max(1, customDays), nextRunAt: nextRunAt, isEnabled: isEnabled, createdAt: originalCreatedAt, updatedAt: now))
+        let resolvedSourcePocket = sourceAccount?.usesCurrencyPockets == true ? (accountCurrency ?? sourceAccount?.defaultPocket(for: currency)) : nil
+        let resolvedDestinationPocket = destinationAccount?.usesCurrencyPockets == true ? (destinationCurrency ?? destinationAccount?.defaultPocket(for: currency)) : nil
+        store.saveRecurringRule(.init(id: originalID ?? UUID(), userID: store.state.settings.userID, type: type, accountID: accountID, destinationAccountID: type == .transfer ? destinationID : nil, amount: amount, currency: currency, categoryID: type == .transfer ? .other : categoryID, note: note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : note, accountCurrency: resolvedSourcePocket, destinationAccountCurrency: type == .transfer ? resolvedDestinationPocket : nil, interval: interval, customIntervalDays: max(1, customDays), nextRunAt: nextRunAt, isEnabled: isEnabled, createdAt: originalCreatedAt, updatedAt: now))
         store.processDueRecurring(); dismiss()
     }
 }

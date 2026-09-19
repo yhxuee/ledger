@@ -7,16 +7,19 @@ enum RefundEngine {
         let categoryName = state.categories.first(where: { $0.id == original.categoryID })?.name ?? "Transaction"
         let trimmedNote = original.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let title = trimmedNote.isEmpty ? categoryName : trimmedNote
+        // Exact historical pocket and account-side amounts. A refund never re-prices the
+        // original posting with today's FX rate.
+        let sourcePocket = LedgerCalculations.sourcePocket(original, for: source)
+        let exactSourceAmount = original.accountAmount ?? LedgerCalculations.convert(original.amount, from: original.currency, to: sourcePocket, rates: state.settings.rates)
         switch original.type {
         case .expense, .income:
-            let exactSourceAmount = original.accountAmount ?? LedgerCalculations.convert(original.amount, from: original.currency, to: source.currency, rates: state.settings.rates)
-            return .init(id: UUID(), userID: original.userID, type: original.type == .expense ? .income : .expense, accountID: original.accountID, destinationAccountID: nil, amount: original.amount, currency: original.currency, accountAmount: exactSourceAmount, destinationAmount: nil, categoryID: original.categoryID, occurredAt: now, note: "REFUND \(title)", exchangeRateAtTransaction: original.exchangeRateAtTransaction, reversalOfTransactionID: original.id, createdAt: now, updatedAt: now, deletedAt: nil, version: 1, syncStatus: .pending)
+            return .init(id: UUID(), userID: original.userID, type: original.type == .expense ? .income : .expense, accountID: original.accountID, destinationAccountID: nil, amount: original.amount, currency: original.currency, accountAmount: exactSourceAmount, destinationAmount: nil, accountCurrency: original.accountCurrency, destinationAccountCurrency: nil, categoryID: original.categoryID, occurredAt: now, note: "REFUND \(title)", exchangeRateAtTransaction: original.exchangeRateAtTransaction, reversalOfTransactionID: original.id, createdAt: now, updatedAt: now, deletedAt: nil, version: 1, syncStatus: .pending)
         case .transfer:
             guard let destinationID = original.destinationAccountID,
                   let destination = state.accounts.first(where: { $0.id == destinationID && $0.deletedAt == nil }) else { return nil }
-            let exactSourceAmount = original.accountAmount ?? LedgerCalculations.convert(original.amount, from: original.currency, to: source.currency, rates: state.settings.rates)
-            let exactDestinationAmount = original.destinationAmount ?? LedgerCalculations.convert(original.amount, from: original.currency, to: destination.currency, rates: state.settings.rates)
-            return .init(id: UUID(), userID: original.userID, type: .transfer, accountID: destination.id, destinationAccountID: source.id, amount: exactDestinationAmount, currency: destination.currency, accountAmount: exactDestinationAmount, destinationAmount: exactSourceAmount, categoryID: .other, occurredAt: now, note: "REFUND \(title)", exchangeRateAtTransaction: CurrencyRates.reference(destination.currency, in: state.settings.rates) ?? original.exchangeRateAtTransaction, reversalOfTransactionID: original.id, createdAt: now, updatedAt: now, deletedAt: nil, version: 1, syncStatus: .pending)
+            let destinationPocket = LedgerCalculations.destinationPocket(original, for: destination)
+            let exactDestinationAmount = original.destinationAmount ?? LedgerCalculations.convert(original.amount, from: original.currency, to: destinationPocket, rates: state.settings.rates)
+            return .init(id: UUID(), userID: original.userID, type: .transfer, accountID: destination.id, destinationAccountID: source.id, amount: exactDestinationAmount, currency: destinationPocket, accountAmount: exactDestinationAmount, destinationAmount: exactSourceAmount, accountCurrency: original.destinationAccountCurrency, destinationAccountCurrency: original.accountCurrency, categoryID: .other, occurredAt: now, note: "REFUND \(title)", exchangeRateAtTransaction: CurrencyRates.reference(destinationPocket, in: state.settings.rates) ?? original.exchangeRateAtTransaction, reversalOfTransactionID: original.id, createdAt: now, updatedAt: now, deletedAt: nil, version: 1, syncStatus: .pending)
         }
     }
 }

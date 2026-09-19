@@ -18,7 +18,7 @@ struct AccountsView: View {
                         Button { editing = item } label: {
                             HStack(spacing: 14) {
                                 Text(item.account.logo).font(.caption.bold()).frame(width: 42, height: 42).background(LinearGradient(colors: [Color(hex: item.account.cardStyle.startHex), Color(hex: item.account.cardStyle.endHex)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 12))
-                                VStack(alignment: .leading) { Text(item.account.name).font(.headline); Text("\(item.account.type.rawValue) · \(item.account.currency.rawValue)").font(.caption).foregroundStyle(.secondary) }
+                                VStack(alignment: .leading) { Text(item.account.name).font(.headline); Text(item.account.metadataLine).font(.caption).foregroundStyle(.secondary) }
                                 Spacer()
                                 SensitiveMoneyText(amount: item.balance, currency: item.account.currency).font(.headline.monospacedDigit()).minimumScaleFactor(0.7).lineLimit(1)
                                 Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
@@ -49,6 +49,9 @@ private struct AccountEditorView: View {
     let onDelete: (LedgerAccount) -> Void
     @State private var account: LedgerAccount
     @State private var desiredBalance: Double
+    @State private var desiredPocketBalances: [CurrencyCode: Double] = [:]
+    @State private var pocketBalancesInitialized = false
+    @State private var symbolDraft: String = ""
     @State private var photoItem: PhotosPickerItem?
     @State private var interestEnabled: Bool
     private let isNew: Bool
@@ -59,6 +62,68 @@ private struct AccountEditorView: View {
         .init(startHex: "F4A261", endHex: "E76F51")
     ]
 
+    /// Market + manual symbol input. No quote service exists yet, so nothing is auto-completed
+    /// or priced; the field only normalises the typed code.
+    @ViewBuilder private var stockSection: some View {
+        Picker("Market", selection: stockMarketBinding) {
+            ForEach(StockMarket.allCases) { market in Text(market.rawValue).tag(market) }
+        }
+        LabeledContent("Stock Code") {
+            TextField(stockMarket.symbolExample, text: $symbolDraft)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .multilineTextAlignment(.trailing)
+                .onSubmit { commitStockSymbol() }
+        }
+        HStack {
+            Text("Settlement Currency")
+            Spacer()
+            Text(stockMarket.settlementCurrency.rawValue).foregroundStyle(.secondary)
+        }
+        if !symbolDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !stockMarket.isValidSymbol(symbolDraft) {
+            Text("Expected format: \(stockMarket.symbolExample)").font(.caption).foregroundStyle(.secondary)
+        }
+        Text("Market data lookup is not configured yet.").font(.caption).foregroundStyle(.secondary)
+    }
+
+    private var stockMarket: StockMarket { account.stockMetadata?.market ?? .US }
+
+    private var stockMarketBinding: Binding<StockMarket> {
+        Binding(get: { account.stockMetadata?.market ?? .US }, set: { market in
+            guard account.stockMetadata?.market != market else { return }
+            account.stockMetadata = .init(market: market, symbol: market.normalize(symbolDraft))
+            account.currency = market.settlementCurrency
+            symbolDraft = account.stockMetadata?.symbol ?? ""
+        })
+    }
+
+    private func commitStockSymbol() {
+        let market = account.stockMetadata?.market ?? .US
+        account.stockMetadata = .init(market: market, symbol: market.normalize(symbolDraft))
+    }
+
+    private func pocketBalanceBinding(_ currency: CurrencyCode) -> Binding<Double> {
+        Binding(get: { desiredPocketBalances[currency] ?? 0 }, set: { desiredPocketBalances[currency] = $0 })
+    }
+
+    private func addPocket(_ code: CurrencyCode) {
+        var pockets = account.normalizedPockets
+        guard !pockets.contains(where: { $0.currency == code }) else { return }
+        pockets.append(.init(currency: code, openingBalance: 0))
+        account.currencyPockets = pockets
+        if desiredPocketBalances[code] == nil { desiredPocketBalances[code] = 0 }
+    }
+
+    /// Removes pockets from the editor list. The primary currency cannot be removed here, and a
+    /// pocket that still holds money is rejected by `LedgerStore.pocketRemovalMessage`.
+    private func removePockets(at offsets: IndexSet) {
+        var pockets = account.normalizedPockets
+        for index in offsets.filter({ pockets.indices.contains($0) && pockets[$0].currency != account.currency }).sorted(by: >) {
+            pockets.remove(at: index)
+        }
+        account.currencyPockets = pockets
+    }
+
     init(item: AccountViewModel?, onDelete: @escaping (LedgerAccount) -> Void) {
         self.onDelete = onDelete
         isNew = item == nil
@@ -66,6 +131,7 @@ private struct AccountEditorView: View {
         _account = State(initialValue: item?.account ?? new)
         _desiredBalance = State(initialValue: item?.account.type == .loan ? abs(item?.balance ?? 0) : item?.balance ?? 0)
         _interestEnabled = State(initialValue: item?.account.loanMetadata?.interestInterval != nil)
+        _symbolDraft = State(initialValue: item?.account.stockMetadata?.symbol ?? "")
     }
 
     var body: some View {
@@ -79,12 +145,48 @@ private struct AccountEditorView: View {
                         .onChange(of: account.type) { _, value in
                             if value == .loan, account.loanMetadata == nil { account.loanMetadata = .init(annualPercentageRate: 0, interestInterval: nil, customIntervalDays: 30, linkedRecurringRuleID: nil) }
                             if value != .loan { interestEnabled = false }
+                            // Multi-currency only exists for checking / savings / credit.
+                            if !account.supportsMultiCurrency { account.isMultiCurrency = false }
+                            if value == .stocks {
+                                let market = account.stockMetadata?.market ?? .US
+                                account.stockMetadata = .init(market: market, symbol: account.stockMetadata?.symbol ?? "")
+                                account.currency = market.settlementCurrency
+                            }
                         }
-                    CurrencyPickerLink(selection: $account.currency)
-                        .onChange(of: account.currency) { oldValue, newValue in
-                            desiredBalance = LedgerCalculations.convert(desiredBalance, from: oldValue, to: newValue, rates: store.state.settings.rates)
+                    if account.type == .stocks {
+                        stockSection
+                    } else {
+                        if account.supportsMultiCurrency {
+                            Toggle("Multi-Currency Account", isOn: $account.isMultiCurrency)
                         }
-                    if account.type != .loan { LabeledContent("Current Balance") { SensitiveNumericField(placeholder: "0", value: $desiredBalance, fractionDigits: 2, width: 130) } }
+                        if account.usesCurrencyPockets {
+                            Picker("Primary Currency", selection: $account.currency) {
+                                ForEach(account.normalizedPockets) { pocket in Text(pocket.currency.rawValue).tag(pocket.currency) }
+                            }
+                            ForEach(account.normalizedPockets) { pocket in
+                                LabeledContent(pocket.currency.rawValue) {
+                                    SensitiveNumericField(placeholder: "0", value: pocketBalanceBinding(pocket.currency), fractionDigits: 2, width: 130)
+                                }
+                            }
+                            .onDelete(perform: removePockets)
+                            Menu {
+                                ForEach(store.availableCurrencies.filter { !account.pocketCurrencies.contains($0) }) { code in
+                                    Button(code.rawValue) { addPocket(code) }
+                                }
+                            } label: {
+                                Label("Add Currency", systemImage: "plus")
+                            }
+                        } else {
+                            CurrencyPickerLink(selection: $account.currency)
+                                .onChange(of: account.currency) { oldValue, newValue in
+                                    desiredBalance = LedgerCalculations.convert(desiredBalance, from: oldValue, to: newValue, rates: store.state.settings.rates)
+                                }
+                            if account.type != .loan { LabeledContent("Current Balance") { SensitiveNumericField(placeholder: "0", value: $desiredBalance, fractionDigits: 2, width: 130) } }
+                        }
+                    }
+                    if let warning = store.pocketRemovalMessage(for: account) {
+                        Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+                    }
                 }
                 if account.type == .loan {
                     Section("Loan") {
@@ -109,9 +211,23 @@ private struct AccountEditorView: View {
             }
             .navigationTitle(isNew ? "Add Account" : "Edit Account")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                if account.type == .stocks {
+                    let market = account.stockMetadata?.market ?? .US
+                    account.stockMetadata = .init(market: market, symbol: market.normalize(symbolDraft))
+                    symbolDraft = account.stockMetadata?.symbol ?? ""
+                }
+                // Pocket balances come from the persisted account, never from the desired-balance field.
+                guard !pocketBalancesInitialized else { return }
+                pocketBalancesInitialized = true
+                guard let existing = store.state.accounts.first(where: { $0.id == account.id }), existing.usesCurrencyPockets else { return }
+                desiredPocketBalances = Dictionary(existing.normalizedPockets.map { pocket in
+                    (pocket.currency, LedgerCalculations.pocketBalance(pocket.currency, for: existing, in: store.state))
+                }, uniquingKeysWith: { first, _ in first })
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("Save", action: save).disabled(account.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+                ToolbarItem(placement: .confirmationAction) { Button("Save", action: save).disabled(account.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.pocketRemovalMessage(for: account) != nil) }
             }
             .onChange(of: photoItem) { _, item in
                 guard let item else { return }
@@ -138,13 +254,17 @@ private struct AccountEditorView: View {
     private var loanCustomDays: Binding<Int> { Binding(get: { account.loanMetadata?.customIntervalDays ?? 30 }, set: { value in ensureLoanMetadata(); account.loanMetadata?.customIntervalDays = max(1, value) }) }
     private func ensureLoanMetadata() { if account.loanMetadata == nil { account.loanMetadata = .init(annualPercentageRate: 0, interestInterval: nil, customIntervalDays: 30, linkedRecurringRuleID: nil) } }
     private func save() {
+        if account.type == .stocks { commitStockSymbol() }
         account.name = account.name.trimmingCharacters(in: .whitespacesAndNewlines)
         account.logo = account.logo.isEmpty ? String(account.name.prefix(3)).uppercased() : account.logo
         if account.type == .loan {
             ensureLoanMetadata()
             account.loanMetadata?.interestInterval = interestEnabled ? loanInterval.wrappedValue : nil
         } else { account.loanMetadata = nil }
-        store.saveAccount(account, desiredBalance: account.type == .loan ? -abs(desiredBalance) : desiredBalance)
+        let primaryDesired = account.usesCurrencyPockets ? (desiredPocketBalances[account.currency] ?? desiredBalance) : desiredBalance
+        store.saveAccount(account,
+                          desiredBalance: account.type == .loan ? -abs(primaryDesired) : primaryDesired,
+                          desiredPocketBalances: account.usesCurrencyPockets ? desiredPocketBalances : [:])
         dismiss()
     }
 }

@@ -98,6 +98,7 @@ enum CloudRecordMapper {
         }
         var state = LedgerState(schemaVersion: metadata.schemaVersion, accounts: accounts, transactions: transactions, categories: categories, settings: settings, recurringRules: recurring, purchaseSessions: sessions)
         PurchaseRules.migrateDevelopmentSessions(in: &state)
+        SchemaMigration.normalize(&state)
         try BackupCodec.validate(state)
         return LedgerBook(id: metadata.id, name: metadata.name, state: state, createdAt: metadata.createdAt, updatedAt: metadata.updatedAt, storageKind: participant ? .cloudParticipant : .cloudOwner, cloudZoneName: metadataRecord.recordID.zoneID.zoneName, cloudZoneOwnerName: metadataRecord.recordID.zoneID.ownerName)
     }

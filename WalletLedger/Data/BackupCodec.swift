@@ -34,6 +34,7 @@ enum BackupCodec {
         guard ["wallet-ledger-ios", "wallet-ledger-overview"].contains(envelope.metadata.app) else { throw BackupError.wrongApplication }
         guard envelope.metadata.schemaVersion <= currentSchemaVersion else { throw BackupError.futureSchema(envelope.metadata.schemaVersion) }
         PurchaseRules.migrateDevelopmentSessions(in: &envelope.data)
+        SchemaMigration.normalize(&envelope.data)
         try validate(envelope.data)
         envelope.metadata.accountCount = envelope.data.accounts.filter { $0.deletedAt == nil }.count
         envelope.metadata.transactionCount = envelope.data.transactions.filter { $0.deletedAt == nil }.count
@@ -54,14 +55,28 @@ enum BackupCodec {
         let knownAccounts = Set(accountIDs)
         let categoryIDs = state.categories.map(\.id)
         guard Set(categoryIDs).count == categoryIDs.count, LedgerCategoryID.builtIns.allSatisfy(categoryIDs.contains) else { throw BackupError.invalidValue("categories") }
+        let accountsByID = Dictionary(uniqueKeysWithValues: state.accounts.map { ($0.id, $0) })
         for account in state.accounts {
             guard account.openingBalance.isFinite, account.budget.isFinite, account.budget >= 0 else { throw BackupError.invalidValue("account \(account.name)") }
             if let loan = account.loanMetadata { guard loan.annualPercentageRate.isFinite, loan.annualPercentageRate >= 0, loan.customIntervalDays > 0 else { throw BackupError.invalidValue("loan metadata") } }
+            let pockets = account.normalizedPockets
+            guard !pockets.isEmpty, pockets.allSatisfy({ $0.openingBalance.isFinite }) else { throw BackupError.invalidValue("account pockets") }
+            guard pockets.contains(where: { $0.currency == account.currency }) else { throw BackupError.invalidValue("account primary currency") }
+            if account.usesCurrencyPockets {
+                guard Set(pockets.map(\.currency)).count == pockets.count else { throw BackupError.invalidValue("duplicate account pocket") }
+                guard account.stockMetadata == nil else { throw BackupError.invalidValue("multi-currency stocks account") }
+            }
         }
         for transaction in state.transactions {
             guard knownAccounts.contains(transaction.accountID) else { throw BackupError.missingAccount }
             guard transaction.amount.isFinite, transaction.amount > 0, transaction.exchangeRateAtTransaction.isFinite, transaction.exchangeRateAtTransaction > 0 else { throw BackupError.invalidValue("transaction") }
             guard categoryIDs.contains(transaction.categoryID) else { throw BackupError.invalidValue("transaction category") }
+            if let currency = transaction.accountCurrency, let account = accountsByID[transaction.accountID], account.usesCurrencyPockets {
+                guard account.pocketCurrencies.contains(currency) else { throw BackupError.invalidValue("transaction account pocket") }
+            }
+            if let currency = transaction.destinationAccountCurrency, let destinationID = transaction.destinationAccountID, let account = accountsByID[destinationID], account.usesCurrencyPockets {
+                guard account.pocketCurrencies.contains(currency) else { throw BackupError.invalidValue("transaction destination pocket") }
+            }
             if transaction.type == .transfer {
                 guard let destination = transaction.destinationAccountID, destination != transaction.accountID, knownAccounts.contains(destination) else { throw BackupError.invalidTransfer }
             }
@@ -75,6 +90,12 @@ enum BackupCodec {
         for rule in state.recurringRules ?? [] {
             guard rule.userID == state.settings.userID, knownAccounts.contains(rule.accountID), rule.amount.isFinite, (rule.effectiveAmountKind == .loanInterest || rule.amount > 0), rule.customIntervalDays > 0 else { throw BackupError.invalidValue("recurring transaction") }
             guard categoryIDs.contains(rule.categoryID) else { throw BackupError.invalidValue("recurring category") }
+            if let currency = rule.accountCurrency, let account = accountsByID[rule.accountID], account.usesCurrencyPockets {
+                guard account.pocketCurrencies.contains(currency) else { throw BackupError.invalidValue("recurring account pocket") }
+            }
+            if let currency = rule.destinationAccountCurrency, let destinationID = rule.destinationAccountID, let account = accountsByID[destinationID], account.usesCurrencyPockets {
+                guard account.pocketCurrencies.contains(currency) else { throw BackupError.invalidValue("recurring destination pocket") }
+            }
             if rule.effectiveAmountKind == .loanInterest { guard let loanID = rule.linkedLoanAccountID, loanID == rule.accountID, knownAccounts.contains(loanID) else { throw BackupError.invalidValue("loan interest rule") } }
             if rule.type == .transfer {
                 guard let destination = rule.destinationAccountID, destination != rule.accountID, knownAccounts.contains(destination) else { throw BackupError.invalidTransfer }

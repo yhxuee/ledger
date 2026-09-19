@@ -30,6 +30,80 @@ enum LedgerTransactionType: String, Codable, CaseIterable, Identifiable, Sendabl
     var title: String { rawValue.capitalized }
 }
 
+/// Stock market selection. The market — not a free currency picker — determines the
+/// settlement currency of a stocks account.
+enum StockMarket: String, Codable, CaseIterable, Identifiable, Sendable {
+    case US, HK, CN
+    var id: String { rawValue }
+    var title: String { rawValue }
+
+    var settlementCurrency: CurrencyCode {
+        switch self {
+        case .US: .USD
+        case .HK: .HKD
+        case .CN: .CNY
+        }
+    }
+
+    var symbolExample: String {
+        switch self {
+        case .US: "AAPL"
+        case .HK: "0700"
+        case .CN: "600519"
+        }
+    }
+
+    /// Offline symbol normalisation only. There is no market-data API in the app, so this
+    /// never invents a company name or price; a future quote service can replace it.
+    func normalize(_ raw: String) -> String {
+        let cleaned = raw.uppercased().filter { $0.isLetter || $0.isNumber }
+        guard !cleaned.isEmpty else { return "" }
+        switch self {
+        case .US:
+            return String(cleaned.filter(\.isLetter).prefix(5))
+        case .HK:
+            return Self.paddedDigits(cleaned, width: 4)
+        case .CN:
+            return Self.paddedDigits(cleaned, width: 6)
+        }
+    }
+
+    func isValidSymbol(_ raw: String) -> Bool {
+        let normalized = normalize(raw)
+        guard !normalized.isEmpty else { return false }
+        switch self {
+        case .US: return (1...5).contains(normalized.count)
+        case .HK: return normalized.count == 4
+        case .CN: return normalized.count == 6
+        }
+    }
+
+    func placeholderSymbol(_ raw: String) -> String {
+        let normalized = normalize(raw)
+        return normalized.isEmpty ? symbolExample : normalized
+    }
+
+    private static func paddedDigits(_ value: String, width: Int) -> String {
+        let digits = String(value.filter(\.isNumber).prefix(width))
+        guard !digits.isEmpty else { return "" }
+        return String(repeating: "0", count: max(0, width - digits.count)) + digits
+    }
+}
+
+struct StockMetadata: Codable, Hashable, Sendable {
+    var market: StockMarket
+    var symbol: String
+}
+
+/// A single currency pocket inside a multi-currency account. Pockets are not separate
+/// accounts: they are balances of the same `LedgerAccount`.
+struct AccountCurrencyPocket: Codable, Hashable, Sendable, Identifiable {
+    var currency: CurrencyCode
+    var openingBalance: Double
+
+    var id: String { currency.rawValue }
+}
+
 enum RecurringInterval: String, Codable, CaseIterable, Identifiable, Sendable {
     case weekly, monthly, yearly, customDays
     var id: String { rawValue }
@@ -71,6 +145,7 @@ struct LedgerAccount: Identifiable, Codable, Hashable, Sendable {
     var userID: String
     var name: String
     var type: AccountType
+    /// Primary currency. For a multi-currency account this is the pocket used for display totals.
     var currency: CurrencyCode
     var openingBalance: Double
     var budget: Double
@@ -79,11 +154,103 @@ struct LedgerAccount: Identifiable, Codable, Hashable, Sendable {
     var cardStyle: CardStyle
     var cardImageData: Data? = nil
     var loanMetadata: LoanMetadata? = nil
+    /// Multi-currency pockets are only supported for checking / savings / credit accounts.
+    var isMultiCurrency: Bool = false
+    var currencyPockets: [AccountCurrencyPocket] = []
+    var stockMetadata: StockMetadata? = nil
     var createdAt: Date
     var updatedAt: Date
     var deletedAt: Date?
     var version: Int
     var syncStatus: SyncStatus
+
+    enum CodingKeys: String, CodingKey {
+        case id, userID, name, type, currency, openingBalance, budget, includeInBudget, logo, cardStyle
+        case cardImageData, loanMetadata, isMultiCurrency, currencyPockets, stockMetadata
+        case createdAt, updatedAt, deletedAt, version, syncStatus
+    }
+
+    /// Account types that may hold more than one currency pocket.
+    static let multiCurrencyTypes: Set<AccountType> = [.checking, .savings, .credit]
+
+    var supportsMultiCurrency: Bool { Self.multiCurrencyTypes.contains(type) }
+
+    /// True when pocket routing applies. Every other account keeps single-currency behaviour.
+    var usesCurrencyPockets: Bool { isMultiCurrency && supportsMultiCurrency }
+
+    /// Pockets exactly as they behave: never empty and always containing the primary currency.
+    /// A single-currency account always resolves to one pocket built from `currency` + `openingBalance`,
+    /// so it keeps behaving exactly as before this feature existed.
+    var normalizedPockets: [AccountCurrencyPocket] {
+        let singlePocket = AccountCurrencyPocket(currency: currency, openingBalance: openingBalance.isFinite ? openingBalance : 0)
+        guard usesCurrencyPockets else { return [singlePocket] }
+        var seen = Set<CurrencyCode>()
+        var pockets = currencyPockets.filter { $0.openingBalance.isFinite }.filter { seen.insert($0.currency).inserted }
+        if pockets.isEmpty { pockets = [singlePocket] }
+        if !pockets.contains(where: { $0.currency == currency }) {
+            pockets.insert(AccountCurrencyPocket(currency: currency, openingBalance: singlePocket.openingBalance), at: 0)
+        }
+        return pockets
+    }
+
+    var pocketCurrencies: [CurrencyCode] { normalizedPockets.map(\.currency) }
+    var hasMultiplePockets: Bool { normalizedPockets.count > 1 }
+
+    func pocket(_ currency: CurrencyCode) -> AccountCurrencyPocket? {
+        normalizedPockets.first { $0.currency == currency }
+    }
+
+    /// The pocket a transaction should default to: the transaction currency when the account
+    /// already holds it, otherwise the primary currency.
+    func defaultPocket(for currency: CurrencyCode) -> CurrencyCode {
+        guard usesCurrencyPockets else { return self.currency }
+        return pocket(currency) != nil ? currency : self.currency
+    }
+
+    /// Effective settlement currency for stocks accounts (derived from the market).
+    var settlementCurrency: CurrencyCode {
+        type == .stocks ? (stockMetadata?.market.settlementCurrency ?? currency) : currency
+    }
+
+    /// `Checking · HKD · 4 currencies`, or `Stocks · US · AAPL` for stocks accounts.
+    var metadataLine: String {
+        if type == .stocks {
+            let market = stockMetadata?.market.rawValue ?? settlementCurrency.rawValue
+            let symbol = stockMetadata?.symbol.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return symbol.isEmpty ? "\(type.rawValue) · \(market)" : "\(type.rawValue) · \(market) · \(symbol)"
+        }
+        let base = "\(type.rawValue) · \(currency.rawValue)"
+        let count = normalizedPockets.count
+        return count > 1 ? "\(base) · \(count) currencies" : base
+    }
+}
+
+/// Decoding lives in an extension so the memberwise initializer stays available, and so that
+/// accounts saved before multi-currency existed migrate to a single pocket automatically.
+extension LedgerAccount {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        userID = try container.decode(String.self, forKey: .userID)
+        name = try container.decode(String.self, forKey: .name)
+        type = try container.decode(AccountType.self, forKey: .type)
+        currency = try container.decode(CurrencyCode.self, forKey: .currency)
+        openingBalance = try container.decode(Double.self, forKey: .openingBalance)
+        budget = try container.decode(Double.self, forKey: .budget)
+        includeInBudget = try container.decode(Bool.self, forKey: .includeInBudget)
+        logo = try container.decode(String.self, forKey: .logo)
+        cardStyle = try container.decode(CardStyle.self, forKey: .cardStyle)
+        cardImageData = try container.decodeIfPresent(Data.self, forKey: .cardImageData)
+        loanMetadata = try container.decodeIfPresent(LoanMetadata.self, forKey: .loanMetadata)
+        isMultiCurrency = try container.decodeIfPresent(Bool.self, forKey: .isMultiCurrency) ?? false
+        currencyPockets = try container.decodeIfPresent([AccountCurrencyPocket].self, forKey: .currencyPockets) ?? []
+        stockMetadata = try container.decodeIfPresent(StockMetadata.self, forKey: .stockMetadata)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        deletedAt = try container.decodeIfPresent(Date.self, forKey: .deletedAt)
+        version = try container.decode(Int.self, forKey: .version)
+        syncStatus = try container.decode(SyncStatus.self, forKey: .syncStatus)
+    }
 }
 
 struct LoanMetadata: Codable, Hashable, Sendable {
@@ -105,6 +272,10 @@ struct LedgerTransaction: Identifiable, Codable, Hashable, Sendable {
     var currency: CurrencyCode
     var accountAmount: Double?
     var destinationAmount: Double?
+    /// Pocket actually debited/credited on the source account. Nil means the account's primary currency.
+    var accountCurrency: CurrencyCode? = nil
+    /// Pocket actually credited on the destination account. Nil means the account's primary currency.
+    var destinationAccountCurrency: CurrencyCode? = nil
     var categoryID: LedgerCategoryID
     var occurredAt: Date
     var note: String?
@@ -123,6 +294,10 @@ struct LedgerTransaction: Identifiable, Codable, Hashable, Sendable {
     var isReversal: Bool { reversalOfTransactionID != nil }
     var isRefunded: Bool { reversalTransactionID != nil }
     var isLockedByReversal: Bool { isReversal || isRefunded }
+
+    /// `amount + currency` is the original transaction denomination. The account-side postings
+    /// below are the actual amounts that move money in the accounts.
+    var originalDenomination: (amount: Double, currency: CurrencyCode) { (amount, currency) }
 }
 
 struct RecurringRule: Identifiable, Codable, Hashable, Sendable {
@@ -137,6 +312,10 @@ struct RecurringRule: Identifiable, Codable, Hashable, Sendable {
     var currency: CurrencyCode
     var categoryID: LedgerCategoryID
     var note: String?
+    /// Pocket the generated transaction posts to. Nil means the account's primary currency.
+    var accountCurrency: CurrencyCode? = nil
+    /// Pocket the generated transfer credits. Nil means the destination account's primary currency.
+    var destinationAccountCurrency: CurrencyCode? = nil
     var interval: RecurringInterval
     var customIntervalDays: Int
     var nextRunAt: Date

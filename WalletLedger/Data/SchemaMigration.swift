@@ -71,4 +71,43 @@ enum SchemaMigration {
         metadata.schemaVersion = 2
         return .init(metadata: metadata, data: migrate(old.data))
     }
+
+    /// Brings decoded data into the currency-pocket model without inventing or re-pricing money.
+    ///
+    /// - Single-currency accounts always resolve to one pocket built from `currency` + `openingBalance`,
+    ///   so they keep behaving exactly as before multi-currency existed.
+    /// - Multi-currency accounts keep the primary currency mirrored in `openingBalance` for legacy readers.
+    /// - A pocket referenced by an active posting is re-created, otherwise that money would silently
+    ///   disappear from the account total.
+    static func normalize(_ state: inout LedgerState) {
+        for index in state.accounts.indices {
+            var account = state.accounts[index]
+            guard account.usesCurrencyPockets else {
+                account.currencyPockets = [.init(currency: account.currency, openingBalance: account.openingBalance.isFinite ? account.openingBalance : 0)]
+                state.accounts[index] = account
+                continue
+            }
+            var pockets = account.normalizedPockets
+            var known = Set(pockets.map(\.currency))
+            for transaction in state.transactions where transaction.deletedAt == nil {
+                if transaction.accountID == account.id, let currency = transaction.accountCurrency, known.insert(currency).inserted {
+                    pockets.append(.init(currency: currency, openingBalance: 0))
+                }
+                if transaction.destinationAccountID == account.id, let currency = transaction.destinationAccountCurrency, known.insert(currency).inserted {
+                    pockets.append(.init(currency: currency, openingBalance: 0))
+                }
+            }
+            account.currencyPockets = pockets
+            if let primary = pockets.first(where: { $0.currency == account.currency }) { account.openingBalance = primary.openingBalance }
+            state.accounts[index] = account
+        }
+    }
+
+    static func normalize(_ library: inout LedgerLibrary) {
+        for index in library.books.indices where library.books[index].state.schemaVersion <= BackupCodec.currentSchemaVersion {
+            var state = library.books[index].state
+            normalize(&state)
+            library.books[index].state = state
+        }
+    }
 }

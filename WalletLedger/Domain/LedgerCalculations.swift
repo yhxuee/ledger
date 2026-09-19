@@ -33,19 +33,74 @@ enum LedgerCalculations {
         return historical(transaction, to: target, rates: state.settings.rates)
     }
 
-    static func balance(for account: LedgerAccount, in state: LedgerState) -> Double {
-        activeTransactions(state).reduce(account.openingBalance) { balance, transaction in
-            guard transaction.accountID == account.id || transaction.destinationAccountID == account.id else { return balance }
-            let sourceAmount = transaction.accountAmount ?? convert(transaction.amount, from: transaction.currency, to: account.currency, rates: state.settings.rates)
-            switch transaction.type {
-            case .expense where transaction.accountID == account.id: return balance - sourceAmount
-            case .income where transaction.accountID == account.id: return balance + sourceAmount
-            case .transfer where transaction.accountID == account.id: return balance - sourceAmount
-            case .transfer where transaction.destinationAccountID == account.id:
-                return balance + (transaction.destinationAmount ?? convert(transaction.amount, from: transaction.currency, to: account.currency, rates: state.settings.rates))
-            default: return balance
+    /// Pocket a source posting lands in. Single-currency accounts always use their primary currency.
+    static func sourcePocket(_ transaction: LedgerTransaction, for account: LedgerAccount) -> CurrencyCode {
+        guard account.usesCurrencyPockets else { return account.currency }
+        return transaction.accountCurrency ?? account.currency
+    }
+
+    /// Pocket a destination posting lands in. Single-currency accounts always use their primary currency.
+    static func destinationPocket(_ transaction: LedgerTransaction, for account: LedgerAccount) -> CurrencyCode {
+        guard account.usesCurrencyPockets else { return account.currency }
+        return transaction.destinationAccountCurrency ?? account.currency
+    }
+
+    /// Actual amount posted to the source account pocket, in that pocket's currency.
+    /// `accountAmount` is authoritative; the FX estimate is only a fallback for legacy rows.
+    static func sourcePosting(_ transaction: LedgerTransaction, for account: LedgerAccount, in state: LedgerState) -> Double {
+        if let accountAmount = transaction.accountAmount, accountAmount.isFinite { return accountAmount }
+        return convert(transaction.amount, from: transaction.currency, to: sourcePocket(transaction, for: account), rates: state.settings.rates)
+    }
+
+    /// Actual amount posted to the destination account pocket, in that pocket's currency.
+    static func destinationPosting(_ transaction: LedgerTransaction, for account: LedgerAccount, in state: LedgerState) -> Double {
+        if let destinationAmount = transaction.destinationAmount, destinationAmount.isFinite { return destinationAmount }
+        return convert(transaction.amount, from: transaction.currency, to: destinationPocket(transaction, for: account), rates: state.settings.rates)
+    }
+
+    /// Balance of one pocket: its own opening balance plus only the postings routed to it.
+    static func pocketBalance(_ currency: CurrencyCode, for account: LedgerAccount, in state: LedgerState) -> Double {
+        let opening = account.normalizedPockets.first(where: { $0.currency == currency })?.openingBalance ?? 0
+        return activeTransactions(state).reduce(opening) { balance, transaction in
+            if transaction.accountID == account.id, sourcePocket(transaction, for: account) == currency {
+                let posted = sourcePosting(transaction, for: account, in: state)
+                switch transaction.type {
+                case .expense, .transfer: return balance - posted
+                case .income: return balance + posted
+                }
             }
+            if transaction.type == .transfer, transaction.destinationAccountID == account.id, destinationPocket(transaction, for: account) == currency {
+                return balance + destinationPosting(transaction, for: account, in: state)
+            }
+            return balance
         }
+    }
+
+    /// Every pocket of an account, in declaration order.
+    static func pocketBalances(for account: LedgerAccount, in state: LedgerState) -> [(currency: CurrencyCode, balance: Double)] {
+        account.normalizedPockets.map { ($0.currency, pocketBalance($0.currency, for: account, in: state)) }
+    }
+
+    /// Account total: each pocket converted into the account's primary currency and summed.
+    /// Single-currency accounts reduce to exactly their previous value.
+    static func balance(for account: LedgerAccount, in state: LedgerState) -> Double {
+        account.normalizedPockets.reduce(0) { total, pocket in
+            total + convert(pocketBalance(pocket.currency, for: account, in: state), from: pocket.currency, to: account.currency, rates: state.settings.rates)
+        }
+    }
+
+    /// Account-side expense effect, expressed in the account's primary currency.
+    /// Uses the actual posting (`accountAmount`) instead of re-pricing the original amount.
+    static func accountExpenseEffect(_ transaction: LedgerTransaction, for account: LedgerAccount, in state: LedgerState) -> Double? {
+        guard transaction.accountID == account.id else { return nil }
+        let posted = sourcePosting(transaction, for: account, in: state)
+        let primaryValue = convert(posted, from: sourcePocket(transaction, for: account), to: account.currency, rates: state.settings.rates)
+        if let originalID = transaction.reversalOfTransactionID {
+            guard let original = state.transactions.first(where: { $0.id == originalID }), original.type == .expense else { return nil }
+            return -primaryValue
+        }
+        guard transaction.type == .expense else { return nil }
+        return primaryValue
     }
 
     static func accountViews(_ state: LedgerState) -> [AccountViewModel] {
@@ -93,7 +148,7 @@ enum LedgerCalculations {
             lines = plan.accountAllocations.compactMap { accountID, allocation in
                 guard allocation > 0, let account = accountMap[accountID] else { return nil }
                 let spent = monthly.reduce(0) { partial, transaction in
-                    guard transaction.accountID == accountID, let value = expenseEffect(transaction, in: state, to: account.currency) else { return partial }
+                    guard transaction.accountID == accountID, let value = accountExpenseEffect(transaction, for: account, in: state) else { return partial }
                     return partial + value
                 }
                 return .init(id: "account:\(accountID.uuidString)", title: account.name, currency: account.currency, budget: allocation, spent: spent)
@@ -119,7 +174,7 @@ enum LedgerCalculations {
         guard budget > 0 else { return (0, 0, 0) }
         let calendar = Calendar.current
         let spent = activeTransactions(state).reduce(0) { partial, transaction in
-            guard transaction.accountID == account.id, (includedCategories == nil || includedCategories!.contains(transaction.categoryID)), calendar.isDate(transaction.occurredAt, equalTo: now, toGranularity: .month), let value = expenseEffect(transaction, in: state, to: account.currency) else { return partial }
+            guard transaction.accountID == account.id, (includedCategories == nil || includedCategories!.contains(transaction.categoryID)), calendar.isDate(transaction.occurredAt, equalTo: now, toGranularity: .month), let value = accountExpenseEffect(transaction, for: account, in: state) else { return partial }
             return partial + value
         }
         return (budget, spent, spent / budget)

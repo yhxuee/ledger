@@ -16,6 +16,17 @@ struct TransactionEditorView: View {
     @State private var showingCategoryEditor = false
     @State private var accountExplicitlyOverridden: Bool
     @State private var applyingDefaultAccount = false
+    /// Pocket the posting lands in. Nil means "use the account default", so changing the
+    /// transaction currency re-resolves it instead of pinning a stale pocket.
+    @State private var accountPocket: CurrencyCode?
+    @State private var destinationPocket: CurrencyCode?
+    @State private var accountAmountText: String
+    @State private var destinationAmountText: String
+    /// True once the user typed their own account-side amount: never recalculated afterwards.
+    @State private var accountAmountOverridden = false
+    @State private var destinationAmountOverridden = false
+    @State private var sourceSuggestion: Double = 0
+    @State private var destinationSuggestion: Double = 0
 
     init(transaction: LedgerTransaction? = nil) {
         original = transaction
@@ -28,11 +39,44 @@ struct TransactionEditorView: View {
         _note = State(initialValue: transaction?.note ?? "")
         _minorUnits = State(initialValue: String(Int(((transaction?.amount ?? 0) * 100).rounded())))
         _accountExplicitlyOverridden = State(initialValue: transaction != nil)
+        _accountPocket = State(initialValue: transaction?.accountCurrency)
+        _destinationPocket = State(initialValue: transaction?.destinationAccountCurrency)
+        _accountAmountText = State(initialValue: transaction?.accountAmount.map(Self.amountText) ?? "")
+        _destinationAmountText = State(initialValue: transaction?.destinationAmount.map(Self.amountText) ?? "")
     }
+
+    private static func amountText(_ value: Double) -> String { String(format: "%.2f", value) }
 
     private var amount: Double { (Double(minorUnits) ?? 0) / 100 }
     private var activeAccounts: [LedgerAccount] { store.accounts.map(\.account) }
     private var canSave: Bool { amount > 0 && accountID != nil && (type != .transfer || (destinationID != nil && destinationID != accountID)) }
+
+    private var sourceAccount: LedgerAccount? { accountID.flatMap { id in activeAccounts.first { $0.id == id } } }
+    private var destinationAccount: LedgerAccount? { destinationID.flatMap { id in activeAccounts.first { $0.id == id } } }
+
+    /// Pocket actually used on the source account. Defaults to the transaction currency when the
+    /// account already holds it, otherwise to the account's primary currency.
+    private var sourcePocket: CurrencyCode {
+        guard let sourceAccount else { return currency }
+        if let accountPocket, sourceAccount.pocketCurrencies.contains(accountPocket) { return accountPocket }
+        return sourceAccount.defaultPocket(for: currency)
+    }
+
+    private var targetPocket: CurrencyCode {
+        guard let destinationAccount else { return currency }
+        if let destinationPocket, destinationAccount.pocketCurrencies.contains(destinationPocket) { return destinationPocket }
+        return destinationAccount.defaultPocket(for: currency)
+    }
+
+    private var showsSourcePocket: Bool { sourceAccount?.hasMultiplePockets ?? false }
+    private var showsDestinationPocket: Bool { type == .transfer && (destinationAccount?.hasMultiplePockets ?? false) }
+    /// The account-side amount is only editable when it is not simply the transaction amount.
+    private var showsSourceAmount: Bool { sourcePocket != currency }
+    private var showsDestinationAmount: Bool { type == .transfer && targetPocket != currency }
+    private var estimatedSourceAmount: Double { LedgerCalculations.convert(amount, from: currency, to: sourcePocket, rates: store.state.settings.rates) }
+    private var estimatedDestinationAmount: Double { LedgerCalculations.convert(amount, from: currency, to: targetPocket, rates: store.state.settings.rates) }
+    private var sourcePostingValue: Double { showsSourceAmount ? (Double(accountAmountText) ?? estimatedSourceAmount) : amount }
+    private var destinationPostingValue: Double { showsDestinationAmount ? (Double(destinationAmountText) ?? estimatedDestinationAmount) : amount }
 
     var body: some View {
         NavigationStack {
@@ -61,9 +105,19 @@ struct TransactionEditorView: View {
         .onAppear {
             if accountID == nil { applyDefaultAccount(for: categoryID) }
             if destinationID == nil { destinationID = activeAccounts.first(where: { $0.id != accountID })?.id }
+            if original == nil { syncAmountFields() } else { prefillStoredAmounts() }
         }
         .onChange(of: categoryID) { _, category in if type == .expense && !accountExplicitlyOverridden { applyDefaultAccount(for: category) } }
         .onChange(of: type) { _, value in if value == .expense && !accountExplicitlyOverridden { applyDefaultAccount(for: categoryID) } }
+        .onChange(of: currency) { _, _ in
+            // The pocket default depends on the denomination, so re-resolve it and drop stale guesses.
+            accountPocket = nil
+            destinationPocket = nil
+            accountAmountOverridden = false
+            destinationAmountOverridden = false
+            syncAmountFields()
+        }
+        .onChange(of: amount) { _, _ in syncAmountFields() }
         .sheet(isPresented: $showingCategoryEditor) {
             CategoryEditorSheet { id in categoryID = id }
         }
@@ -71,7 +125,7 @@ struct TransactionEditorView: View {
 
     private var amountPanel: some View {
         VStack(spacing: 8) {
-            Picker("Currency", selection: $currency) { ForEach(store.availableCurrencies) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu)
+            TransactionCurrencyPicker(selection: $currency)
             SensitiveMoneyText(amount: amount, currency: currency).font(.system(size: 48, weight: .bold, design: .rounded)).minimumScaleFactor(0.55).lineLimit(1)
         }.frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 12).ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
@@ -87,8 +141,26 @@ struct TransactionEditorView: View {
             }
             .onChange(of: accountID) { _, newValue in
                 if !applyingDefaultAccount { accountExplicitlyOverridden = true }
+                accountPocket = nil
+                accountAmountOverridden = false
                 if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
                 if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
+                syncAmountFields()
+            }
+            if showsSourcePocket {
+                Divider()
+                LabeledContent(type == .transfer ? "From Account Currency" : "Account Currency") {
+                    AccountPocketPicker(account: sourceAccount ?? activeAccountPlaceholder, selection: sourcePocketBinding, title: "Account Currency")
+                }
+            }
+            if showsSourceAmount {
+                Divider()
+                accountAmountRow(title: type == .transfer ? "From Account Amount" : "Account Amount",
+                                 pocket: sourcePocket,
+                                 text: $accountAmountText,
+                                 overridden: $accountAmountOverridden,
+                                 suggestion: $sourceSuggestion,
+                                 estimated: estimatedSourceAmount)
             }
             if type == .transfer {
                 Divider()
@@ -98,6 +170,26 @@ struct TransactionEditorView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
+                }
+                .onChange(of: destinationID) { _, _ in
+                    destinationPocket = nil
+                    destinationAmountOverridden = false
+                    syncAmountFields()
+                }
+                if showsDestinationPocket {
+                    Divider()
+                    LabeledContent("To Account Currency") {
+                        AccountPocketPicker(account: destinationAccount ?? activeAccountPlaceholder, selection: targetPocketBinding, title: "To Account Currency")
+                    }
+                }
+                if showsDestinationAmount {
+                    Divider()
+                    accountAmountRow(title: "To Account Amount",
+                                     pocket: targetPocket,
+                                     text: $destinationAmountText,
+                                     overridden: $destinationAmountOverridden,
+                                     suggestion: $destinationSuggestion,
+                                     estimated: estimatedDestinationAmount)
                 }
             }
             Divider()
@@ -111,6 +203,78 @@ struct TransactionEditorView: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 4)
         .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    /// Editable actual account-side amount. Prefilled from the cached FX rate, but a value the user
+    /// types becomes authoritative and is never overwritten afterwards.
+    private func accountAmountRow(title: String, pocket: CurrencyCode, text: Binding<String>, overridden: Binding<Bool>, suggestion: Binding<Double>, estimated: Double) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text(title)
+                Spacer(minLength: 8)
+                Text(pocket.rawValue).font(.caption).foregroundStyle(.secondary)
+                SensitiveValueContent(maskLength: 8) {
+                    TextField("0.00", text: text)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 110)
+                }
+            }
+            if overridden.wrappedValue {
+                Button {
+                    overridden.wrappedValue = false
+                    suggestion.wrappedValue = estimated
+                    text.wrappedValue = Self.amountText(estimated)
+                } label: {
+                    Label("Reset to estimated \(LedgerFormat.money(estimated, currency: pocket))", systemImage: "arrow.counterclockwise")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            } else {
+                Text("Estimated from current FX rate").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 10)
+        .onChange(of: text.wrappedValue) { _, newValue in
+            // A value equal to the FX suggestion is still a suggestion, not a manual override.
+            if let value = Double(newValue), abs(value - suggestion.wrappedValue) > 0.005 { overridden.wrappedValue = true }
+            else if newValue.isEmpty { overridden.wrappedValue = false }
+        }
+    }
+
+    private var sourcePocketBinding: Binding<CurrencyCode> {
+        Binding(get: { sourcePocket }, set: { accountPocket = $0; syncAmountFields() })
+    }
+
+    private var targetPocketBinding: Binding<CurrencyCode> {
+        Binding(get: { targetPocket }, set: { destinationPocket = $0; syncAmountFields() })
+    }
+
+    /// Placeholder account so the pocket picker has pockets to read before a selection exists.
+    private var activeAccountPlaceholder: LedgerAccount {
+        LedgerAccount(id: UUID(), userID: SeedData.localUserID, name: "", type: .checking, currency: currency, openingBalance: 0, budget: 0, includeInBudget: false, logo: "", cardStyle: .init(startHex: "86C5DA", endHex: "C6E7CF"), createdAt: .now, updatedAt: .now, deletedAt: nil, version: 0, syncStatus: .pending)
+    }
+
+    /// Refreshes the FX-estimated account amounts unless the user supplied their own value.
+    private func syncAmountFields() {
+        if !accountAmountOverridden {
+            sourceSuggestion = estimatedSourceAmount
+            accountAmountText = showsSourceAmount ? Self.amountText(estimatedSourceAmount) : ""
+        }
+        if !destinationAmountOverridden {
+            destinationSuggestion = estimatedDestinationAmount
+            destinationAmountText = showsDestinationAmount ? Self.amountText(estimatedDestinationAmount) : ""
+        }
+    }
+
+    /// Existing transactions keep their stored account-side amounts until the user changes a field
+    /// that invalidates them; nothing is re-priced from today's rate when the editor opens.
+    private func prefillStoredAmounts() {
+        accountAmountText = showsSourceAmount ? (original?.accountAmount.map(Self.amountText) ?? Self.amountText(estimatedSourceAmount)) : ""
+        destinationAmountText = showsDestinationAmount ? (original?.destinationAmount.map(Self.amountText) ?? Self.amountText(estimatedDestinationAmount)) : ""
+        sourceSuggestion = estimatedSourceAmount
+        destinationSuggestion = estimatedDestinationAmount
     }
 
     private var keypad: some View {
@@ -169,14 +333,21 @@ struct TransactionEditorView: View {
     }
 
     private func save() {
-        guard let accountID else { return }
+        guard let accountID, let sourceAccount else { return }
+        let sourceAccountCurrency = sourceAccount.usesCurrencyPockets ? sourcePocket : nil
+        let destinationAccountCurrency = (type == .transfer && destinationAccount?.usesCurrencyPockets == true) ? targetPocket : nil
         if var original {
             original.type = type; original.accountID = accountID; original.destinationAccountID = type == .transfer ? destinationID : nil
             original.amount = amount; original.currency = currency; original.categoryID = type == .transfer ? .other : categoryID
             original.occurredAt = occurredAt; original.note = note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : note
+            // Actual account-side postings. A manually edited value is stored as-is.
+            original.accountCurrency = sourceAccountCurrency
+            original.accountAmount = sourcePostingValue
+            original.destinationAccountCurrency = type == .transfer ? destinationAccountCurrency : nil
+            original.destinationAmount = type == .transfer ? destinationPostingValue : nil
             store.updateTransaction(original)
         } else {
-            store.addTransaction(type: type, accountID: accountID, destinationAccountID: destinationID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note)
+            store.addTransaction(type: type, accountID: accountID, destinationAccountID: destinationID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, accountCurrency: sourceAccountCurrency, accountAmount: sourcePostingValue, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: type == .transfer ? destinationPostingValue : nil)
         }
         dismiss()
     }
