@@ -130,11 +130,11 @@ private struct CardArtworkModifier: ViewModifier {
                         .overlay {
                             if artwork != nil {
                                 RoundedRectangle(cornerRadius: 25, style: .continuous)
-                                    .fill(.white.opacity(0.08))
-                                    .overlay {
+                                    .fill(.white.opacity(0.04))
+                                    .overlay(
                                         RoundedRectangle(cornerRadius: 25, style: .continuous)
-                                            .strokeBorder(.white.opacity(0.16), lineWidth: 0.8)
-                                    }
+                                            .stroke(.white.opacity(0.12), lineWidth: 0.8)
+                                    )
                             }
                         }
                 }
@@ -162,7 +162,7 @@ private struct CardArtworkModifier: ViewModifier {
                 }
             case .glass:
                 ZStack {
-                    Color.clear.ledgerGlass(in: RoundedRectangle(cornerRadius: 25, style: .continuous))
+                    Color.clear.ledgerGlass(style: .clear, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
                     centeredArtwork(artwork.image, size: size, regions: regions)
                 }
             }
@@ -175,15 +175,18 @@ private struct CardArtworkModifier: ViewModifier {
         let centerY = size.height / 2
         // Reserve the actual header, amount and metadata bounds, including Dynamic Type.
         // The available band shrinks symmetrically about the card center; text never moves.
-        let clearance = regions.reduce(size.height * 0.22) { clearance, rect in
+        let targetMaxWidth = size.width * 0.34
+        let baseMaxHeight = size.height * 0.38
+        let clearance = regions.reduce(baseMaxHeight / 2) { clearance, rect in
             let distance = max(0, max(rect.minY - centerY, centerY - rect.maxY) - 10)
             return min(clearance, distance)
         }
-        let safeHeight = regions.isEmpty ? 0 : max(0, clearance * 2)
+        let safeHeight = regions.isEmpty ? baseMaxHeight : max(0, clearance * 2)
+        let artworkMaxHeight = min(baseMaxHeight, safeHeight)
         return Image(uiImage: image)
             .resizable()
             .scaledToFit()
-            .frame(width: size.width * 0.64, height: safeHeight)
+            .frame(width: targetMaxWidth, height: artworkMaxHeight)
             .position(x: size.width / 2, y: centerY)
     }
 }
