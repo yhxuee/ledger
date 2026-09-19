@@ -18,6 +18,8 @@ final class LedgerStore: ObservableObject {
     private var undoTransactions: [LedgerTransaction] = []
     private var undoState: LedgerState?
     private var currencyCatalogUpdatedAt: Date?
+    /// A dismissed bridge notice stays dismissed for the current purchase.
+    private var suppressedPurchaseSyncWarning: String?
     private let persistenceEnabled: Bool
     nonisolated private static let localRepository = LocalLedgerRepository()
 
@@ -339,12 +341,26 @@ final class LedgerStore: ObservableObject {
         return id
     }
 
-    func dismissPurchaseSyncWarning() { purchaseSyncWarning = nil }
+    /// Dismisses the inline bridge notice. The identical notice is not shown again for the
+    /// current purchase, so it cannot reappear on the next item tap.
+    func dismissPurchaseSyncWarning() {
+        suppressedPurchaseSyncWarning = purchaseSyncWarning
+        purchaseSyncWarning = nil
+    }
 
-    /// Records a nonfatal bridge notice. Repeats of the same notice are dropped so an
-    /// ordinary item tap can never spam the Purchase screens.
+    /// Records a nonfatal bridge notice.
+    ///
+    /// - Repeats of the same notice are dropped, so item taps never spam the Purchase screens.
+    /// - A dismissed notice stays dismissed until the bridge state changes.
+    /// - A successful bridge clears a stale notice and resets the dismissal, so a later
+    ///   failure is reported again.
     func reportPurchaseSyncWarning(_ message: String?) {
-        guard let message, !message.isEmpty else { return }
+        guard let message, !message.isEmpty else {
+            if purchaseSyncWarning != nil { purchaseSyncWarning = nil }
+            suppressedPurchaseSyncWarning = nil
+            return
+        }
+        guard suppressedPurchaseSyncWarning != message else { return }
         if purchaseSyncWarning != message { purchaseSyncWarning = message }
     }
 
@@ -391,6 +407,7 @@ final class LedgerStore: ObservableObject {
         savePurchaseSession(session)
         try persistPurchaseChanges()
         purchaseSyncWarning = nil
+        suppressedPurchaseSyncWarning = nil
         guard let persistedSession = purchaseSessions.first(where: { $0.id == sessionID }) else { throw PurchaseFinalizationError.missingSession }
         #if DEBUG
         PurchaseActivityDiagnostics.logStart(session: persistedSession)

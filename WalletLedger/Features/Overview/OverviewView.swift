@@ -25,6 +25,7 @@ struct OverviewView: View {
             .padding(.horizontal).padding(.top, 8)
             latest.padding(.horizontal).padding(.top, 18).padding(.bottom, 30)
         }
+        .background(LedgerBackground())
         .navigationTitle(selected?.account.name ?? "Overview")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) { ToolbarIconButton(systemName: "plus", label: "Add transaction") { showTransactionEditor = true } }

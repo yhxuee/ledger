@@ -68,9 +68,26 @@ enum LedgerFormat {
 }
 
 struct LedgerBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
-        LinearGradient(colors: [Color(uiColor: .systemGroupedBackground), Color(hex: "F5ECE8").opacity(0.45), Color(hex: "E8F2F5").opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            .ignoresSafeArea()
+        Group {
+            if colorScheme == .dark {
+                // Dark Mode: flat system background, no pastel RGB overlays.
+                Color(uiColor: .systemBackground)
+            } else {
+                LinearGradient(
+                    colors: [
+                        Color(uiColor: .systemGroupedBackground),
+                        Color(hex: "F5ECE8").opacity(0.45),
+                        Color(hex: "E8F2F5").opacity(0.4)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+        }
+        .ignoresSafeArea()
     }
 }
 

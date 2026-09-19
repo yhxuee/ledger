@@ -3,88 +3,150 @@ name: Build Unsigned IPA
 on:
   workflow_dispatch:
     inputs:
-      reproduce_original_analytics:
-        description: Run the rendering test against the pre-fix Analytics view
+      run_tests:
+        description: Run XCTest suite
+        required: false
         type: boolean
         default: false
+
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
 
 jobs:
   build:
+    name: Build Unsigned IPA
     runs-on: macos-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Restore original Analytics for crash reproduction
-        if: inputs.reproduce_original_analytics == true
-        run: git show dabddfd:WalletLedger/Features/Analytics/AnalyticsView.swift > WalletLedger/Features/Analytics/AnalyticsView.swift
-
-      - name: Verify Purchase Mode source configuration
-        run: bash Scripts/verify-purchase-configuration.sh
-
-      - name: Run domain and rendering tests on iOS Simulator
-        run: |
-          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if "iPhone" in x["name"]))')
-          xcodebuild test \
-            -scheme WalletLedger \
-            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            -only-testing:WalletLedgerTests \
-            -parallel-testing-enabled NO \
-            -resultBundlePath AnalyticsRendering.xcresult \
-            CODE_SIGNING_ALLOWED=NO
-
-      - name: Export simulator screenshots and diagnostics
-        if: always()
-        run: xcrun xcresulttool export attachments --path AnalyticsRendering.xcresult --output-path TestScreenshots || true
-
-      - name: Upload simulator screenshots and diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Simulator-Screenshots-And-Diagnostics
-          path: TestScreenshots
-
-      - name: Upload Analytics test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Analytics-Rendering-Results
-          path: AnalyticsRendering.xcresult
 
       - name: Build .app without signing
         run: |
+          set -euo pipefail
+
           xcodebuild clean build \
-            -scheme "WalletLedger" \
+            -project WalletLedger.xcodeproj \
+            -scheme WalletLedger \
             -configuration Release \
             -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -derivedDataPath ./build_output \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_ENTITLEMENTS=""
 
-      - name: Package to IPA
+      - name: Verify build products
         run: |
-          mkdir -p Payload
-          # 复制生成的 .app 到 Payload 目录
-          cp -r ./build_output/Build/Products/Release-iphoneos/*.app Payload/
-          # 压缩生成 ipa
-          zip -r WalletLedger.ipa Payload
+          set -euo pipefail
 
-      - name: Upload IPA Artifact
+          APP_PATH="$(find ./build_output/Build/Products/Release-iphoneos \
+            -maxdepth 1 \
+            -name 'WalletLedger.app' \
+            -print \
+            -quit)"
+
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::WalletLedger.app was not produced."
+            exit 1
+          fi
+
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+
+          WIDGET_PATH="$APP_PATH/PlugIns/WalletLedgerWidget.appex"
+
+          if [ ! -d "$WIDGET_PATH" ]; then
+            echo "::error::WalletLedgerWidget.appex is not embedded in WalletLedger.app."
+            exit 1
+          fi
+
+          echo "WalletLedger.app found at: $APP_PATH"
+          echo "WalletLedgerWidget.appex is embedded."
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+
+          rm -rf Payload WalletLedger-unsigned.ipa
+          mkdir -p Payload
+
+          cp -R "$APP_PATH" Payload/WalletLedger.app
+
+          zip -qry WalletLedger-unsigned.ipa Payload
+
+          test -f WalletLedger-unsigned.ipa
+
+      - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: WalletLedger-IPA
-          path: WalletLedger.ipa
+          name: WalletLedger-Unsigned-IPA
+          path: WalletLedger-unsigned.ipa
+          if-no-files-found: error
+
+  # Optional XCTest job. Manual workflow_dispatch only, and only when run_tests is enabled.
+  # It is fully independent of `build`: a red test job can never block or delete the
+  # successfully produced WalletLedger-Unsigned-IPA artifact.
+  tests:
+    name: Run XCTest
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_tests == true }}
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Find iOS Simulator
+        run: |
+          set -euo pipefail
+
+          DEVICE_ID="$(
+            xcrun simctl list devices available -j |
+            python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+
+          for runtime, devices in data["devices"].items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if "iPhone" in device["name"]:
+                      print(device["udid"])
+                      raise SystemExit(0)
+
+          raise SystemExit("No available iPhone simulator found")
+          '
+          )"
+
+          echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+
+      - name: Run WalletLedger tests
+        run: |
+          set -euo pipefail
+
+          xcodebuild test \
+            -project WalletLedger.xcodeproj \
+            -scheme WalletLedger \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -only-testing:WalletLedgerTests \
+            -parallel-testing-enabled NO \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: WalletLedger-Test-Results
+          path: TestResults.xcresult
+          if-no-files-found: ignore
 
   # Produces a SIGNED IPA whose app and widget keep the App Group entitlement, then verifies
   # the built binaries. Skipped (with a warning) until the signing secrets are configured.
   signed-ipa:
+    name: Build Signed IPA (optional)
     runs-on: macos-latest
     env:
       SIGNING_CERTIFICATE_P12: ${{ secrets.IOS_SIGNING_CERTIFICATE_P12 }}

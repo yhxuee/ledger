@@ -67,10 +67,13 @@ actor PurchaseLiveActivityController: PurchaseActivityStarting {
             try snapshotWriter(session, categoryColors)
             interactive = true
         } catch {
-            let base = PurchaseSharedContainerState.containerUnavailable.warning ?? ""
-            let detail = error.localizedDescription
-            // Avoid repeating the same sentence when the underlying error already matches.
-            warnings.append(base.contains(detail) ? base : "\(base) (\(detail))")
+            // Concise, stable notice only: a failed bridge is never a fatal Purchase error and
+            // must not repeat raw container errors. Details go to the Debug log instead.
+            warnings.append(PurchaseSharedContainerState.containerUnavailable.warning
+                ?? "Lock Screen item controls require a signed build with App Group access.")
+            #if DEBUG
+            PurchaseActivityDiagnostics.logBridgeFailure(error)
+            #endif
         }
         let state = PurchaseActivityAttributes.ContentState.make(
             session: session,
@@ -140,6 +143,11 @@ enum PurchaseActivityDiagnostics {
         case .requestFailed(let detail): activity = "requestFailed(\(detail))"
         }
         print("[Purchase] publish session=\(session.id.uuidString.prefix(8)) items=\(session.completedItemCount)/\(session.items.count) status=\(session.status.rawValue) sharedWrite=\(outcome.interactive) activity=\(activity)")
+    }
+
+    /// Underlying App Group failure detail. Debug-only: the user-facing notice stays concise.
+    static func logBridgeFailure(_ error: Error) {
+        print("[Purchase] shared container write failed: \(error.localizedDescription)")
     }
 }
 #endif

@@ -24,12 +24,13 @@ enum PurchaseSharedContainerState: Equatable, Sendable {
     }
 
     /// Nonfatal infrastructure notice. Nil when the bridge works, because a working
-    /// bridge needs no user-facing warning.
+    /// bridge needs no user-facing warning. The wording stays stable and concise so the
+    /// inline notice is never a repeated raw container error.
     var warning: String? {
         switch self {
         case .available: nil
         case .containerUnavailable, .writeFailed, .readFailed:
-            "Lock Screen item controls are unavailable because the shared purchase container could not be opened. Purchase Mode still works in the app."
+            "Lock Screen item controls require a signed build with App Group access."
         }
     }
 }
@@ -202,7 +203,7 @@ enum PurchaseSharedStateError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .appGroupUnavailable:
-            "Lock Screen item controls are unavailable because the shared purchase container could not be opened."
+            "Lock Screen item controls require a signed build with App Group access."
         case .notFound:
             "The active purchase item was not found."
         }

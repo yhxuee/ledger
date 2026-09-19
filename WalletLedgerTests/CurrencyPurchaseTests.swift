@@ -16,7 +16,7 @@ private struct FixedActivityStarter: PurchaseActivityStarting {
 private let bridgeUnavailableStarter = FixedActivityStarter(
     activity: .notRunning,
     interactive: false,
-    warning: "Lock Screen item controls are unavailable because the shared purchase container could not be opened. Purchase Mode still works in the app.")
+    warning: "Lock Screen item controls require a signed build with App Group access.")
 
 /// Captures the published Live Activity state from an injected request closure.
 private final class ContentStateBox: @unchecked Sendable {
@@ -261,6 +261,35 @@ final class CurrencyPurchaseTests: XCTestCase {
         XCTAssertEqual(store.purchaseSyncWarning, outcome?.warning)
     }
 
+    func testBridgeNoticeIsShownOnceAndStaysDismissedUntilTheBridgeChanges() async throws {
+        var state = SeedData.makeEmpty()
+        var session = makeSession(accountID: state.accounts[0].id)
+        session.status = .active
+        state.purchaseSessions = [session]
+        let store = LedgerStore(stateForTesting: state)
+
+        _ = await store.publishPurchase(sessionID: session.id, activityStarter: bridgeUnavailableStarter)
+        XCTAssertEqual(store.purchaseSyncWarning, bridgeUnavailableStarter.warning)
+
+        // Repeating the same bridge failure must not re-announce itself.
+        _ = await store.publishPurchase(sessionID: session.id, activityStarter: bridgeUnavailableStarter)
+        XCTAssertEqual(store.purchaseSyncWarning, bridgeUnavailableStarter.warning)
+
+        // Dismissing the notice keeps it dismissed for the current purchase.
+        store.dismissPurchaseSyncWarning()
+        XCTAssertNil(store.purchaseSyncWarning)
+        _ = await store.publishPurchase(sessionID: session.id, activityStarter: bridgeUnavailableStarter)
+        XCTAssertNil(store.purchaseSyncWarning, "A dismissed bridge notice must not reappear on the next item tap.")
+
+        // A working bridge clears the notice and the dismissal, so a later failure is reported again.
+        let active = try XCTUnwrap(store.purchaseSessions.first)
+        _ = await store.publish(session: active, requestActivity: false,
+                                activityStarter: FixedActivityStarter(activity: .updated, interactive: true, warning: nil))
+        XCTAssertNil(store.purchaseSyncWarning)
+        _ = await store.publishPurchase(sessionID: session.id, activityStarter: bridgeUnavailableStarter)
+        XCTAssertEqual(store.purchaseSyncWarning, bridgeUnavailableStarter.warning)
+    }
+
     func testOnlyTheFinalItemLeavesTheActiveState() throws {
         var state = SeedData.makeEmpty()
         var session = makeSession(accountID: state.accounts[0].id)
@@ -346,8 +375,7 @@ final class CurrencyPurchaseTests: XCTestCase {
         }
         XCTAssertEqual(activityID, "probe-activity")
         XCTAssertFalse(outcome.interactive)
-        XCTAssertNotNil(outcome.warning)
-        XCTAssertTrue((outcome.warning ?? "").contains("shared purchase container"))
+        XCTAssertEqual(outcome.warning, "Lock Screen item controls require a signed build with App Group access.")
     }
 
     func testControllerKeepsRequestFailureVisibleAlongsideBridgeFailure() async {
@@ -362,7 +390,7 @@ final class CurrencyPurchaseTests: XCTestCase {
         XCTAssertTrue(detail.contains("ActivityKit.Test"))
         XCTAssertTrue(detail.contains("denied"))
         XCTAssertFalse(outcome.interactive)
-        XCTAssertTrue((outcome.warning ?? "").contains("shared purchase container"))
+        XCTAssertTrue((outcome.warning ?? "").contains("App Group access"))
         XCTAssertTrue((outcome.warning ?? "").contains("Live Activity could not start"))
     }
 
