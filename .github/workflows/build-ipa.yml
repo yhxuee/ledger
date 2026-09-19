@@ -24,6 +24,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build .app without signing
+        # The IPA is re-signed later (iLoader), so only the signing *identity* is disabled here.
+        # CODE_SIGN_ENTITLEMENTS is intentionally NOT cleared: the project keeps pointing at the
+        # main app and widget entitlement files so the App Group stays attachable to both products.
         run: |
           set -euo pipefail
 
@@ -36,8 +39,7 @@ jobs:
             -derivedDataPath ./build_output \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGN_ENTITLEMENTS=""
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Verify build products
         run: |
@@ -65,6 +67,61 @@ jobs:
 
           echo "WalletLedger.app found at: $APP_PATH"
           echo "WalletLedgerWidget.appex is embedded."
+
+          # Bundle identity: iLoader re-signs both products, so their identifiers and build
+          # numbers must be the ones the provisioning profiles will be created for.
+          APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist")"
+          WIDGET_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$WIDGET_PATH/Info.plist")"
+
+          if [ "$APP_ID" != "org.medx.WalletLedger" ]; then
+            echo "::error::Unexpected app bundle identifier: $APP_ID"
+            exit 1
+          fi
+
+          if [ "$WIDGET_ID" != "org.medx.WalletLedger.Widget" ]; then
+            echo "::error::Unexpected widget bundle identifier: $WIDGET_ID"
+            exit 1
+          fi
+
+          APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")"
+          WIDGET_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$WIDGET_PATH/Info.plist")"
+
+          if [ "$APP_BUILD" != "$WIDGET_BUILD" ]; then
+            echo "::error::App (build $APP_BUILD) and widget (build $WIDGET_BUILD) build numbers differ; embedding requires them to match."
+            exit 1
+          fi
+
+          echo "Bundle identity: $APP_ID (build $APP_BUILD) + $WIDGET_ID (build $WIDGET_BUILD)"
+
+          # Entitlement sources and their target wiring must survive the unsigned build so the
+          # re-signing step can attach the same App Group to the app and the extension.
+          APP_GROUP="group.org.medx.WalletLedger"
+          PBX="WalletLedger.xcodeproj/project.pbxproj"
+
+          for entitlements in "WalletLedger/WalletLedger.entitlements" "WalletLedgerWidget/WalletLedgerWidget.entitlements"; do
+            if [ ! -f "$entitlements" ]; then
+              echo "::error::Missing entitlement file: $entitlements"
+              exit 1
+            fi
+
+            if ! grep -q "com.apple.security.application-groups" "$entitlements" || ! grep -q "$APP_GROUP" "$entitlements"; then
+              echo "::error::$entitlements does not declare $APP_GROUP"
+              exit 1
+            fi
+
+            echo "$entitlements declares $APP_GROUP"
+          done
+
+          for reference in \
+            "CODE_SIGN_ENTITLEMENTS = WalletLedger/WalletLedger.entitlements" \
+            "CODE_SIGN_ENTITLEMENTS = WalletLedgerWidget/WalletLedgerWidget.entitlements"; do
+            if ! grep -qF "$reference" "$PBX"; then
+              echo "::error::project.pbxproj no longer references: $reference"
+              exit 1
+            fi
+
+            echo "project.pbxproj references: $reference"
+          done
 
       - name: Package unsigned IPA
         run: |

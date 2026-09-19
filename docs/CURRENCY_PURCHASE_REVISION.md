@@ -87,7 +87,17 @@ An unsigned build (`CODE_SIGNING_ALLOWED=NO`, `CODE_SIGN_ENTITLEMENTS=""`) canno
 Shared widget-safe `PurchaseActivityPalette` (coral `#F05E4F`, teal `#62B28F`, blue `#36A7C9`, charcoal `#14181C`). `PurchaseProgressRing` accepts explicit `tint`/`trackColor`/`iconColor`/`iconSize`/`lineWidth` and no longer adds outer padding. The Dynamic Island leading ring is 46×46 with a 13pt glyph (previously 58×58 plus 5pt padding), compact leading uses a 14pt colored glyph, compact trailing is a colored percentage, minimal is a tinted circular gauge, and the island uses `keylineTint` (coral while shopping, teal when complete). The Lock Screen uses a charcoal surface, coral/teal accents, white primary text and muted secondary text.
 
 ### App Group runtime entitlement
-`Scripts/verify-purchase-configuration.sh` audits the repository configuration (entitlement files, project wiring, bundle IDs, capability markers). `Scripts/verify-app-group-entitlements.sh` inspects `codesign -d --entitlements` for both the app and the embedded `.appex` of a built product. CI runs the source audit on every push and additionally builds and verifies a signed IPA when the signing secrets are configured. The pre-existing unsigned build (`CODE_SIGNING_ALLOWED=NO CODE_SIGN_ENTITLEMENTS=""`) cannot carry entitlements, so a runtime App Group requires a real signing identity plus profiles for both bundle IDs.
+`Scripts/verify-purchase-configuration.sh` audits the repository configuration (entitlement files, project wiring, bundle IDs, capability markers). `Scripts/verify-app-group-entitlements.sh` inspects `codesign -d --entitlements` for both the app and the embedded `.appex` of a built product. CI runs the source audit in the optional signed job and additionally builds and verifies a signed IPA when the signing secrets are configured.
+
+The default CI artifact stays **unsigned**: only the signing identity is disabled (`CODE_SIGN_IDENTITY=""`, `CODE_SIGNING_REQUIRED=NO`, `CODE_SIGNING_ALLOWED=NO`). `CODE_SIGN_ENTITLEMENTS` is deliberately **not** cleared, so `WalletLedger/WalletLedger.entitlements` and `WalletLedgerWidget/WalletLedgerWidget.entitlements` stay attached to their targets and remain available to a later re-signing step. Because the artifact carries no signature, **no App Group runtime access is validated by CI** — that is expected and must not be reported as a runtime result.
+
+The unsigned IPA is re-signed outside CI (iLoader) with an Apple ID. For interactive Lock Screen / Dynamic Island item control to work, that re-signing must:
+1. create/reuse the App ID `org.medx.WalletLedger` **and** `org.medx.WalletLedger.Widget`;
+2. enable **App Groups** on both App IDs and assign both to `group.org.medx.WalletLedger`;
+3. re-sign the main app **and** the embedded `WalletLedger.app/PlugIns/WalletLedgerWidget.appex` with profiles that include that group (an app-only re-sign leaves the extension without container access);
+4. keep both products' `CFBundleVersion` equal (build 10).
+
+If the re-signed build does not receive the App Group entitlement, Purchase Mode keeps working locally with the existing read-only Lock Screen fallback ("Lock Screen item controls require a signed build with App Group access."); no local directory, `UserDefaults.standard`, or Documents/tmp storage is used as a substitute for the App Group container.
 
 ## Project configuration audited
 
@@ -96,6 +106,7 @@ Shared widget-safe `PurchaseActivityPalette` (coral `#F05E4F`, teal `#62B28F`, b
 - Both targets compile `WalletLedgerShared` and use `group.org.medx.WalletLedger`.
 - Both deployment targets remain iOS 17. NSSupportsLiveActivities remains true. App/extension versions match (build 10).
 - No new target, permission key or entitlement is needed for this revision. Existing CloudKit/iCloud Documents configuration is preserved.
+- The unsigned CI build verifies, after building: `WalletLedger.app` exists, `PlugIns/WalletLedgerWidget.appex` is embedded, both bundle identifiers are `org.medx.WalletLedger` / `org.medx.WalletLedger.Widget`, both `CFBundleVersion` values match, both entitlement files still declare `group.org.medx.WalletLedger`, and `project.pbxproj` still references both via `CODE_SIGN_ENTITLEMENTS`.
 
 ## Verification and device checklist
 
