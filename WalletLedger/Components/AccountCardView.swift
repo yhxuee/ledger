@@ -4,54 +4,69 @@ struct AccountCardView: View {
     var account: AccountViewModel?
     var portfolioBalance: Double = 0
     var baseCurrency: CurrencyCode = .HKD
+    var layout: AccountCardLayout = .horizontal
     var compact = false
     var portfolioTitle = "Net Worth"
     var portfolioAssets: Double?
     var portfolioLiabilities: Double?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: compact ? 8 : 16) {
+        VStack(alignment: .leading, spacing: compact ? 8 : (layout == .portrait ? 14 : 16)) {
             HStack(spacing: 8) {
                 Text(account?.account.logo ?? "ALL")
-                    .font(account == nil ? .caption.weight(.bold) : .headline.bold())
+                    .font(account == nil ? (layout == .portrait ? .headline.bold() : .caption.weight(.bold)) : .headline.bold())
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
                     .padding(.horizontal, 10).padding(.vertical, 7)
                     .background(.white.opacity(0.32), in: Capsule())
-                if let account {
+                if layout == .portrait {
+                    Text(account?.account.name ?? portfolioTitle)
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                } else if let account {
                     Text(account.account.name)
                         .font(.headline)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: account?.account.type.symbol ?? "wallet.bifold.fill").font(.title3)
+                Image(systemName: account?.account.type.symbol ?? "wallet.bifold.fill")
+                    .font(layout == .portrait ? .subheadline : .title3)
             }
             .cardInformationRegion()
-            Spacer(minLength: 8)
-            if account == nil {
+
+            Spacer(minLength: layout == .portrait ? 12 : 8)
+
+            if layout == .horizontal && account == nil {
                 Text("Portfolio").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 Text(portfolioTitle).font((compact ? Font.headline : .title3).weight(.bold)).lineLimit(1)
             }
+
             VStack(alignment: .leading, spacing: 4) {
-                SensitiveMoneyText(amount: account?.balance ?? portfolioBalance, currency: account?.account.currency ?? baseCurrency, maxIntegerDigits: 7)
-                    .font(.system(size: compact ? 24 : 34, weight: .bold, design: .rounded)).lineLimit(1).minimumScaleFactor(0.75)
+                SensitiveMoneyText(amount: account?.balance ?? portfolioBalance,
+                                   currency: account?.account.currency ?? baseCurrency,
+                                   maxIntegerDigits: layout == .portrait ? 4 : 7)
+                    .font(.system(size: compact ? 24 : 34, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(layout == .portrait ? 0.65 : 0.75)
                 if let account {
                     AccountCardMetadata(account: account.account)
                 }
             }
             .cardInformationRegion()
-            if account == nil, let portfolioAssets, let portfolioLiabilities {
+
+            if layout == .horizontal, account == nil, let portfolioAssets, let portfolioLiabilities {
                 HStack(spacing: 24) {
                     portfolioMetric("Total Assets", value: portfolioAssets)
                     portfolioMetric("Liabilities", value: portfolioLiabilities)
                 }
             }
         }
-        .padding(compact ? 16 : 22)
+        .padding(compact ? 16 : (layout == .portrait ? 24 : 22))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .cardArtwork(data: account?.account.cardImageData, fallback: background)
-        .aspectRatio(85.6 / 53.98, contentMode: .fit)
+        .cardArtwork(data: account?.account.cardImageData, fallback: background, layout: layout)
+        .aspectRatio(layout == .portrait ? (53.98 / 85.60) : (85.60 / 53.98), contentMode: .fit)
         .accessibilityElement(children: .combine)
     }
 

@@ -47,11 +47,8 @@ struct OverviewView: View {
 
     var body: some View {
         ScrollView {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 20) { hero.frame(minWidth: 320, maxWidth: 520); metrics.frame(minWidth: 360, maxWidth: .infinity) }
-                VStack(spacing: 16) { hero; metrics }
-            }
-            .padding(.horizontal).padding(.top, 8)
+            topSection
+                .padding(.horizontal).padding(.top, 8)
             latest.padding(.horizontal).padding(.top, 18).padding(.bottom, 30)
         }
         .background(LedgerBackground())
@@ -90,15 +87,29 @@ struct OverviewView: View {
         }
     }
 
-    private var hero: some View {
-        OverviewAccountPickerButton(selectedAccountID: $selectedAccountID)
-    }
-
-    private var metrics: some View {
+    @ViewBuilder
+    private var topSection: some View {
         let configured = preferences.value.overviewMetrics.prefix(2)
-        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-            ForEach(Array(configured)) { kind in
-                metricCard(for: kind)
+        switch preferences.value.overviewCardLayout {
+        case .portrait:
+            HStack(alignment: .top, spacing: 12) {
+                OverviewAccountPickerButton(selectedAccountID: $selectedAccountID, layout: .portrait)
+                    .frame(maxWidth: .infinity)
+                VStack(spacing: 12) {
+                    ForEach(Array(configured)) { kind in
+                        metricCard(for: kind)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+        case .horizontal:
+            VStack(spacing: 16) {
+                OverviewAccountPickerButton(selectedAccountID: $selectedAccountID, layout: .horizontal)
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                    ForEach(Array(configured)) { kind in
+                        metricCard(for: kind)
+                    }
+                }
             }
         }
     }
@@ -469,6 +480,7 @@ struct OverviewMetricDetailSheet: View {
 private struct OverviewAccountPickerButton: View {
     @EnvironmentObject private var store: LedgerStore
     @Binding var selectedAccountID: UUID?
+    var layout: AccountCardLayout = .horizontal
     @State private var showingPicker = false
     @State private var accounts: [AccountViewModel] = []
     @State private var cards: [OverviewPickerCard] = [OverviewPickerCard(account: nil)]
@@ -478,7 +490,8 @@ private struct OverviewAccountPickerButton: View {
         Button { showingPicker = true } label: {
             AccountCardView(account: accounts.first { $0.id == selectedAccountID },
                             portfolioBalance: portfolioBalance,
-                            baseCurrency: store.state.settings.baseCurrency)
+                            baseCurrency: store.state.settings.baseCurrency,
+                            layout: layout)
         }
         .buttonStyle(.plain)
         .sheet(isPresented: $showingPicker) {
@@ -556,10 +569,11 @@ private struct AccountPickerView: View {
                                     }
                                 }
                             } label: {
-                                OverviewPortraitAccountCard(
-                                    card: card,
+                                AccountCardView(
+                                    account: card.account,
                                     portfolioBalance: portfolioBalance,
-                                    baseCurrency: baseCurrency
+                                    baseCurrency: baseCurrency,
+                                    layout: .portrait
                                 )
                                 .frame(width: cardWidth, height: cardHeight)
                             }
@@ -615,57 +629,5 @@ private struct AccountPickerView: View {
                 self.centeredID = "all-accounts"
             }
         }
-    }
-}
-
-/// Dedicated portrait layout; the normal Overview hero card remains horizontal.
-private struct OverviewPortraitAccountCard: View {
-    let card: OverviewPickerCard
-    let portfolioBalance: Double
-    let baseCurrency: CurrencyCode
-
-    private var account: LedgerAccount? { card.account?.account }
-    private var style: CardStyle {
-        account?.cardStyle ?? .init(startHex: "F2C7D8", endHex: "B9D9F1")
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                Text(account?.logo ?? "ALL")
-                    .font(.headline.bold())
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .padding(.horizontal, 10).padding(.vertical, 7)
-                    .background(.white.opacity(0.32), in: Capsule())
-                Text(account?.name ?? "Net Worth")
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
-                Image(systemName: account?.type.symbol ?? "wallet.bifold.fill")
-                    .font(.subheadline)
-            }
-            .cardInformationRegion()
-            Spacer(minLength: 12)
-            SensitiveMoneyText(amount: card.account?.balance ?? portfolioBalance,
-                               currency: account?.currency ?? baseCurrency,
-                               maxIntegerDigits: 4)
-                .font(.system(size: 34, weight: .bold, design: .rounded))
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-                .cardInformationRegion()
-            if let account {
-                AccountCardMetadata(account: account)
-                    .cardInformationRegion()
-            }
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .cardArtwork(data: account?.cardImageData, fallback: LinearGradient(
-            colors: [Color(hex: style.startHex), Color(hex: style.endHex)],
-            startPoint: .topLeading, endPoint: .bottomTrailing),
-            context: .portrait)
-        .accessibilityElement(children: .combine)
     }
 }

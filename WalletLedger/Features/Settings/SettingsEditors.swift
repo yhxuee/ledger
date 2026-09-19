@@ -312,6 +312,18 @@ struct LayoutSettingsView: View {
 
     var body: some View {
         Form {
+            Section("Overview Card Layout") {
+                Picker("Overview Card Layout", selection: Binding(
+                    get: { preferences.value.overviewCardLayout },
+                    set: { val in preferences.update { $0.overviewCardLayout = val } }
+                )) {
+                    ForEach(AccountCardLayout.allCases) { layout in
+                        Text(layout.title).tag(layout)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
             Section("Transaction Editor Layout") {
                 Picker("Transaction Editor Layout", selection: Binding(
                     get: { preferences.value.transactionLayout },

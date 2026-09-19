@@ -2,11 +2,6 @@ import SwiftUI
 import UIKit
 import ImageIO
 
-enum CardArtworkLayoutContext: Sendable {
-    case horizontal
-    case portrait
-}
-
 /// Decode and classify once per uploaded image, not while the carousel scrolls.
 // Immutable after construction. UIImage/UIColor are only read by rendering after
 // publication; decoding and analysis finish before crossing back to the main actor.
@@ -261,11 +256,10 @@ private struct CardArtworkModifier: ViewModifier {
     }
 
     @ViewBuilder private func centeredArtwork(_ image: UIImage, size: CGSize, regions: [CGRect]) -> some View {
-        let horizontalInset = size.width * 0.16
-        let availableWidth = max(0, size.width - horizontalInset * 2)
-
         switch context {
         case .horizontal:
+            let horizontalInset = size.width * 0.23
+            let availableWidth = max(0, size.width - horizontalInset * 2)
             let availableHeight = size.height * 0.68
             Image(uiImage: image)
                 .resizable()
@@ -274,6 +268,8 @@ private struct CardArtworkModifier: ViewModifier {
                 .position(x: size.width / 2, y: size.height / 2)
 
         case .portrait:
+            let horizontalInset = size.width * 0.16
+            let availableWidth = max(0, size.width - horizontalInset * 2)
             let centerY = size.height / 2
             let baseMaxHeight = size.height * 0.50
 
@@ -320,7 +316,11 @@ extension View {
         anchorPreference(key: CardInformationBounds.self, value: .bounds) { [$0] }
     }
 
-    func cardArtwork(data: Data?, fallback: LinearGradient, context: CardArtworkLayoutContext = .horizontal) -> some View {
+    func cardArtwork(data: Data?, fallback: LinearGradient, layout: AccountCardLayout = .horizontal) -> some View {
+        modifier(AsyncCardArtworkModifier(data: data, fallback: fallback, context: layout))
+    }
+
+    func cardArtwork(data: Data?, fallback: LinearGradient, context: AccountCardLayout) -> some View {
         modifier(AsyncCardArtworkModifier(data: data, fallback: fallback, context: context))
     }
 }
