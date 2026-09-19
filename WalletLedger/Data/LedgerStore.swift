@@ -436,8 +436,16 @@ final class LedgerStore: ObservableObject {
     }
 
     var allStockMetadata: [StockMetadata] {
-        librarySnapshot().books.flatMap { $0.state.accounts }
-            .filter { $0.deletedAt == nil && $0.type == .stocks }.compactMap(\.stockMetadata)
+        let snapshot = librarySnapshot()
+        var stocks: [StockMetadata] = []
+        for book in snapshot.books {
+            for account in book.state.accounts {
+                guard account.deletedAt == nil, account.type == .stocks,
+                      let metadata = account.stockMetadata else { continue }
+                stocks.append(metadata)
+            }
+        }
+        return stocks
     }
 
     func applyStockQuotes(_ quotes: [String: AlphaVantageService.Quote]) {
