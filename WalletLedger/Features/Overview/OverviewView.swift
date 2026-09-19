@@ -471,13 +471,12 @@ struct OverviewMetricDetailSheet: View {
 
 /// A snapshot in persisted account order. Images are decoded when accounts change,
 /// never from the per-frame carousel effect.
-@MainActor
 private struct OverviewPickerCard: Identifiable {
     let account: AccountViewModel?
     let artwork: CardArtwork?
     var id: String { account?.id.uuidString ?? "all-accounts" }
 
-    init(account: AccountViewModel?) {
+    @MainActor init(account: AccountViewModel?) {
         self.account = account
         self.artwork = CardArtwork.load(account?.account.cardImageData)
     }
@@ -496,10 +495,12 @@ private struct AccountPickerView: View {
     var body: some View {
         NavigationStack {
             GeometryReader { geometry in
-                let cardWidth = geometry.size.width * 0.66
+                let viewportWidth = geometry.size.width
+                let reducesMotion = reduceMotion
+                let cardWidth = viewportWidth * 0.66
                 let cardHeight = cardWidth * (85.60 / 53.98)
                 let cardSpacing: CGFloat = -8
-                let sideInset = (geometry.size.width - cardWidth) / 2
+                let sideInset = (viewportWidth - cardWidth) / 2
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: cardSpacing) {
@@ -523,7 +524,7 @@ private struct AccountPickerView: View {
                             }
                             .buttonStyle(.plain)
                             .visualEffect { content, proxy in
-                                let progress = (proxy.frame(in: .scrollView(axis: .horizontal)).midX - geometry.size.width / 2) / (cardWidth + cardSpacing)
+                                let progress = (proxy.frame(in: .scrollView(axis: .horizontal)).midX - viewportWidth / 2) / (cardWidth + cardSpacing)
                                 // Snap to an exact sharp, upright state near the center.
                                 // Only background cards receive blur and dimming.
                                 let distance = abs(progress)
@@ -532,11 +533,11 @@ private struct AccountPickerView: View {
                                 let fartherDistance = max(0, normalizedDistance - 1)
                                 let fanProgress = (progress < 0 ? -1.0 : 1.0) * magnitude
                                 return content
-                                    .rotationEffect(.degrees(reduceMotion ? 0 : Double(fanProgress * 6)), anchor: .bottom)
+                                    .rotationEffect(.degrees(reducesMotion ? 0 : Double(fanProgress * 6)), anchor: .bottom)
                                     .scaleEffect(1 - magnitude * 0.08)
                                     .blur(radius: magnitude * 4 + fartherDistance * 2)
                                     .opacity(1 - Double(magnitude) * 0.3 - Double(fartherDistance) * 0.2)
-                                    .offset(y: reduceMotion ? 0 : magnitude * 16)
+                                    .offset(y: reducesMotion ? 0 : magnitude * 16)
                             }
                             .zIndex(centeredID == card.id ? 1 : 0)
                             .accessibilityAddTraits(centeredID == card.id ? .isSelected : [])
