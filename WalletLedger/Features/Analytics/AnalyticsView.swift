@@ -88,6 +88,7 @@ struct AnalyticsView: View {
                         .annotation(position: .top) {
                             if showAllLabels || extremaIDs.contains(bucket.id) {
                                 SensitiveValueText(valueLabel(bucket.value), maskLength: 5)
+                                    .environmentObject(privacy)
                                     .font(.caption2.weight(extremaIDs.contains(bucket.id) ? .bold : .regular))
                                     .foregroundStyle(.secondary)
                             }
