@@ -456,10 +456,16 @@ private struct AccountPickerView: View {
     @Binding var selectedAccountID: UUID?
     @State private var workingOrder: [UUID] = []
     @State private var draggedID: UUID? = nil
-    @State private var dragOffset: CGFloat = 0
-    @State private var lastDragTranslation: CGFloat = 0
+    @State private var sourceIndex: Int? = nil
+    @State private var targetIndex: Int? = nil
+    @State private var dragTranslation: CGFloat = 0
+    @State private var isSettling = false
     @State private var cardHeight: CGFloat = 200
     private let stackSpacing: CGFloat = -36
+
+    private var step: CGFloat {
+        max(cardHeight + stackSpacing, 60)
+    }
 
     private var orderedAccounts: [AccountViewModel] {
         let map = Dictionary(uniqueKeysWithValues: store.accounts.map { ($0.id, $0) })
@@ -475,7 +481,7 @@ private struct AccountPickerView: View {
             ScrollView {
                 VStack(spacing: stackSpacing) {
                     Button {
-                        if draggedID == nil {
+                        if draggedID == nil && !isSettling {
                             selectedAccountID = nil
                             dismiss()
                         }
@@ -486,11 +492,13 @@ private struct AccountPickerView: View {
                     .zIndex(0)
 
                     ForEach(Array(orderedAccounts.enumerated()), id: \.element.id) { index, item in
-                        cardView(for: item, index: index + 1)
+                        cardView(for: item, index: index)
                     }
                 }
                 .padding()
             }
+            .coordinateSpace(name: "AccountStackSpace")
+            .scrollDisabled(draggedID != nil)
             .background(LedgerBackground())
             .navigationTitle("Accounts")
             .navigationBarTitleDisplayMode(.inline)
@@ -519,75 +527,91 @@ private struct AccountPickerView: View {
             }
         }
         .onPreferenceChange(CardHeightPreferenceKey.self) { height in
-            if height > 50 {
+            if draggedID == nil, height > 50 {
                 cardHeight = height
             }
         }
     }
 
+    private func cardOffset(for index: Int, isDragging: Bool) -> CGFloat {
+        if isDragging {
+            return dragTranslation
+        }
+        guard let s = sourceIndex, let t = targetIndex else { return 0 }
+        if s < t {
+            if index > s && index <= t {
+                return -step
+            }
+        } else if s > t {
+            if index >= t && index < s {
+                return step
+            }
+        }
+        return 0
+    }
+
     @ViewBuilder
     private func cardView(for item: AccountViewModel, index: Int) -> some View {
         let isDragging = draggedID == item.id
+        let otherOffset = cardOffset(for: index, isDragging: false)
+        let effectiveOffset = isDragging ? dragTranslation : otherOffset
+
         AccountCardView(account: item, baseCurrency: store.state.settings.baseCurrency, compact: true)
             .background(
-                GeometryReader { geo in
-                    Color.clear.preference(key: CardHeightPreferenceKey.self, value: geo.size.height)
+                Group {
+                    if index == 0 {
+                        GeometryReader { geo in
+                            Color.clear.preference(key: CardHeightPreferenceKey.self, value: geo.size.height)
+                        }
+                    }
                 }
             )
             .scaleEffect(isDragging ? 1.03 : 1.0)
             .shadow(color: .black.opacity(isDragging ? 0.35 : 0.08), radius: isDragging ? 20 : 8, y: isDragging ? 10 : 3)
-            .offset(y: isDragging ? dragOffset : 0)
-            .zIndex(isDragging ? 1000 : Double(index))
-            .animation(.spring(response: 0.26, dampingFraction: 0.8), value: isDragging)
+            .offset(y: effectiveOffset)
+            .zIndex(isDragging ? 1000 : Double(index + 1))
+            .animation(.interactiveSpring(response: 0.22, dampingFraction: 0.86), value: isDragging)
+            .animation(isDragging ? nil : .interactiveSpring(response: 0.22, dampingFraction: 0.86), value: otherOffset)
             .contentShape(Rectangle())
-            .gesture(dragGesture(for: item))
+            .gesture(dragGesture(for: item, index: index))
             .onTapGesture {
-                if draggedID == nil {
+                if draggedID == nil && !isSettling {
                     selectedAccountID = item.id
                     dismiss()
                 }
             }
     }
 
-    private func dragGesture(for item: AccountViewModel) -> some Gesture {
+    private func dragGesture(for item: AccountViewModel, index: Int) -> some Gesture {
         LongPressGesture(minimumDuration: 0.22)
-            .sequenced(before: DragGesture(coordinateSpace: .global))
+            .sequenced(before: DragGesture(coordinateSpace: .named("AccountStackSpace")))
             .onChanged { value in
+                guard !isSettling else { return }
                 switch value {
                 case .first(true):
                     if draggedID == nil {
                         draggedID = item.id
-                        dragOffset = 0
-                        lastDragTranslation = 0
+                        sourceIndex = index
+                        targetIndex = index
+                        dragTranslation = 0
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     }
                 case .second(true, let drag):
                     if draggedID == nil {
                         draggedID = item.id
-                        dragOffset = 0
-                        lastDragTranslation = 0
+                        sourceIndex = index
+                        targetIndex = index
+                        dragTranslation = 0
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     }
-                    guard let drag = drag else { return }
-                    let translation = drag.translation.height
-                    let delta = translation - lastDragTranslation
-                    lastDragTranslation = translation
-                    dragOffset += delta
+                    guard let drag = drag, let s = sourceIndex else { return }
+                    dragTranslation = drag.translation.height
 
-                    let step: CGFloat = max(cardHeight + stackSpacing, 60)
-                    guard let currentIndex = workingOrder.firstIndex(of: item.id) else { return }
-
-                    if dragOffset > step / 2 && currentIndex < workingOrder.count - 1 {
-                        withAnimation(.spring(response: 0.26, dampingFraction: 0.8)) {
-                            workingOrder.swapAt(currentIndex, currentIndex + 1)
-                            dragOffset -= step
-                        }
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    } else if dragOffset < -step / 2 && currentIndex > 0 {
-                        withAnimation(.spring(response: 0.26, dampingFraction: 0.8)) {
-                            workingOrder.swapAt(currentIndex, currentIndex - 1)
-                            dragOffset += step
-                        }
+                    let rawDelta = Int((drag.translation.height / step).rounded())
+                    let count = orderedAccounts.count
+                    let newTarget = min(max(s + rawDelta, 0), count - 1)
+                    if newTarget != targetIndex {
+                        targetIndex = newTarget
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
                 default:
@@ -595,13 +619,33 @@ private struct AccountPickerView: View {
                 }
             }
             .onEnded { _ in
-                if draggedID != nil {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                        dragOffset = 0
-                        draggedID = nil
-                        lastDragTranslation = 0
+                guard let s = sourceIndex, let t = targetIndex, draggedID == item.id else {
+                    draggedID = nil
+                    sourceIndex = nil
+                    targetIndex = nil
+                    dragTranslation = 0
+                    return
+                }
+
+                isSettling = true
+                let targetSlotOffset = CGFloat(t - s) * step
+                withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.86)) {
+                    dragTranslation = targetSlotOffset
+                }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                    if s != t && s < workingOrder.count && t < workingOrder.count {
+                        var newOrder = workingOrder
+                        let moved = newOrder.remove(at: s)
+                        newOrder.insert(moved, at: t)
+                        workingOrder = newOrder
+                        store.setAccountOrder(newOrder)
                     }
-                    store.setAccountOrder(workingOrder)
+                    draggedID = nil
+                    sourceIndex = nil
+                    targetIndex = nil
+                    dragTranslation = 0
+                    isSettling = false
                 }
             }
     }

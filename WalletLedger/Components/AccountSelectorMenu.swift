@@ -7,7 +7,7 @@ enum AccountSelectorDisplay {
 
 /// One-line account selector for the transaction editor.
 ///
-/// When display is .logo, the collapsed state displays account.logo (e.g. DC), right-aligned without wrapping,
+/// When display is .logo, the collapsed state displays the account Tag (account.logo), compactly without wrapping,
 /// while the opened menu shows "DC   Daily Checking".
 /// VoiceOver always receives the full name.
 struct AccountSelectorMenu: View {
@@ -52,11 +52,13 @@ struct AccountSelectorMenu: View {
                 }
             }
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
                 if display == .logo {
                     Text(displayedText)
                         .font(.body.weight(.medium))
                         .lineLimit(1)
+                        .truncationMode(.tail)
+                        .allowsTightening(true)
                         .foregroundStyle(selection == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 } else {
                     MarqueeText(text: displayedText, font: .body, visibleCharacters: visibleCharacters, alignment: valueAlignment)
@@ -65,8 +67,9 @@ struct AccountSelectorMenu: View {
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .fixedSize()
             }
-            .frame(maxWidth: .infinity, alignment: valueAlignment)
+            .frame(maxWidth: display == .logo ? nil : .infinity, alignment: valueAlignment)
             .contentShape(Rectangle())
         }
         .foregroundStyle(.primary)

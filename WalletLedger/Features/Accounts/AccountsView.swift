@@ -274,7 +274,7 @@ private struct AccountEditorView: View {
                 Section { AccountCardView(account: .init(account: account, balance: account.type == .stocks ? (account.stockMetadata?.value ?? 0) : desiredBalance), baseCurrency: account.currency, compact: true).listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
                 Section("Account") {
                     TextField("Name", text: $account.name)
-                    TextField("Logo", text: $account.logo).textInputAutocapitalization(.characters).onChange(of: account.logo) { _, value in account.logo = String(value.prefix(4)).uppercased() }
+                    TextField("Tag", text: $account.logo).textInputAutocapitalization(.characters).onChange(of: account.logo) { _, value in account.logo = String(value.prefix(4)).uppercased() }
                     Picker("Type", selection: $account.type) { ForEach(AccountType.allCases) { Text($0.rawValue).tag($0) } }
                         .onChange(of: account.type) { _, value in
                             if value == .loan, account.loanMetadata == nil { account.loanMetadata = .init(annualPercentageRate: 0, interestInterval: nil, customIntervalDays: 30, linkedRecurringRuleID: nil) }
