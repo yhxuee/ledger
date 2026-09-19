@@ -464,12 +464,13 @@ private struct AccountPickerView: View {
     var body: some View {
         NavigationStack {
             GeometryReader { geometry in
-                let cardWidth = geometry.size.width * 0.74
-                let cardHeight = cardWidth * 1.36
+                let cardWidth = geometry.size.width * 0.66
+                let cardHeight = cardWidth * (85.60 / 53.98)
+                let cardSpacing: CGFloat = -8
                 let sideInset = (geometry.size.width - cardWidth) / 2
 
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 12) {
+                    LazyHStack(spacing: cardSpacing) {
                         ForEach(cards) { card in
                             Button {
                                 if centeredID == card.id {
@@ -490,16 +491,22 @@ private struct AccountPickerView: View {
                             }
                             .buttonStyle(.plain)
                             .visualEffect { content, proxy in
-                                let distance = (proxy.frame(in: .scrollView(axis: .horizontal)).midX - geometry.size.width / 2) / (cardWidth + 12)
-                                let progress = max(-1.0, min(1.0, distance))
-                                let magnitude = abs(progress)
+                                let progress = (proxy.frame(in: .scrollView(axis: .horizontal)).midX - geometry.size.width / 2) / (cardWidth + cardSpacing)
+                                // Snap to an exact sharp, upright state near the center.
+                                // Only background cards receive blur and dimming.
+                                let distance = abs(progress)
+                                let normalizedDistance = min(2.0, max(0, (distance - 0.15) / 0.85))
+                                let magnitude = min(1.0, normalizedDistance)
+                                let fartherDistance = max(0, normalizedDistance - 1)
+                                let fanProgress = (progress < 0 ? -1.0 : 1.0) * magnitude
                                 return content
-                                    .rotationEffect(.degrees(reduceMotion ? 0 : Double(progress * 7)), anchor: .bottom)
+                                    .rotationEffect(.degrees(reduceMotion ? 0 : Double(fanProgress * 6)), anchor: .bottom)
                                     .scaleEffect(1 - magnitude * 0.08)
-                                    .blur(radius: magnitude * 3)
-                                    .opacity(1 - Double(magnitude) * 0.35)
-                                    .offset(y: reduceMotion ? 0 : magnitude * 18)
+                                    .blur(radius: magnitude * 4 + fartherDistance * 2)
+                                    .opacity(1 - Double(magnitude) * 0.3 - Double(fartherDistance) * 0.2)
+                                    .offset(y: reduceMotion ? 0 : magnitude * 16)
                             }
+                            .zIndex(centeredID == card.id ? 1 : 0)
                             .accessibilityAddTraits(centeredID == card.id ? .isSelected : [])
                             .id(card.id)
                         }
@@ -562,23 +569,21 @@ private struct OverviewPortraitAccountCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
+            HStack(spacing: 8) {
                 Text(account?.logo ?? "ALL")
-                    .font(.caption.weight(.bold))
+                    .font(.headline.bold())
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                     .padding(.horizontal, 10).padding(.vertical, 7)
                     .background(.white.opacity(0.32), in: Capsule())
-                Spacer()
+                Text(account?.name ?? "Net Worth")
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
                 Image(systemName: account?.type.symbol ?? "wallet.bifold.fill")
-                    .font(.title2)
+                    .font(.subheadline)
             }
-            Spacer(minLength: 12)
-            Text(account?.name ?? "Net Worth")
-                .font(.title2.bold())
-                .lineLimit(3)
-                .multilineTextAlignment(.leading)
-            Text(account?.type.rawValue ?? "Portfolio")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
             Spacer(minLength: 12)
             SensitiveMoneyText(amount: card.account?.balance ?? portfolioBalance,
                                currency: account?.currency ?? baseCurrency,
