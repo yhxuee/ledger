@@ -307,15 +307,30 @@ final class CurrencyPurchaseTests: XCTestCase {
     func testControllerSurfacesThrownRequestError() async {
         var session = makeSession(accountID: UUID())
         session.status = .active
-        let controller = PurchaseLiveActivityController(snapshotWriter: { _, _ in }, activitiesEnabled: { true },
+        let controller = PurchaseLiveActivityController(
+            snapshotWriter: { _, _ in }, // The App Group bridge succeeds.
+            activitiesEnabled: { true },
             requestActivity: { _, _ in throw NSError(domain: "ActivityKit.Test", code: 42, userInfo: [NSLocalizedDescriptionKey: "Test rejection"]) })
         let outcome = await controller.start(session: session)
-        guard case .requestFailed(let detail) = outcome.activity else { return XCTFail("A thrown request must surface as requestFailed.") }
+
+        // The ActivityKit request failure is the primary result.
+        guard case .requestFailed(let detail) = outcome.activity else {
+            return XCTFail("A thrown request must surface as requestFailed, got \(outcome.activity)")
+        }
         XCTAssertTrue(detail.contains("ActivityKit.Test"))
         XCTAssertTrue(detail.contains("42"))
         XCTAssertTrue(detail.contains("Test rejection"))
+
+        // A failed Activity.request says nothing about the bridge, which succeeded here.
         XCTAssertTrue(outcome.interactive)
-        XCTAssertNil(outcome.warning, "A working bridge needs no infrastructure warning.")
+
+        // The ActivityKit failure is intentionally surfaced a second time as a nonfatal warning.
+        let warning = outcome.warning ?? ""
+        XCTAssertNotNil(outcome.warning)
+        XCTAssertTrue(warning.contains("Live Activity could not start"))
+        XCTAssertTrue(warning.contains("ActivityKit.Test"))
+        XCTAssertTrue(warning.contains("42"))
+        XCTAssertTrue(warning.contains("Test rejection"))
     }
 
     func testControllerStillRequestsActivityWhenSharedStateIsUnavailable() async {
