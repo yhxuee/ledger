@@ -2,6 +2,11 @@ name: Build Unsigned IPA
 
 on:
   workflow_dispatch:
+    inputs:
+      reproduce_original_analytics:
+        description: Run the rendering test against the pre-fix Analytics view
+        type: boolean
+        default: false
   push:
     branches: [ main, master ]
 
@@ -12,6 +17,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Restore original Analytics for crash reproduction
+        if: inputs.reproduce_original_analytics == true
+        run: git show dabddfd:WalletLedger/Features/Analytics/AnalyticsView.swift > WalletLedger/Features/Analytics/AnalyticsView.swift
 
       - name: Render Analytics on iOS Simulator
         run: |
