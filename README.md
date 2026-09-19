@@ -52,6 +52,18 @@ Source and project target changes are included, but these account-bound steps mu
 
 ## Verification
 
+### Currency controls and market data
+
+- `PopupSelectionButton` uses the existing presentation-layer overlay, anchored to the compact value button. It expands over that frame, chooses upward/downward placement, clamps to the visible container, and closes on selection or an outside tap. The transition lasts 0.22 seconds. Only Other opens the searchable currency screen; stablecoins remain available there.
+- Settings > Market Data stores the Alpha Vantage key in a non-synchronizing, device-only Keychain item. Requests use an ephemeral URL session. The key is not a field of any ledger, preferences, CloudKit record, App Group snapshot, or exported backup.
+- Stocks use market-derived settlement currency, cost price and quantity. Account and portfolio values use the cached quote, or cost basis when unavailable. Legacy stock metadata decodes with zero cost and quantity; enter holdings to establish its valuation. No trades or P/L transactions are generated.
+- Symbol search waits 500 ms and requires two characters. Requests and results are shared across market filters. Provider symbols are retained verbatim; manual HK/CN codes require selection of a provider result before quotes can be fetched, because exchange suffixes are never guessed.
+- `StockQuoteRefreshService` reserves per-market/date/slot attempts durably before requests, deduplicates symbols across ledgers, retains prices on errors, and applies cached results to all matching accounts. Quote trading dates and fetch timestamps are distinct from Frankfurter timestamps. The UI deliberately labels prices as last available, following [Alpha Vantage's quote freshness documentation](https://www.alphavantage.co/documentation/).
+- The bundled holiday calendar covers 2026, including early-close session checks. Sources: [NYSE](https://www.nyse.com/trade/hours-calendars), [HKEX](https://www.hkex.com.hk/-/media/HKEX-Market/Services/Circulars-and-Notices/Participant-and-Members-Circulars/SEHK/2025/ce_SEHK_CT_075_2025.pdf), [SSE](https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml). Future years require positive market-open evidence until annual calendars are added; unconfirmed after-hours days are skipped. A closed status during a normal session suppresses quotes, including later slots until an open status is observed.
+- Launch, foreground and BGAppRefreshTask use the same catch-up path. Missing slots from the current market day are coalesced into one quote fetch per symbol. Background requests specify the next slot as an earliest start, never a guaranteed execution time. Frankfurter remains an independent once-per-successful-calendar-day pipeline with an in-flight guard.
+
+For this change, Swift syntax parsing, plist validation and whitespace checks are available on Windows. The unsigned Release build requires macOS/Xcode; no XCTest was run. The existing `.github/workflows/build-ipa.yml` builds unsigned Release with tests disabled by default.
+
 `WalletLedgerTests` covers balance semantics, soft deletion, native backup round-trip, native v1 migration, legacy Web conversion, flexible currencies, refund idempotency and deletion, both budget modes, multi-currency budgets, dynamic loan interest, deleted default-account mappings, PurchaseSession finalization/grouping, and CloudKit record mapping without network access.
 
 This checkout is authored from Windows, where SwiftUI, ActivityKit, EventKit and CloudKit SDK compilation is unavailable. Run the included Xcode test target or the existing macOS GitHub Actions workflow before signing a release archive.

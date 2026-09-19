@@ -53,8 +53,7 @@ enum StockMarket: String, Codable, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// Offline symbol normalisation only. There is no market-data API in the app, so this
-    /// never invents a company name or price; a future quote service can replace it.
+    /// Legacy display/validation helper only. Provider symbols must be preserved verbatim.
     func normalize(_ raw: String) -> String {
         let cleaned = raw.uppercased().filter { $0.isLetter || $0.isNumber }
         guard !cleaned.isEmpty else { return "" }
@@ -93,6 +92,35 @@ enum StockMarket: String, Codable, CaseIterable, Identifiable, Sendable {
 struct StockMetadata: Codable, Hashable, Sendable {
     var market: StockMarket
     var symbol: String
+    var providerSymbol: String? = nil
+    var averageCost: Double = 0
+    var quantity: Double = 0
+    var latestPrice: Double? = nil
+    var latestPriceAt: Date? = nil
+
+    var costBasis: Double { averageCost * quantity }
+    var marketValue: Double? { latestPrice.map { $0 * quantity } }
+    var value: Double { marketValue ?? costBasis }
+    var unrealizedPL: Double? { marketValue.map { $0 - costBasis } }
+
+    init(market: StockMarket, symbol: String, providerSymbol: String? = nil,
+         averageCost: Double = 0, quantity: Double = 0, latestPrice: Double? = nil, latestPriceAt: Date? = nil) {
+        self.market = market; self.symbol = symbol; self.providerSymbol = providerSymbol
+        self.averageCost = averageCost; self.quantity = quantity
+        self.latestPrice = latestPrice; self.latestPriceAt = latestPriceAt
+    }
+
+    enum CodingKeys: String, CodingKey { case market, symbol, providerSymbol, averageCost, quantity, latestPrice, latestPriceAt }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        market = try values.decode(StockMarket.self, forKey: .market)
+        symbol = try values.decode(String.self, forKey: .symbol)
+        providerSymbol = try values.decodeIfPresent(String.self, forKey: .providerSymbol)
+        averageCost = try values.decodeIfPresent(Double.self, forKey: .averageCost) ?? 0
+        quantity = try values.decodeIfPresent(Double.self, forKey: .quantity) ?? 0
+        latestPrice = try values.decodeIfPresent(Double.self, forKey: .latestPrice)
+        latestPriceAt = try values.decodeIfPresent(Date.self, forKey: .latestPriceAt)
+    }
 }
 
 /// A single currency pocket inside a multi-currency account. Pockets are not separate
@@ -217,7 +245,7 @@ struct LedgerAccount: Identifiable, Codable, Hashable, Sendable {
         if type == .stocks {
             let market = stockMetadata?.market.rawValue ?? settlementCurrency.rawValue
             let symbol = stockMetadata?.symbol.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return symbol.isEmpty ? "\(type.rawValue) · \(market)" : "\(type.rawValue) · \(market) · \(symbol)"
+            return symbol.isEmpty ? "\(type.rawValue) · \(market)" : "\(symbol) · \(market)"
         }
         let base = "\(type.rawValue) · \(currency.rawValue)"
         let count = normalizedPockets.count

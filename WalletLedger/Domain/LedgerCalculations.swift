@@ -84,7 +84,8 @@ enum LedgerCalculations {
     /// Account total: each pocket converted into the account's primary currency and summed.
     /// Single-currency accounts reduce to exactly their previous value.
     static func balance(for account: LedgerAccount, in state: LedgerState) -> Double {
-        account.normalizedPockets.reduce(0) { total, pocket in
+        if account.type == .stocks, let stock = account.stockMetadata { return stock.value }
+        return account.normalizedPockets.reduce(0) { total, pocket in
             total + convert(pocketBalance(pocket.currency, for: account, in: state), from: pocket.currency, to: account.currency, rates: state.settings.rates)
         }
     }

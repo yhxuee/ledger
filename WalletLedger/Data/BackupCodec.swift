@@ -57,6 +57,12 @@ enum BackupCodec {
         guard Set(categoryIDs).count == categoryIDs.count, LedgerCategoryID.builtIns.allSatisfy(categoryIDs.contains) else { throw BackupError.invalidValue("categories") }
         let accountsByID = Dictionary(uniqueKeysWithValues: state.accounts.map { ($0.id, $0) })
         for account in state.accounts {
+            if let stock = account.stockMetadata {
+                guard stock.averageCost.isFinite, stock.averageCost >= 0,
+                      stock.quantity.isFinite, stock.quantity >= 0, stock.costBasis.isFinite,
+                      stock.latestPrice.map({ $0.isFinite && $0 > 0 }) ?? true,
+                      stock.marketValue?.isFinite ?? true else { throw BackupError.invalidValue("stock metadata") }
+            }
             guard account.openingBalance.isFinite, account.budget.isFinite, account.budget >= 0 else { throw BackupError.invalidValue("account \(account.name)") }
             if let loan = account.loanMetadata { guard loan.annualPercentageRate.isFinite, loan.annualPercentageRate >= 0, loan.customIntervalDays > 0 else { throw BackupError.invalidValue("loan metadata") } }
             let pockets = account.normalizedPockets

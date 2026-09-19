@@ -7,8 +7,8 @@ struct TransactionCurrencyPicker: View {
     var title = "Currency"
 
     var body: some View {
-        AnchoredCurrencyDropdown(title: title,
-                                 codes: CurrencySelection.commonWithStablecoins,
+        PopupSelectionButton(title: title,
+                                 codes: CurrencySelection.common,
                                  selection: selection,
                                  otherCurrencies: true,
                                  onSelect: { selection = $0 }) {
@@ -30,7 +30,7 @@ struct AccountPocketPicker: View {
     var title: String
 
     var body: some View {
-        AnchoredCurrencyDropdown(title: title,
+        PopupSelectionButton(title: title,
                                  codes: account.pocketCurrencies,
                                  selection: selection,
                                  showsStablecoinNames: false,

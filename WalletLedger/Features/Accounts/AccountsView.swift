@@ -4,6 +4,7 @@ import UIKit
 
 struct AccountsView: View {
     @EnvironmentObject private var store: LedgerStore
+    @ObservedObject private var stockRefresh = StockQuoteRefreshService.shared
     @State private var editing: AccountViewModel?
     @State private var creating = false
     @State private var deleting: LedgerAccount?
@@ -13,17 +14,25 @@ struct AccountsView: View {
         ScrollView {
             VStack(spacing: 16) {
                 AccountsPortfolioSummaryView(netWorth: portfolio.netWorth, assets: portfolio.assets, liabilities: portfolio.liabilities, currency: store.state.settings.baseCurrency)
+                if store.accounts.contains(where: { $0.account.type == .stocks }), let status = stockRefresh.status {
+                    Text(status).font(.caption).foregroundStyle(.secondary)
+                }
                 LazyVStack(spacing: 10) {
                     ForEach(store.accounts) { item in
                         Button { editing = item } label: {
-                            HStack(spacing: 14) {
-                                Text(item.account.logo).font(.caption.bold()).frame(width: 42, height: 42).background(LinearGradient(colors: [Color(hex: item.account.cardStyle.startHex), Color(hex: item.account.cardStyle.endHex)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 12))
-                                VStack(alignment: .leading) { Text(item.account.name).font(.headline).lineLimit(1); Text(item.account.metadataLine).font(.caption).foregroundStyle(.secondary) }
-                                Spacer()
-                                SensitiveMoneyText(amount: item.balance, currency: item.account.currency, maxIntegerDigits: 4).font(.headline.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.85)
-                                    .frame(minWidth: LedgerAmountWidth.row, alignment: .trailing)
-                                    .layoutPriority(1)
-                                Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack(spacing: 14) {
+                                    Text(item.account.logo).font(.caption.bold()).frame(width: 42, height: 42).background(LinearGradient(colors: [Color(hex: item.account.cardStyle.startHex), Color(hex: item.account.cardStyle.endHex)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 12))
+                                    VStack(alignment: .leading) { Text(item.account.name).font(.headline).lineLimit(1); Text(item.account.metadataLine).font(.caption).foregroundStyle(.secondary) }
+                                    Spacer()
+                                    SensitiveMoneyText(amount: item.balance, currency: item.account.currency, maxIntegerDigits: 4).font(.headline.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.85)
+                                        .frame(minWidth: LedgerAmountWidth.row, alignment: .trailing)
+                                        .layoutPriority(1)
+                                    Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
+                                }
+                                if item.account.type == .stocks, let stock = item.account.stockMetadata {
+                                    StockValuationView(stock: stock).font(.subheadline)
+                                }
                             }.padding(15).ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                         }.buttonStyle(.plain)
                     }
@@ -54,6 +63,9 @@ private struct AccountEditorView: View {
     @State private var desiredPocketBalances: [CurrencyCode: Double] = [:]
     @State private var pocketBalancesInitialized = false
     @State private var symbolDraft: String = ""
+    @State private var searchResults: [AlphaVantageService.Match] = []
+    @State private var searchStatus: String?
+    @State private var selectedProviderSymbol: String?
     @State private var photoItem: PhotosPickerItem?
     @State private var interestEnabled: Bool
     private let isNew: Bool
@@ -64,8 +76,7 @@ private struct AccountEditorView: View {
         .init(startHex: "F4A261", endHex: "E76F51")
     ]
 
-    /// Market + manual symbol input. No quote service exists yet, so nothing is auto-completed
-    /// or priced; the field only normalises the typed code.
+    /// Manual entry remains available regardless of provider availability.
     @ViewBuilder private var stockSection: some View {
         Picker("Market", selection: stockMarketBinding) {
             ForEach(StockMarket.allCases) { market in Text(market.rawValue).tag(market) }
@@ -85,7 +96,28 @@ private struct AccountEditorView: View {
         if !symbolDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !stockMarket.isValidSymbol(symbolDraft) {
             Text("Expected format: \(stockMarket.symbolExample)").font(.caption).foregroundStyle(.secondary)
         }
-        Text("Market data lookup is not configured yet.").font(.caption).foregroundStyle(.secondary)
+        ForEach(searchResults) { result in
+            Button {
+                selectedProviderSymbol = result.symbol
+                symbolDraft = result.symbol
+                commitStockSymbol()
+                searchResults = []
+                searchStatus = nil
+            } label: {
+                VStack(alignment: .leading) {
+                    Text(result.symbol)
+                    Text(result.name).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        if let searchStatus { Text(searchStatus).font(.caption).foregroundStyle(.secondary) }
+        LabeledContent("Cost Price") {
+            SensitiveNumericField(placeholder: "0", value: stockNumber(\.averageCost), fractionDigits: 4, width: 130)
+        }
+        LabeledContent("Holdings / Quantity") {
+            SensitiveNumericField(placeholder: "0", value: stockNumber(\.quantity), fractionDigits: 6, width: 130)
+        }
+        if let stock = account.stockMetadata { StockValuationView(stock: stock) }
     }
 
     private var stockMarket: StockMarket { account.stockMetadata?.market ?? .US }
@@ -93,15 +125,52 @@ private struct AccountEditorView: View {
     private var stockMarketBinding: Binding<StockMarket> {
         Binding(get: { account.stockMetadata?.market ?? .US }, set: { market in
             guard account.stockMetadata?.market != market else { return }
-            account.stockMetadata = .init(market: market, symbol: market.normalize(symbolDraft))
+            let old = account.stockMetadata
+            account.stockMetadata = .init(market: market, symbol: "", averageCost: old?.averageCost ?? 0, quantity: old?.quantity ?? 0)
+            selectedProviderSymbol = nil
+            searchResults = []
             account.currency = market.settlementCurrency
             symbolDraft = account.stockMetadata?.symbol ?? ""
         })
     }
 
+    private func stockNumber(_ path: WritableKeyPath<StockMetadata, Double>) -> Binding<Double> {
+        Binding(get: { account.stockMetadata?[keyPath: path] ?? 0 }, set: { value in
+            if account.stockMetadata == nil { account.stockMetadata = .init(market: stockMarket, symbol: symbolDraft) }
+            account.stockMetadata?[keyPath: path] = value.isFinite ? max(0, value) : 0
+        })
+    }
+
     private func commitStockSymbol() {
-        let market = account.stockMetadata?.market ?? .US
-        account.stockMetadata = .init(market: market, symbol: market.normalize(symbolDraft))
+        var stock = account.stockMetadata ?? .init(market: stockMarket, symbol: "")
+        let raw = symbolDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let symbol = raw == selectedProviderSymbol ? raw : raw.uppercased()
+        if stock.symbol != symbol {
+            stock.latestPrice = nil
+            stock.latestPriceAt = nil
+        }
+        stock.symbol = symbol
+        stock.providerSymbol = selectedProviderSymbol == symbol ? selectedProviderSymbol : nil
+        account.stockMetadata = stock
+    }
+
+    private var searchIdentity: String { "\(stockMarket.rawValue):\(symbolDraft)" }
+    private func searchSymbols() async {
+        searchResults = []
+        searchStatus = nil
+        guard account.type == .stocks else { return }
+        let query = symbolDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.count >= 2, query != selectedProviderSymbol else { return }
+        let market = stockMarket
+        do {
+            try await Task.sleep(for: .milliseconds(500))
+            try Task.checkCancellation()
+            let results = try await AlphaVantageService.shared.search(query, market: market)
+            try Task.checkCancellation()
+            searchResults = results
+            if results.isEmpty { searchStatus = "No matching symbols. Manual entry is available." }
+        } catch is CancellationError { }
+        catch { if !Task.isCancelled { searchStatus = error.localizedDescription } }
     }
 
     private func pocketBalanceBinding(_ currency: CurrencyCode) -> Binding<Double> {
@@ -134,12 +203,13 @@ private struct AccountEditorView: View {
         _desiredBalance = State(initialValue: item?.account.type == .loan ? abs(item?.balance ?? 0) : item?.balance ?? 0)
         _interestEnabled = State(initialValue: item?.account.loanMetadata?.interestInterval != nil)
         _symbolDraft = State(initialValue: item?.account.stockMetadata?.symbol ?? "")
+        _selectedProviderSymbol = State(initialValue: item?.account.stockMetadata?.providerSymbol)
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section { AccountCardView(account: .init(account: account, balance: desiredBalance), baseCurrency: account.currency, compact: true).listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
+                Section { AccountCardView(account: .init(account: account, balance: account.type == .stocks ? (account.stockMetadata?.value ?? 0) : desiredBalance), baseCurrency: account.currency, compact: true).listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
                 Section("Account") {
                     TextField("Name", text: $account.name)
                     TextField("Logo", text: $account.logo).textInputAutocapitalization(.characters).onChange(of: account.logo) { _, value in account.logo = String(value.prefix(4)).uppercased() }
@@ -151,7 +221,7 @@ private struct AccountEditorView: View {
                             if !account.supportsMultiCurrency { account.isMultiCurrency = false }
                             if value == .stocks {
                                 let market = account.stockMetadata?.market ?? .US
-                                account.stockMetadata = .init(market: market, symbol: account.stockMetadata?.symbol ?? "")
+                                if account.stockMetadata == nil { account.stockMetadata = .init(market: market, symbol: "") }
                                 account.currency = market.settlementCurrency
                             }
                         }
@@ -163,7 +233,7 @@ private struct AccountEditorView: View {
                         }
                         if account.usesCurrencyPockets {
                             LabeledContent("Primary Currency") {
-                                AnchoredCurrencyDropdown(title: "Primary Currency",
+                                PopupSelectionButton(title: "Primary Currency",
                                                          codes: account.pocketCurrencies,
                                                          selection: account.currency,
                                                          showsStablecoinNames: false,
@@ -181,7 +251,7 @@ private struct AccountEditorView: View {
                                 }
                             }
                             .onDelete(perform: removePockets)
-                            AnchoredCurrencyDropdown(title: "Add Currency",
+                            PopupSelectionButton(title: "Add Currency",
                                                      codes: CurrencySelection.addable(excluding: account.pocketCurrencies),
                                                      selection: account.currency,
                                                      otherCurrencies: true,
@@ -223,13 +293,12 @@ private struct AccountEditorView: View {
                 }
                 if !isNew { Section { Button("Delete Account", role: .destructive) { onDelete(account); dismiss() } } }
             }
+            .task(id: searchIdentity) { await searchSymbols() }
             .navigationTitle(isNew ? "Add Account" : "Edit Account")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 if account.type == .stocks {
-                    let market = account.stockMetadata?.market ?? .US
-                    account.stockMetadata = .init(market: market, symbol: market.normalize(symbolDraft))
-                    symbolDraft = account.stockMetadata?.symbol ?? ""
+                    commitStockSymbol()
                 }
                 // Pocket balances come from the persisted account, never from the desired-balance field.
                 guard !pocketBalancesInitialized else { return }
@@ -280,6 +349,10 @@ private struct AccountEditorView: View {
         store.saveAccount(account,
                           desiredBalance: account.type == .loan ? -abs(primaryDesired) : primaryDesired,
                           desiredPocketBalances: account.usesCurrencyPockets ? desiredPocketBalances : [:])
+        MarketRefreshBackground.schedule(store: store)
+        if account.type == .stocks {
+            Task { await StockQuoteRefreshService.shared.refreshIfDue(store: store) }
+        }
         dismiss()
     }
 }

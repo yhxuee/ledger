@@ -24,12 +24,17 @@ final class CurrencyDropdownPresenter: ObservableObject {
     @Published private(set) var dropdown: Presentation?
     @Published private(set) var fullSelector: Presentation?
 
-    func present(_ presentation: Presentation) { dropdown = presentation }
-    func dismissDropdown() { dropdown = nil }
+    private static weak var active: CurrencyDropdownPresenter?
+    func present(_ presentation: Presentation) {
+        Self.active?.dismissDropdown()
+        Self.active = self
+        withAnimation(.easeInOut(duration: 0.22)) { dropdown = presentation }
+    }
+    func dismissDropdown() { withAnimation(.easeInOut(duration: 0.22)) { dropdown = nil } }
 
-    /// `Other Currencies…` replaces the floating panel with the full searchable selector.
+    /// `Other…` replaces the floating panel with the full searchable selector.
     func presentFullSelector(from presentation: Presentation) {
-        dropdown = nil
+        dismissDropdown()
         fullSelector = presentation
     }
     func dismissFullSelector() { fullSelector = nil }
@@ -69,9 +74,9 @@ private struct CurrencyDropdownLayerModifier: ViewModifier {
 /// One reusable anchored currency control.
 ///
 /// The label is the collapsed selection row and stays the visual origin of the expanded panel:
-/// tapping it floats the options directly under (or above) the control, inside the surrounding
+/// tapping it expands the options over the control frame, inside the surrounding
 /// glass/card language. Layout of the enclosing `Form`, `List` or `ScrollView` never grows.
-struct AnchoredCurrencyDropdown<Label: View>: View {
+struct PopupSelectionButton<Label: View>: View {
     @Environment(\.currencyDropdownPresenter) private var presenter
     /// Stable identity for this control, so it can report its own expanded state across redraws.
     @State private var ownerID = UUID()
@@ -103,18 +108,14 @@ struct AnchoredCurrencyDropdown<Label: View>: View {
     }
 
     private func decorated(expanded: Bool) -> some View {
-        label()
-            .background {
-                if expanded {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.primary.opacity(0.06))
-                        .padding(.horizontal, -7)
-                        .padding(.vertical, -3)
-                }
-            }
-            .background(anchorReader)
-            .contentShape(Rectangle())
-            .onTapGesture { toggle() }
+        Button { toggle() } label: {
+            label()
+                .fixedSize()
+                .opacity(expanded ? 0 : 1)
+                .background(anchorReader)
+                .contentShape(Rectangle())
+        }
+            .buttonStyle(.plain)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(title)
             .accessibilityValue(selection.rawValue)
@@ -125,7 +126,10 @@ struct AnchoredCurrencyDropdown<Label: View>: View {
         GeometryReader { proxy in
             Color.clear
                 .onAppear { anchor = proxy.frame(in: .global) }
-                .onChange(of: proxy.frame(in: .global)) { _, value in anchor = value }
+                .onChange(of: proxy.frame(in: .global)) { _, value in
+                    if anchor != value, expanded { presenter?.dismissDropdown() }
+                    anchor = value
+                }
         }
     }
 
@@ -178,7 +182,7 @@ struct CurrencyDropdownOverlay: View {
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
-            .animation(.easeOut(duration: 0.16), value: presenter.dropdown?.ownerID)
+            .animation(.easeInOut(duration: 0.22), value: presenter.dropdown?.ownerID)
         }
         .allowsHitTesting(presenter.dropdown != nil)
         .sheet(item: fullSelectorBinding) { presentation in
@@ -212,7 +216,6 @@ struct CurrencyDropdownPanel: View {
 
     private static let maxHeight: CGFloat = 340
     private static let minHeight: CGFloat = 46
-    private static let gap: CGFloat = 6
     private static let margin: CGFloat = 12
     private static let minWidth: CGFloat = 216
     private static let rowHeight: CGFloat = 40
@@ -232,7 +235,7 @@ struct CurrencyDropdownPanel: View {
                 Button { presenter.presentFullSelector(from: presentation) } label: {
                     HStack(spacing: 9) {
                         Image(systemName: "globe")
-                        Text("Other Currencies…")
+                        Text("Other…")
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 14)
@@ -246,7 +249,17 @@ struct CurrencyDropdownPanel: View {
         .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .shadow(color: .black.opacity(0.18), radius: 22, x: 0, y: 12)
+        .transition(.modifier(
+            active: PopupMorph(x: max(0.01, presentation.anchor.width / frame.width),
+                               y: max(0.01, presentation.anchor.height / frame.height), anchor: morphAnchor, opacity: 0),
+            identity: PopupMorph(x: 1, y: 1, anchor: morphAnchor, opacity: 1)))
         .offset(x: frame.minX, y: frame.minY)
+    }
+
+    private var morphAnchor: UnitPoint {
+        let frame = placement
+        return UnitPoint(x: min(1, max(0, (presentation.anchor.midX - containerOrigin.x - frame.minX) / frame.width)),
+                         y: min(1, max(0, (presentation.anchor.midY - containerOrigin.y - frame.minY) / frame.height)))
     }
 
     /// Deterministic content height, so the placement decision matches the rendered panel exactly.
@@ -259,18 +272,18 @@ struct CurrencyDropdownPanel: View {
         let anchorMinY = presentation.anchor.minY - containerOrigin.y
         let anchorMaxY = presentation.anchor.maxY - containerOrigin.y
         let anchorMinX = presentation.anchor.minX - containerOrigin.x
-        let width = min(max(presentation.anchor.width, Self.minWidth), max(Self.minWidth, containerSize.width - Self.margin * 2))
+        let width = min(max(presentation.anchor.width, Self.minWidth), max(1, containerSize.width - Self.margin * 2))
         let x = min(max(anchorMinX, Self.margin), max(Self.margin, containerSize.width - width - Self.margin))
-        let below = containerSize.height - anchorMaxY - Self.gap - Self.margin
-        let above = anchorMinY - Self.gap - Self.margin
+        let below = containerSize.height - anchorMinY - Self.margin
+        let above = anchorMaxY - Self.margin
         let desired = min(contentHeight, Self.maxHeight)
         var height = min(desired, below)
-        var y = anchorMaxY + Self.gap
+        var y = anchorMinY
         if below < desired, above > below {
             height = min(desired, above)
-            y = anchorMinY - Self.gap - height
+            y = anchorMaxY - height
         }
-        height = max(Self.minHeight, height)
+        height = min(max(Self.minHeight, height), max(1, containerSize.height - Self.margin * 2))
         y = min(max(y, Self.margin), max(Self.margin, containerSize.height - height - Self.margin))
         return CGRect(x: x, y: y, width: width, height: height)
     }
@@ -317,16 +330,13 @@ enum CurrencySelection {
     /// Common currencies in the required order: HKD, USD, GBP, JPY, CNY, EUR, SGD, CHF.
     static var common: [CurrencyCode] { CurrencyCode.preferredFiat }
 
-    /// Common currencies plus the USD stablecoins.
-    static var commonWithStablecoins: [CurrencyCode] { CurrencyCode.preferredFiat + CurrencyCode.usdStablecoins }
-
-    /// `commonWithStablecoins` reduced to those that are not already in `excluding`.
+    /// `common` reduced to those that are not already in `excluding`.
     static func addable(excluding existing: [CurrencyCode]) -> [CurrencyCode] {
-        commonWithStablecoins.filter { !existing.contains($0) }
+        common.filter { !existing.contains($0) }
     }
 }
 
-/// Full searchable currency selector, reached only through `Other Currencies…`.
+/// Full searchable currency selector, reached only through `Other…`.
 struct CurrencySearchList: View {
     @EnvironmentObject private var store: LedgerStore
     let codes: [CurrencyCode]
@@ -369,5 +379,14 @@ struct CurrencySelectionRow: View {
                 if !available { Text("Set rate first").font(.caption).foregroundStyle(.secondary) }
             }
         }.disabled(!available)
+    }
+}
+private struct PopupMorph: ViewModifier {
+    var x: CGFloat
+    var y: CGFloat
+    var anchor: UnitPoint
+    var opacity: Double
+    func body(content: Content) -> some View {
+        content.scaleEffect(x: x, y: y, anchor: anchor).opacity(opacity)
     }
 }

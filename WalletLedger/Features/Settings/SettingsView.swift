@@ -25,13 +25,18 @@ struct SettingsView: View {
                     SettingsLinkRow("Language", systemImage: "globe", detail: "English · Not configurable yet").foregroundStyle(.secondary)
                 }
                 SettingsGlassSection("Functions") {
-                    AnchoredCurrencyDropdown(title: "Base Currency",
-                                             codes: CurrencySelection.commonWithStablecoins,
-                                             selection: store.state.settings.baseCurrency,
-                                             otherCurrencies: true,
-                                             showsStablecoinNames: false,
-                                             onSelect: { code in store.updateSettings { $0.baseCurrency = code } }) {
-                        SettingsLinkRow("Base Currency", systemImage: "coloncurrencysign.circle", detail: store.state.settings.baseCurrency.rawValue)
+                    LabeledContent("Base Currency") {
+                        PopupSelectionButton(title: "Base Currency",
+                                                 codes: CurrencySelection.common,
+                                                 selection: store.state.settings.baseCurrency,
+                                                 otherCurrencies: true,
+                                                 showsStablecoinNames: false,
+                                                 onSelect: { code in store.updateSettings { $0.baseCurrency = code } }) {
+                            HStack(spacing: 6) {
+                                Text(store.state.settings.baseCurrency.rawValue)
+                                Image(systemName: "chevron.down").font(.caption2)
+                            }
+                        }
                     }
                     Divider()
                     NavigationLink { ExchangeRateEditorView() } label: { SettingsLinkRow("Exchange Rates", systemImage: "arrow.left.arrow.right", detail: store.state.settings.automaticRates ? "Automatic" : "Manual") }
@@ -43,6 +48,9 @@ struct SettingsView: View {
                     NavigationLink { SwipeActionsEditorView() } label: { SettingsLinkRow("Swipe Actions", systemImage: "hand.draw", detail: nil) }
                     Divider()
                     Toggle(isOn: preferenceBinding(\.hapticFeedbackEnabled)) { Label("Haptic Feedback", systemImage: "waveform") }
+                }
+                SettingsGlassSection("Market Data") {
+                    NavigationLink { MarketDataSettingsView() } label: { SettingsLinkRow("Alpha Vantage API Key", systemImage: "key", detail: nil) }
                 }
                 SettingsGlassSection("Privacy") {
                     Toggle(isOn: biometricBinding) { Label("Face ID / Touch ID", systemImage: "faceid") }

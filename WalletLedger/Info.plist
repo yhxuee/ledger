@@ -17,7 +17,8 @@
     <key>NSPhotoLibraryUsageDescription</key><string>Choose a receipt image when a camera is unavailable.</string>
     <key>NSSupportsLiveActivities</key><true/>
     <key>CKSharingSupported</key><true/>
-    <key>UIBackgroundModes</key><array><string>remote-notification</string></array>
+    <key>UIBackgroundModes</key><array><string>remote-notification</string><string>fetch</string></array>
+    <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>org.medx.WalletLedger.market-refresh</string></array>
     <key>CFBundleURLTypes</key>
     <array><dict><key>CFBundleURLName</key><string>org.medx.WalletLedger.purchase</string><key>CFBundleURLSchemes</key><array><string>walletledger</string></array></dict></array>
     <key>LSRequiresIPhoneOS</key><true/>

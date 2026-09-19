@@ -3,7 +3,7 @@ import SwiftUI
 @main
 struct WalletLedgerApp: App {
     @UIApplicationDelegateAdaptor(CloudShareAppDelegate.self) private var appDelegate
-    @StateObject private var store = LedgerStore()
+    @StateObject private var store = LedgerStore.shared
     @StateObject private var preferences = AppPreferencesStore()
     @StateObject private var privacy = PrivacyController()
     @Environment(\.scenePhase) private var scenePhase
@@ -23,6 +23,8 @@ struct WalletLedgerApp: App {
                     await privacy.unlockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
                     _ = try? await store.refreshCurrencyCatalogIfNeeded()
                     _ = try? await store.refreshExchangeRatesIfNeeded()
+                    await StockQuoteRefreshService.shared.refreshIfDue(store: store)
+                    MarketRefreshBackground.schedule(store: store)
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
@@ -31,6 +33,8 @@ struct WalletLedgerApp: App {
                         Task {
                             await privacy.unlockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
                             _ = try? await store.refreshExchangeRatesIfNeeded()
+                            await StockQuoteRefreshService.shared.refreshIfDue(store: store)
+                            MarketRefreshBackground.schedule(store: store)
                         }
                     } else {
                         privacy.lockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)

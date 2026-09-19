@@ -4,6 +4,8 @@ import CloudKit
 
 @MainActor
 final class LedgerStore: ObservableObject {
+    static let shared = LedgerStore()
+    private var fxRefreshes: Set<UUID> = []
     @Published private(set) var state: LedgerState
     @Published private(set) var books: [LedgerBook]
     @Published private(set) var activeBookID: UUID
@@ -288,7 +290,21 @@ final class LedgerStore: ObservableObject {
         // Stocks settle in the market currency, so normalise before any balance arithmetic.
         if account.type == .stocks {
             let market = account.stockMetadata?.market ?? .US
-            account.stockMetadata = .init(market: market, symbol: market.normalize(account.stockMetadata?.symbol ?? ""))
+            if account.stockMetadata == nil { account.stockMetadata = .init(market: market, symbol: "") }
+            if let current = state.accounts.first(where: { $0.id == account.id })?.stockMetadata,
+               current.market == account.stockMetadata?.market,
+               current.symbol == account.stockMetadata?.symbol,
+               current.providerSymbol == account.stockMetadata?.providerSymbol,
+               let date = current.latestPriceAt,
+               date >= (account.stockMetadata?.latestPriceAt ?? .distantPast) {
+                account.stockMetadata?.latestPrice = current.latestPrice
+                account.stockMetadata?.latestPriceAt = date
+            }
+            guard let stock = account.stockMetadata, stock.costBasis.isFinite, stock.value.isFinite,
+                  stock.averageCost >= 0, stock.quantity >= 0 else {
+                presentedError = "Enter a valid cost price and quantity."
+                return
+            }
             account.currency = market.settlementCurrency
             account.isMultiCurrency = false
             account.currencyPockets = []
@@ -310,6 +326,10 @@ final class LedgerStore: ObservableObject {
             account.currencyPockets = pockets
             // The primary currency stays mirrored for readers that only understand `openingBalance`.
             if let primary = pockets.first(where: { $0.currency == account.currency }) { account.openingBalance = primary.openingBalance }
+        } else if account.type == .stocks {
+            // Holdings valuation is independent of cash postings and never creates a P/L transaction.
+            account.openingBalance = 0
+            account.currencyPockets = []
         } else {
             var zeroOpening = draft
             zeroOpening.openingBalance = 0
@@ -403,6 +423,8 @@ final class LedgerStore: ObservableObject {
         guard force || state.settings.automaticRates else { return nil }
         if !force, let updated = state.settings.exchangeRatesUpdatedAt, Calendar.current.isDateInToday(updated) { return nil }
         let requestedBookID = activeBookID
+        guard fxRefreshes.insert(requestedBookID).inserted else { return nil }
+        defer { fxRefreshes.remove(requestedBookID) }
         let result = try await FrankfurterRateService.shared.latest()
         guard requestedBookID == activeBookID else { return nil }
         updateSettings {
@@ -411,6 +433,46 @@ final class LedgerStore: ObservableObject {
             $0.exchangeRatesUpdatedAt = .now
         }
         return result.sourceDate
+    }
+
+    var allStockMetadata: [StockMetadata] {
+        librarySnapshot().books.flatMap { $0.state.accounts }
+            .filter { $0.deletedAt == nil && $0.type == .stocks }.compactMap(\.stockMetadata)
+    }
+
+    func applyStockQuotes(_ quotes: [String: AlphaVantageService.Quote]) {
+        commitActiveBook()
+        var changed = false
+        for bookIndex in books.indices {
+            for index in books[bookIndex].state.accounts.indices {
+                var account = books[bookIndex].state.accounts[index]
+                guard account.deletedAt == nil, account.type == .stocks, var stock = account.stockMetadata,
+                      let symbol = stock.providerSymbol ?? (stock.market == .US ? stock.symbol : nil),
+                      let quote = quotes["\(stock.market.rawValue):\(symbol)"],
+                      let date = stock.market.date(from: quote.tradingDay),
+                      date >= (stock.latestPriceAt ?? .distantPast),
+                      stock.latestPrice != quote.price || stock.latestPriceAt != date else { continue }
+                stock.latestPrice = quote.price
+                stock.latestPriceAt = date
+                account.stockMetadata = stock
+                account.updatedAt = .now
+                account.version += 1
+                account.syncStatus = .pending
+                books[bookIndex].state.accounts[index] = account
+                books[bookIndex].updatedAt = .now
+                changed = true
+            }
+        }
+        guard changed else { return }
+        if let active = books.first(where: { $0.id == activeBookID }) { state = active.state }
+        scheduleSave()
+    }
+
+    /// Background expiration must not strand changes in the normal debounced save task.
+    @discardableResult func flushMarketData() -> Bool {
+        guard persistenceEnabled else { return true }
+        do { try Self.writeLibrary(librarySnapshot()); return true }
+        catch { presentedError = "Local save failed: \(error.localizedDescription)"; return false }
     }
 
     @discardableResult

@@ -218,8 +218,8 @@ struct RecurringRuleEditorView: View {
                     if type == .transfer { Picker("To Account", selection: $destinationID) { ForEach(accounts.filter { $0.id != accountID }) { Text($0.name).tag(Optional($0.id)) } } }
                     LabeledContent("Amount") { SensitiveValueContent { TextField("0", value: $amount, format: .number.precision(.fractionLength(2))).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($amountFocused) } }
                     LabeledContent("Currency") {
-                        AnchoredCurrencyDropdown(title: "Currency",
-                                                 codes: CurrencySelection.commonWithStablecoins,
+                        PopupSelectionButton(title: "Currency",
+                                                 codes: CurrencySelection.common,
                                                  selection: currency,
                                                  otherCurrencies: true,
                                                  onSelect: { currency = $0 }) {
