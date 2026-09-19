@@ -9,26 +9,27 @@ struct AccountCardView: View {
     var portfolioTitle = "Net Worth"
     var portfolioAssets: Double?
     var portfolioLiabilities: Double?
+    var showAccountName: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 8 : (layout == .portrait ? 14 : 16)) {
             HStack(spacing: 8) {
-                Text(account?.account.logo ?? "ALL")
-                    .font(account == nil ? (layout == .portrait ? .headline.bold() : .caption.weight(.bold)) : .headline.bold())
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .padding(.horizontal, 10).padding(.vertical, 7)
-                    .background(.white.opacity(0.32), in: Capsule())
-                if layout == .portrait {
-                    Text(account?.account.name ?? portfolioTitle)
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                } else if let account {
-                    Text(account.account.name)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                AccountTagView(
+                    tag: account?.account.logo ?? "ALL",
+                    font: account == nil ? (layout == .portrait ? .headline.bold() : .caption.weight(.bold)) : .headline.bold()
+                )
+                if showAccountName {
+                    if layout == .portrait {
+                        Text(account?.account.name ?? portfolioTitle)
+                            .font(.subheadline.weight(.medium))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    } else if let account {
+                        Text(account.account.name)
+                            .font(.headline)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
                 Spacer(minLength: 0)
                 Image(systemName: account?.account.type.symbol ?? "wallet.bifold.fill")
@@ -65,7 +66,8 @@ struct AccountCardView: View {
         }
         .padding(compact ? 16 : (layout == .portrait ? 20 : 22))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .cardArtwork(data: account?.account.cardImageData, fallback: background, layout: layout)
+        .cardArtwork(data: account?.account.cardImageData, fallback: background, layout: layout,
+                     cardStyle: account?.account.cardStyle ?? .init(startHex: "F2C7D8", endHex: "B9D9F1"))
         .aspectRatio(layout == .portrait ? (53.98 / 85.60) : (85.60 / 53.98), contentMode: .fit)
         .accessibilityElement(children: .combine)
     }

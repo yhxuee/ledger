@@ -40,7 +40,7 @@ final class LedgerStore: ObservableObject {
             processDueRecurring()
             scheduleSave()
         } else {
-            let initial = Self.loadLegacyState() ?? SeedData.make()
+            let initial = Self.loadLegacyState() ?? SeedData.makeProductionEmpty()
             let book = LedgerBook(id: UUID(), name: "Ledger 1", state: initial, createdAt: .now, updatedAt: .now)
             books = [book]
             activeBookID = book.id
@@ -820,7 +820,7 @@ final class LedgerStore: ObservableObject {
         try Self.localRepository.resetLocalData()
         try PurchaseSharedStateStore.resetLocalSnapshots()
         Task { await PurchaseLiveActivityController.shared.endAll() }
-        let initial = SeedData.make()
+        let initial = SeedData.makeProductionEmpty()
         let book = LedgerBook(id: UUID(), name: "Ledger 1", state: initial, createdAt: .now, updatedAt: .now)
         books = [book]
         activeBookID = book.id

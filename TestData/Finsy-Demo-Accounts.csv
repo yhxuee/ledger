@@ -1,0 +1,7 @@
+name,tag,type,primary_currency,opening_balance,multi_currency,pockets
+HSBC Everyday,HSBC,checking,HKD,25000,true,HKD:25000|USD:1500|CNY:5000|EUR:600|JPY:40000
+Emergency Savings,SAVE,savings,HKD,30000,false,HKD:30000
+Apple Card,AC,credit,USD,-180,false,USD:-180
+Mainland Wallet,CNY,checking,CNY,6000,false,CNY:6000
+Cash,CASH,cash,HKD,3000,false,HKD:3000
+Investments,INV,investment,USD,5200,false,USD:5200

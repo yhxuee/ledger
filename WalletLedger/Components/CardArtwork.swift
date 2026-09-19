@@ -189,23 +189,69 @@ private struct CardInformationBounds: PreferenceKey {
     }
 }
 
+struct CardIsDarkKey: EnvironmentKey {
+    static let defaultValue: Bool = false
+}
+
+extension EnvironmentValues {
+    var cardIsDark: Bool {
+        get { self[CardIsDarkKey.self] }
+        set { self[CardIsDarkKey.self] = newValue }
+    }
+}
+
+extension CardStyle {
+    var isDark: Bool {
+        let lum1 = Self.hexLuminance(startHex)
+        let lum2 = Self.hexLuminance(endHex)
+        return (lum1 + lum2) / 2 < 0.5
+    }
+
+    private static func hexLuminance(_ hex: String) -> CGFloat {
+        let clean = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var value: UInt64 = 0
+        Scanner(string: clean).scanHexInt64(&value)
+        let r, g, b: UInt64
+        switch clean.count {
+        case 8: (r, g, b) = (value >> 24, value >> 16 & 0xff, value >> 8 & 0xff)
+        default: (r, g, b) = (value >> 16, value >> 8 & 0xff, value & 0xff)
+        }
+        let rf = CGFloat(r) / 255.0
+        let gf = CGFloat(g) / 255.0
+        let bf = CGFloat(b) / 255.0
+        return 0.2126 * rf + 0.7152 * gf + 0.0722 * bf
+    }
+}
+
 private struct CardArtworkModifier: ViewModifier {
     let artwork: CardArtwork?
     let fallback: LinearGradient
     let context: CardArtworkLayoutContext
+    var cardStyle: CardStyle? = nil
     @Environment(\.colorScheme) private var colorScheme
 
     private var isDark: Bool {
-        artwork?.isDark(for: colorScheme) ?? false
+        if let artwork {
+            return artwork.isDark(for: colorScheme)
+        }
+        return cardStyle?.isDark ?? false
     }
 
     private var foregroundStyles: (primary: Color, secondary: Color) {
-        artwork?.foregroundStyles(for: colorScheme) ?? (Color.black.opacity(0.84), Color.black.opacity(0.56))
+        if let artwork {
+            return artwork.foregroundStyles(for: colorScheme)
+        }
+        if isDark {
+            return (Color.white, Color.white.opacity(0.72))
+        } else {
+            return (Color.black.opacity(0.86), Color.black.opacity(0.56))
+        }
     }
 
     func body(content: Content) -> some View {
         let (primary, secondary) = foregroundStyles
         content
+            .environment(\.cardIsDark, isDark)
             .foregroundStyle(primary, secondary)
             .shadow(color: artwork != nil ? (isDark ? Color.black.opacity(0.30) : Color.white.opacity(0.40)) : .clear,
                     radius: 1.5, x: 0, y: 1)
@@ -293,6 +339,7 @@ private struct AsyncCardArtworkModifier: ViewModifier {
     let data: Data?
     let fallback: LinearGradient
     let context: CardArtworkLayoutContext
+    var cardStyle: CardStyle? = nil
     @State private var loaded: CardArtwork?
     @State private var loadedData: Data?
 
@@ -301,7 +348,8 @@ private struct AsyncCardArtworkModifier: ViewModifier {
             .modifier(CardArtworkModifier(
                 artwork: loadedData == data ? loaded : CardArtwork.cached(data),
                 fallback: fallback,
-                context: context))
+                context: context,
+                cardStyle: cardStyle))
             .task(id: data) {
                 let result = await CardArtwork.load(data)
                 guard !Task.isCancelled else { return }
@@ -316,11 +364,11 @@ extension View {
         anchorPreference(key: CardInformationBounds.self, value: .bounds) { [$0] }
     }
 
-    func cardArtwork(data: Data?, fallback: LinearGradient, layout: AccountCardLayout = .horizontal) -> some View {
-        modifier(AsyncCardArtworkModifier(data: data, fallback: fallback, context: layout))
+    func cardArtwork(data: Data?, fallback: LinearGradient, layout: AccountCardLayout = .horizontal, cardStyle: CardStyle? = nil) -> some View {
+        modifier(AsyncCardArtworkModifier(data: data, fallback: fallback, context: layout, cardStyle: cardStyle))
     }
 
-    func cardArtwork(data: Data?, fallback: LinearGradient, context: AccountCardLayout) -> some View {
-        modifier(AsyncCardArtworkModifier(data: data, fallback: fallback, context: context))
+    func cardArtwork(data: Data?, fallback: LinearGradient, context: AccountCardLayout, cardStyle: CardStyle? = nil) -> some View {
+        modifier(AsyncCardArtworkModifier(data: data, fallback: fallback, context: context, cardStyle: cardStyle))
     }
 }

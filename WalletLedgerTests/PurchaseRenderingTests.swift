@@ -7,7 +7,7 @@ import XCTest
 @MainActor
 final class PurchaseRenderingTests: XCTestCase {
     func testPurchaseAndPortfolioRenderOnPhoneAndIPadWithPrivacy() async throws {
-        let state = SeedData.makeEmpty()
+        let state = DemoDataFactory.makeWithSingleAccount()
         var session = PurchaseSession(id: UUID(), ledgerBookID: UUID(), name: "Weekly Shopping", status: .draft, sections: [], items: [
             .init(id: UUID(), categoryID: .food, note: "Milk", amount: 30, displayOrder: 0, isCompleted: false, completedAt: nil, linkedTransactionID: nil),
             .init(id: UUID(), categoryID: .food, note: "Bread", amount: 20, displayOrder: 1, isCompleted: false, completedAt: nil, linkedTransactionID: nil),

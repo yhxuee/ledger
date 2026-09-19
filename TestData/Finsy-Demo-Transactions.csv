@@ -1,0 +1,278 @@
+id,date,time,type,account,destination_account,category,note,currency,amount,account_currency,account_amount,destination_currency,destination_amount,tax_rate,tax_amount,tax_base_amount,tax_input_mode,is_tax_exempt
+demo-001,2026-09-20,09:22,expense,HSBC Everyday,,Transport,Airport rail,JPY,427.50,JPY,427.50,,,0.09,35.30,392.20,finalAmount,false
+demo-002,2026-09-20,08:15,expense,HSBC Everyday,,Food,Breakfast cafe,HKD,30.60,HKD,30.60,,,0.09,2.53,28.07,finalAmount,false
+demo-003,2026-09-19,19:14,expense,HSBC Everyday,,Food,Family dinner,HKD,294.62,HKD,294.62,,,0.09,24.33,270.29,finalAmount,false
+demo-004,2026-09-19,09:16,expense,HSBC Everyday,,Transport,Rail ticket,HKD,72.00,HKD,72.00,,,0.09,5.94,66.06,finalAmount,false
+demo-005,2026-09-18,15:17,expense,Apple Card,,Shopping,Amazon,USD,24.75,USD,24.75,,,0.09,2.04,22.71,finalAmount,false
+demo-006,2026-09-17,16:08,expense,HSBC Everyday,,Shopping,Household supplies,CNY,181.44,CNY,181.44,,,0.09,14.98,166.46,finalAmount,false
+demo-007,2026-09-17,10:18,expense,HSBC Everyday,,Utilities,Internet and mobile,HKD,216.00,HKD,216.00,,,0.09,17.83,198.17,finalAmount,false
+demo-008,2026-09-16,12:19,expense,Mainland Wallet,,Food,Dim sum,CNY,29.25,CNY,29.25,,,0.09,2.42,26.83,finalAmount,false
+demo-009,2026-09-15,18:20,expense,HSBC Everyday,,Other,Cinema,HKD,85.50,HKD,85.50,,,0.09,7.06,78.44,finalAmount,false
+demo-010,2026-09-15,09:02,expense,HSBC Everyday,,Transport,Airport rail,JPY,893.76,JPY,893.76,,,0.09,73.80,819.96,finalAmount,false
+demo-011,2026-09-14,19:21,expense,HSBC Everyday,,Food,Dinner with friends,USD,12.60,USD,12.60,,,0.09,1.04,11.56,finalAmount,false
+demo-012,2026-09-13,19:56,expense,HSBC Everyday,,Food,Weekend brunch,USD,27.96,USD,27.96,,,0.09,2.31,25.65,finalAmount,false
+demo-013,2026-09-11,18:50,expense,HSBC Everyday,,Other,Pharmacy,HKD,176.93,HKD,176.93,,,0.09,14.61,162.32,finalAmount,false
+demo-014,2026-09-09,12:44,expense,Mainland Wallet,,Food,Dim sum,CNY,64.27,CNY,64.27,,,0.09,5.31,58.96,finalAmount,false
+demo-015,2026-09-07,10:38,expense,HSBC Everyday,,Utilities,Home utilities,HKD,442.37,HKD,442.37,,,0.09,36.53,405.84,finalAmount,false
+demo-016,2026-09-05,15:32,expense,Apple Card,,Shopping,Books and stationery,USD,53.86,USD,53.86,,,0.09,4.45,49.41,finalAmount,false
+demo-017,2026-09-04,10:29,transfer,HSBC Everyday,Investments,Other,Investment contribution,HKD,2340.00,HKD,2340.00,USD,300.00,,,,,false
+demo-018,2026-09-03,09:26,expense,HSBC Everyday,,Transport,Rail ticket,HKD,145.92,HKD,145.92,,,0.09,12.05,133.87,finalAmount,false
+demo-019,2026-09-01,08:20,expense,HSBC Everyday,,Food,McDonald's,HKD,65.93,HKD,65.93,,,0.09,5.44,60.49,finalAmount,false
+demo-020,2026-08-28,18:34,transfer,HSBC Everyday,Apple Card,Other,Apple Card payment,HKD,893.18,HKD,893.18,USD,114.51,,,,,false
+demo-021,2026-08-28,17:34,expense,HSBC Everyday,,Other,Gym membership,HKD,337.19,HKD,337.19,,,0.09,27.84,309.35,finalAmount,false
+demo-022,2026-08-28,09:34,income,Emergency Savings,,Interest,Savings interest,HKD,33.00,HKD,33.00,,,0.15,5.82,38.82,finalAmount,false
+demo-023,2026-08-28,09:34,income,Investments,,Interest,USD cash interest,USD,4.00,USD,4.00,,,0.15,0.71,4.71,finalAmount,false
+demo-024,2026-08-27,15:31,expense,HSBC Everyday,,Shopping,Home electronics,HKD,852.81,HKD,852.81,,,0.09,70.42,782.39,finalAmount,false
+demo-025,2026-08-26,20:28,expense,Cash,,Transport,Minibus and taxi,HKD,109.12,HKD,109.12,,,0.09,9.01,100.11,finalAmount,false
+demo-026,2026-08-26,10:28,transfer,HSBC Everyday,Emergency Savings,Other,Monthly savings,HKD,8000.00,HKD,8000.00,HKD,8000.00,,,,,false
+demo-027,2026-08-25,10:25,income,HSBC Everyday,,Salary,Monthly salary,HKD,22500.00,HKD,22500.00,,,0.15,3970.59,26470.59,finalAmount,false
+demo-028,2026-08-24,12:22,expense,HSBC Everyday,,Food,Food court,MYR,65.40,HKD,109.22,,,0.09,5.40,60.00,finalAmount,false
+demo-029,2026-08-23,14:19,expense,HSBC Everyday,,Other,Exhibition,EUR,30.50,EUR,30.50,,,0.09,2.52,27.98,finalAmount,false
+demo-030,2026-08-21,10:13,expense,Apple Card,,Utilities,Annual app installment,USD,43.18,USD,43.18,,,0.09,3.57,39.61,finalAmount,false
+demo-031,2026-08-19,19:07,expense,HSBC Everyday,,Food,Deliveroo dinner,HKD,389.86,HKD,389.86,,,0.09,32.19,357.67,finalAmount,false
+demo-032,2026-08-18,15:04,expense,HSBC Everyday,,Shopping,Flight to visit family,HKD,2150.00,HKD,2150.00,,,0.09,177.52,1972.48,finalAmount,false
+demo-033,2026-08-17,16:01,expense,HSBC Everyday,,Shopping,Muji,CNY,240.52,CNY,240.52,,,0.09,19.86,220.66,finalAmount,false
+demo-034,2026-08-16,11:58,income,Investments,,Dividends,Index fund distribution,USD,35.00,USD,35.00,,,0.15,6.18,41.18,finalAmount,false
+demo-035,2026-08-15,09:55,expense,HSBC Everyday,,Transport,Metro ticket,JPY,1182.28,JPY,1182.28,,,0.09,97.62,1084.66,finalAmount,false
+demo-036,2026-08-13,19:49,expense,HSBC Everyday,,Food,Dinner with friends,USD,37.05,USD,37.05,,,0.09,3.06,33.99,finalAmount,false
+demo-037,2026-08-11,18:43,expense,HSBC Everyday,,Other,Haircut,HKD,233.97,HKD,233.97,,,0.09,19.32,214.65,finalAmount,false
+demo-038,2026-08-09,12:37,expense,Mainland Wallet,,Food,Noodle restaurant,CNY,85.15,CNY,85.15,,,0.09,7.03,78.12,finalAmount,false
+demo-039,2026-08-07,10:31,expense,HSBC Everyday,,Utilities,Internet and mobile,HKD,666.53,HKD,666.53,,,0.09,55.03,611.50,finalAmount,false
+demo-040,2026-08-05,15:25,expense,Apple Card,,Shopping,Uniqlo,USD,71.33,USD,71.33,,,0.09,5.89,65.44,finalAmount,false
+demo-041,2026-08-04,10:22,transfer,Emergency Savings,HSBC Everyday,Other,CNY travel pocket funding,HKD,1296.00,HKD,1296.00,CNY,1200.00,,,,,false
+demo-042,2026-08-03,09:19,expense,HSBC Everyday,,Transport,MTR journeys,HKD,220.08,HKD,220.08,,,0.09,18.17,201.91,finalAmount,false
+demo-043,2026-08-01,08:13,expense,HSBC Everyday,,Food,Breakfast cafe,HKD,87.30,HKD,87.30,,,0.09,7.21,80.09,finalAmount,false
+demo-044,2026-07-28,18:27,transfer,HSBC Everyday,Apple Card,Other,Apple Card payment,HKD,714.32,HKD,714.32,USD,91.58,,,,,false
+demo-045,2026-07-28,17:27,expense,HSBC Everyday,,Other,Dental check-up,HKD,269.57,HKD,269.57,,,0.09,22.26,247.31,finalAmount,false
+demo-046,2026-07-28,09:27,income,Emergency Savings,,Interest,Savings interest,HKD,30.00,HKD,30.00,,,0.15,5.29,35.29,finalAmount,false
+demo-047,2026-07-28,09:27,income,Investments,,Interest,USD cash interest,USD,3.00,USD,3.00,,,0.15,0.53,3.53,finalAmount,false
+demo-048,2026-07-27,15:24,expense,HSBC Everyday,,Shopping,Uniqlo,HKD,682.99,HKD,682.99,,,0.09,56.39,626.60,finalAmount,false
+demo-049,2026-07-26,20:21,expense,Cash,,Transport,Taxi,HKD,87.21,HKD,87.21,,,0.09,7.20,80.01,finalAmount,false
+demo-050,2026-07-26,10:21,transfer,HSBC Everyday,Emergency Savings,Other,Monthly savings,HKD,8000.00,HKD,8000.00,HKD,8000.00,,,,,false
+demo-051,2026-07-25,10:18,income,HSBC Everyday,,Salary,Monthly salary,HKD,22000.00,HKD,22000.00,,,0.15,3882.35,25882.35,finalAmount,false
+demo-052,2026-07-24,12:15,expense,HSBC Everyday,,Food,Penang lunch,MYR,52.36,HKD,87.44,,,0.09,4.32,48.04,finalAmount,false
+demo-053,2026-07-23,14:12,expense,HSBC Everyday,,Other,Museum tickets,EUR,24.36,EUR,24.36,,,0.09,2.01,22.35,finalAmount,false
+demo-054,2026-07-21,10:06,expense,Apple Card,,Utilities,Cloud storage and mobile,USD,34.56,USD,34.56,,,0.09,2.85,31.71,finalAmount,false
+demo-055,2026-07-19,19:00,expense,HSBC Everyday,,Food,ParknShop,HKD,354.89,HKD,354.89,,,0.09,29.30,325.59,finalAmount,false
+demo-056,2026-07-17,16:54,expense,HSBC Everyday,,Shopping,Taobao,CNY,192.46,CNY,192.46,,,0.09,15.89,176.57,finalAmount,false
+demo-057,2026-07-15,09:48,expense,HSBC Everyday,,Transport,JR ticket,JPY,1077.30,JPY,1077.30,,,0.09,88.95,988.35,finalAmount,false
+demo-058,2026-07-13,19:42,expense,HSBC Everyday,,Food,Restaurant,USD,29.64,USD,29.64,,,0.09,2.45,27.19,finalAmount,false
+demo-059,2026-07-12,14:39,income,Mainland Wallet,,Other Income,Travel reimbursement,CNY,300.00,CNY,300.00,,,0.15,52.94,352.94,finalAmount,false
+demo-060,2026-07-11,18:36,expense,HSBC Everyday,,Other,Cinema,HKD,213.41,HKD,213.41,,,0.09,17.62,195.79,finalAmount,false
+demo-061,2026-07-09,12:30,expense,Mainland Wallet,,Food,Shenzhen lunch,CNY,68.09,CNY,68.09,,,0.09,5.62,62.47,finalAmount,false
+demo-062,2026-07-07,10:24,expense,HSBC Everyday,,Utilities,Electricity bill,HKD,533.95,HKD,533.95,,,0.09,44.09,489.86,finalAmount,false
+demo-063,2026-07-05,15:18,expense,Apple Card,,Shopping,Amazon,USD,57.02,USD,57.02,,,0.09,4.71,52.31,finalAmount,false
+demo-064,2026-07-04,10:15,transfer,Emergency Savings,HSBC Everyday,Other,JPY travel pocket funding,HKD,1040.00,HKD,1040.00,JPY,20000.00,,,,,false
+demo-065,2026-07-03,09:12,expense,HSBC Everyday,,Transport,Octopus top-up,HKD,176.26,HKD,176.26,,,0.09,14.55,161.71,finalAmount,false
+demo-066,2026-07-01,08:06,expense,HSBC Everyday,,Food,Cafe de Coral,HKD,69.77,HKD,69.77,,,0.09,5.76,64.01,finalAmount,false
+demo-067,2026-06-28,18:20,transfer,HSBC Everyday,Apple Card,Other,Apple Card payment,HKD,592.33,HKD,592.33,USD,75.94,,,,,false
+demo-068,2026-06-28,17:20,expense,HSBC Everyday,,Other,Travel insurance,HKD,234.26,HKD,234.26,,,0.09,19.34,214.92,finalAmount,false
+demo-069,2026-06-28,09:20,income,Emergency Savings,,Interest,Savings interest,HKD,27.00,HKD,27.00,,,0.15,4.76,31.76,finalAmount,false
+demo-070,2026-06-28,09:20,income,Investments,,Interest,USD cash interest,USD,2.00,USD,2.00,,,0.15,0.35,2.35,finalAmount,false
+demo-071,2026-06-27,15:17,expense,HSBC Everyday,,Shopping,Department store,HKD,521.73,HKD,521.73,,,0.09,43.08,478.65,finalAmount,false
+demo-072,2026-06-26,20:14,expense,Cash,,Transport,Evening transport,HKD,75.86,HKD,75.86,,,0.09,6.26,69.60,finalAmount,false
+demo-073,2026-06-26,10:14,transfer,HSBC Everyday,Emergency Savings,Other,Monthly savings,HKD,8000.00,HKD,8000.00,HKD,8000.00,,,,,false
+demo-074,2026-06-25,10:11,income,HSBC Everyday,,Salary,Monthly salary,HKD,23000.00,HKD,23000.00,,,0.15,4058.82,27058.82,finalAmount,false
+demo-075,2026-06-24,12:08,expense,HSBC Everyday,,Food,Cafe lunch,MYR,39.98,HKD,66.77,,,0.09,3.30,36.68,finalAmount,false
+demo-076,2026-06-23,14:05,expense,HSBC Everyday,,Other,Travel service,EUR,21.22,EUR,21.22,,,0.09,1.75,19.47,finalAmount,false
+demo-077,2026-06-21,10:59,expense,Apple Card,,Utilities,Subscriptions,USD,26.38,USD,26.38,,,0.09,2.18,24.20,finalAmount,false
+demo-078,2026-06-20,11:56,income,HSBC Everyday,,Bonus,Project bonus,HKD,6000.00,HKD,6000.00,,,0.15,1058.82,7058.82,finalAmount,false
+demo-079,2026-06-19,19:53,expense,HSBC Everyday,,Food,Family dinner,HKD,271.41,HKD,271.41,,,0.09,22.41,249.00,finalAmount,false
+demo-080,2026-06-17,16:47,expense,HSBC Everyday,,Shopping,Household supplies,CNY,146.88,CNY,146.88,,,0.09,12.13,134.75,finalAmount,false
+demo-081,2026-06-16,11:44,income,Investments,,Dividends,Index fund distribution,USD,71.00,USD,71.00,,,0.15,12.53,83.53,finalAmount,false
+demo-082,2026-06-15,09:41,expense,HSBC Everyday,,Transport,Airport rail,JPY,823.65,JPY,823.65,,,0.09,68.01,755.64,finalAmount,false
+demo-083,2026-06-13,19:35,expense,HSBC Everyday,,Food,Weekend brunch,USD,22.61,USD,22.61,,,0.09,1.87,20.74,finalAmount,false
+demo-084,2026-06-11,18:29,expense,HSBC Everyday,,Other,Pharmacy,HKD,163.12,HKD,163.12,,,0.09,13.47,149.65,finalAmount,false
+demo-085,2026-06-09,12:23,expense,Mainland Wallet,,Food,Dim sum,CNY,51.94,CNY,51.94,,,0.09,4.29,47.65,finalAmount,false
+demo-086,2026-06-07,10:17,expense,HSBC Everyday,,Utilities,Home utilities,HKD,408.00,HKD,408.00,,,0.09,33.69,374.31,finalAmount,false
+demo-087,2026-06-05,15:11,expense,Apple Card,,Shopping,Books and stationery,USD,49.56,USD,49.56,,,0.09,4.09,45.47,finalAmount,false
+demo-088,2026-06-04,10:08,transfer,HSBC Everyday,Investments,Other,Investment contribution,HKD,2340.00,HKD,2340.00,USD,300.00,,,,,false
+demo-089,2026-06-03,09:05,expense,HSBC Everyday,,Transport,Rail ticket,HKD,134.64,HKD,134.64,,,0.09,11.12,123.52,finalAmount,false
+demo-090,2026-06-01,08:59,expense,HSBC Everyday,,Food,McDonald's,HKD,60.69,HKD,60.69,,,0.09,5.01,55.68,finalAmount,false
+demo-091,2026-05-28,18:13,transfer,HSBC Everyday,Apple Card,Other,Apple Card payment,HKD,825.32,HKD,825.32,USD,105.81,,,,,false
+demo-092,2026-05-28,17:13,expense,HSBC Everyday,,Other,Gym membership,HKD,326.72,HKD,326.72,,,0.09,26.98,299.74,finalAmount,false
+demo-093,2026-05-28,09:13,income,Emergency Savings,,Interest,Savings interest,HKD,24.00,HKD,24.00,,,0.15,4.24,28.24,finalAmount,false
+demo-094,2026-05-28,09:13,income,Investments,,Interest,USD cash interest,USD,5.00,USD,5.00,,,0.15,0.88,5.88,finalAmount,false
+demo-095,2026-05-27,15:10,expense,HSBC Everyday,,Shopping,Home electronics,HKD,726.14,HKD,726.14,,,0.09,59.96,666.18,finalAmount,false
+demo-096,2026-05-26,20:07,expense,Cash,,Transport,Minibus and taxi,HKD,105.77,HKD,105.77,,,0.09,8.73,97.04,finalAmount,false
+demo-097,2026-05-26,10:07,transfer,HSBC Everyday,Emergency Savings,Other,Monthly savings,HKD,8000.00,HKD,8000.00,HKD,8000.00,,,,,false
+demo-098,2026-05-25,10:04,income,HSBC Everyday,,Salary,Monthly salary,HKD,22500.00,HKD,22500.00,,,0.15,3970.59,26470.59,finalAmount,false
+demo-099,2026-05-24,12:01,expense,HSBC Everyday,,Food,Food court,MYR,55.63,HKD,92.90,,,0.09,4.59,51.04,finalAmount,false
+demo-100,2026-05-23,14:58,expense,HSBC Everyday,,Other,Exhibition,EUR,29.57,EUR,29.57,,,0.09,2.44,27.13,finalAmount,false
+demo-101,2026-05-21,10:52,expense,Apple Card,,Utilities,Annual app installment,USD,36.70,USD,36.70,,,0.09,3.03,33.67,finalAmount,false
+demo-102,2026-05-19,19:46,expense,HSBC Everyday,,Food,Deliveroo dinner,HKD,378.20,HKD,378.20,,,0.09,31.23,346.97,finalAmount,false
+demo-103,2026-05-18,15:43,expense,HSBC Everyday,,Shopping,Laptop accessories,HKD,2400.00,HKD,2400.00,,,0.09,198.17,2201.83,finalAmount,false
+demo-104,2026-05-17,16:40,expense,HSBC Everyday,,Shopping,Muji,CNY,232.78,CNY,232.78,,,0.09,19.22,213.56,finalAmount,false
+demo-105,2026-05-15,09:34,expense,HSBC Everyday,,Transport,Metro ticket,JPY,1147.41,JPY,1147.41,,,0.09,94.74,1052.67,finalAmount,false
+demo-106,2026-05-13,19:28,expense,HSBC Everyday,,Food,Dinner with friends,USD,35.87,USD,35.87,,,0.09,2.96,32.91,finalAmount,false
+demo-107,2026-05-11,18:22,expense,HSBC Everyday,,Other,Haircut,HKD,227.16,HKD,227.16,,,0.09,18.76,208.40,finalAmount,false
+demo-108,2026-05-09,12:16,expense,Mainland Wallet,,Food,Noodle restaurant,CNY,82.47,CNY,82.47,,,0.09,6.81,75.66,finalAmount,false
+demo-109,2026-05-07,10:10,expense,HSBC Everyday,,Utilities,Internet and mobile,HKD,568.03,HKD,568.03,,,0.09,46.90,521.13,finalAmount,false
+demo-110,2026-05-05,15:04,expense,Apple Card,,Shopping,Uniqlo,USD,69.11,USD,69.11,,,0.09,5.71,63.40,finalAmount,false
+demo-111,2026-05-04,10:01,transfer,HSBC Everyday,Cash,Other,Cash withdrawal,HKD,600.00,HKD,600.00,HKD,600.00,,,,,false
+demo-112,2026-05-03,09:58,expense,HSBC Everyday,,Transport,MTR journeys,HKD,187.39,HKD,187.39,,,0.09,15.47,171.92,finalAmount,false
+demo-113,2026-05-01,08:52,expense,HSBC Everyday,,Food,Breakfast cafe,HKD,84.62,HKD,84.62,,,0.09,6.99,77.63,finalAmount,false
+demo-114,2026-04-28,18:06,transfer,HSBC Everyday,Apple Card,Other,Apple Card payment,HKD,729.92,HKD,729.92,USD,93.58,,,,,false
+demo-115,2026-04-28,17:06,expense,HSBC Everyday,,Other,Dental check-up,HKD,275.60,HKD,275.60,,,0.09,22.76,252.84,finalAmount,false
+demo-116,2026-04-28,09:06,income,Emergency Savings,,Interest,Savings interest,HKD,42.00,HKD,42.00,,,0.15,7.41,49.41,finalAmount,false
+demo-117,2026-04-28,09:06,income,Investments,,Interest,USD cash interest,USD,4.00,USD,4.00,,,0.15,0.71,4.71,finalAmount,false
+demo-118,2026-04-27,15:03,expense,HSBC Everyday,,Shopping,Uniqlo,HKD,696.63,HKD,696.63,,,0.09,57.52,639.11,finalAmount,false
+demo-119,2026-04-26,20:00,expense,Cash,,Transport,Taxi,HKD,89.20,HKD,89.20,,,0.09,7.37,81.83,finalAmount,false
+demo-120,2026-04-26,10:00,transfer,HSBC Everyday,Emergency Savings,Other,Monthly savings,HKD,8000.00,HKD,8000.00,HKD,8000.00,,,,,false
+demo-121,2026-04-25,10:57,income,HSBC Everyday,,Salary,Monthly salary,HKD,22000.00,HKD,22000.00,,,0.15,3882.35,25882.35,finalAmount,false
+demo-122,2026-04-24,12:54,expense,HSBC Everyday,,Food,Penang lunch,MYR,53.42,HKD,89.21,,,0.09,4.41,49.01,finalAmount,false
+demo-123,2026-04-23,14:51,expense,HSBC Everyday,,Other,Museum tickets,EUR,24.93,EUR,24.93,,,0.09,2.06,22.87,finalAmount,false
+demo-124,2026-04-21,10:45,expense,Apple Card,,Utilities,Cloud storage and mobile,USD,35.28,USD,35.28,,,0.09,2.91,32.37,finalAmount,false
+demo-125,2026-04-19,19:39,expense,HSBC Everyday,,Food,ParknShop,HKD,318.74,HKD,318.74,,,0.09,26.32,292.42,finalAmount,false
+demo-126,2026-04-17,16:33,expense,HSBC Everyday,,Shopping,Taobao,CNY,196.52,CNY,196.52,,,0.09,16.23,180.29,finalAmount,false
+demo-127,2026-04-16,11:30,income,Investments,,Dividends,Index fund distribution,USD,47.00,USD,47.00,,,0.15,8.29,55.29,finalAmount,false
+demo-128,2026-04-15,09:27,expense,HSBC Everyday,,Transport,JR ticket,JPY,966.72,JPY,966.72,,,0.09,79.82,886.90,finalAmount,false
+demo-129,2026-04-13,19:21,expense,HSBC Everyday,,Food,Restaurant,USD,30.27,USD,30.27,,,0.09,2.50,27.77,finalAmount,false
+demo-130,2026-04-12,14:18,income,Mainland Wallet,,Other Income,Cashback credit,CNY,300.00,CNY,300.00,,,0.15,52.94,352.94,finalAmount,false
+demo-131,2026-04-11,18:15,expense,HSBC Everyday,,Other,Cinema,HKD,191.33,HKD,191.33,,,0.09,15.80,175.53,finalAmount,false
+demo-132,2026-04-09,12:09,expense,Mainland Wallet,,Food,Shenzhen lunch,CNY,69.59,CNY,69.59,,,0.09,5.75,63.84,finalAmount,false
+demo-133,2026-04-07,10:03,expense,HSBC Everyday,,Utilities,Electricity bill,HKD,478.27,HKD,478.27,,,0.09,39.49,438.78,finalAmount,false
+demo-134,2026-04-05,15:57,expense,Apple Card,,Shopping,Amazon,USD,58.30,USD,58.30,,,0.09,4.81,53.49,finalAmount,false
+demo-135,2026-04-04,10:54,transfer,Emergency Savings,HSBC Everyday,Other,USD travel pocket funding,HKD,7020.00,HKD,7020.00,USD,900.00,,,,,false
+demo-136,2026-04-03,09:51,expense,HSBC Everyday,,Transport,Octopus top-up,HKD,179.78,HKD,179.78,,,0.09,14.84,164.94,finalAmount,false
+demo-137,2026-04-01,08:45,expense,HSBC Everyday,,Food,Cafe de Coral,HKD,71.36,HKD,71.36,,,0.09,5.89,65.47,finalAmount,false
+demo-138,2026-03-28,18:59,transfer,HSBC Everyday,Apple Card,Other,Apple Card payment,HKD,608.09,HKD,608.09,USD,77.96,,,,,false
+demo-139,2026-03-28,17:59,expense,HSBC Everyday,,Other,Travel insurance,HKD,229.50,HKD,229.50,,,0.09,18.95,210.55,finalAmount,false
+demo-140,2026-03-28,09:59,income,Emergency Savings,,Interest,Savings interest,HKD,39.00,HKD,39.00,,,0.15,6.88,45.88,finalAmount,false
+demo-141,2026-03-28,09:59,income,Investments,,Interest,USD cash interest,USD,3.00,USD,3.00,,,0.15,0.53,3.53,finalAmount,false
+demo-142,2026-03-27,15:56,expense,HSBC Everyday,,Shopping,Department store,HKD,581.13,HKD,581.13,,,0.09,47.98,533.15,finalAmount,false
+demo-143,2026-03-26,20:53,expense,Cash,,Transport,Evening transport,HKD,74.26,HKD,74.26,,,0.09,6.13,68.13,finalAmount,false
+demo-144,2026-03-26,10:53,transfer,HSBC Everyday,Emergency Savings,Other,Monthly savings,HKD,8000.00,HKD,8000.00,HKD,8000.00,,,,,false
+demo-145,2026-03-25,10:50,income,HSBC Everyday,,Salary,Monthly salary,HKD,23000.00,HKD,23000.00,,,0.15,4058.82,27058.82,finalAmount,false
+demo-146,2026-03-24,12:47,expense,HSBC Everyday,,Food,Cafe lunch,MYR,44.55,HKD,74.40,,,0.09,3.68,40.87,finalAmount,false
+demo-147,2026-03-23,14:44,expense,HSBC Everyday,,Other,Travel service,EUR,20.75,EUR,20.75,,,0.09,1.71,19.04,finalAmount,false
+demo-148,2026-03-21,10:38,expense,Apple Card,,Utilities,Subscriptions,USD,29.41,USD,29.41,,,0.09,2.43,26.98,finalAmount,false
+demo-149,2026-03-19,19:32,expense,HSBC Everyday,,Food,Family dinner,HKD,265.17,HKD,265.17,,,0.09,21.89,243.28,finalAmount,false
+demo-150,2026-03-17,16:26,expense,HSBC Everyday,,Shopping,Household supplies,CNY,163.80,CNY,163.80,,,0.09,13.52,150.28,finalAmount,false
+demo-151,2026-03-15,09:20,expense,HSBC Everyday,,Transport,Airport rail,JPY,916.37,JPY,916.37,,,0.09,75.66,840.71,finalAmount,false
+demo-152,2026-03-13,19:14,expense,HSBC Everyday,,Food,Weekend brunch,USD,25.23,USD,25.23,,,0.09,2.08,23.15,finalAmount,false
+demo-153,2026-03-11,18:08,expense,HSBC Everyday,,Other,Pharmacy,HKD,181.55,HKD,181.55,,,0.09,14.99,166.56,finalAmount,false
+demo-154,2026-03-09,12:02,expense,Mainland Wallet,,Food,Dim sum,CNY,57.97,CNY,57.97,,,0.09,4.79,53.18,finalAmount,false
+demo-155,2026-03-07,10:56,expense,HSBC Everyday,,Utilities,Home utilities,HKD,454.27,HKD,454.27,,,0.09,37.51,416.76,finalAmount,false
+demo-156,2026-03-05,15:50,expense,Apple Card,,Shopping,Books and stationery,USD,48.55,USD,48.55,,,0.09,4.01,44.54,finalAmount,false
+demo-157,2026-03-04,10:47,transfer,HSBC Everyday,Investments,Other,Investment contribution,HKD,2340.00,HKD,2340.00,USD,300.00,,,,,false
+demo-158,2026-03-03,09:44,expense,HSBC Everyday,,Transport,Rail ticket,HKD,149.97,HKD,149.97,,,0.09,12.38,137.59,finalAmount,false
+demo-159,2026-03-01,08:38,expense,HSBC Everyday,,Food,McDonald's,HKD,59.40,HKD,59.40,,,0.09,4.90,54.50,finalAmount,false
+demo-160,2026-02-28,18:52,transfer,HSBC Everyday,Apple Card,Other,Apple Card payment,HKD,822.82,HKD,822.82,USD,105.49,,,,,false
+demo-161,2026-02-28,17:52,expense,HSBC Everyday,,Other,Gym membership,HKD,310.39,HKD,310.39,,,0.09,25.63,284.76,finalAmount,false
+demo-162,2026-02-28,09:52,income,Emergency Savings,,Interest,Savings interest,HKD,36.00,HKD,36.00,,,0.15,6.35,42.35,finalAmount,false
+demo-163,2026-02-28,09:52,income,Investments,,Interest,USD cash interest,USD,2.00,USD,2.00,,,0.15,0.35,2.35,finalAmount,false
+demo-164,2026-02-27,15:49,expense,HSBC Everyday,,Shopping,Home electronics,HKD,787.40,HKD,787.40,,,0.09,65.01,722.39,finalAmount,false
+demo-165,2026-02-26,20:46,expense,Cash,,Transport,Minibus and taxi,HKD,114.43,HKD,114.43,,,0.09,9.45,104.98,finalAmount,false
+demo-166,2026-02-26,10:46,transfer,HSBC Everyday,Emergency Savings,Other,Monthly savings,HKD,8000.00,HKD,8000.00,HKD,8000.00,,,,,false
+demo-167,2026-02-25,10:43,income,HSBC Everyday,,Salary,Monthly salary,HKD,22500.00,HKD,22500.00,,,0.15,3970.59,26470.59,finalAmount,false
+demo-168,2026-02-24,12:40,expense,HSBC Everyday,,Food,Food court,MYR,60.35,HKD,100.78,,,0.09,4.98,55.37,finalAmount,false
+demo-169,2026-02-23,14:37,expense,HSBC Everyday,,Other,Exhibition,EUR,32.00,EUR,32.00,,,0.09,2.64,29.36,finalAmount,false
+demo-170,2026-02-21,10:31,expense,Apple Card,,Utilities,Annual app installment,USD,39.83,USD,39.83,,,0.09,3.29,36.54,finalAmount,false
+demo-171,2026-02-19,19:25,expense,HSBC Everyday,,Food,Deliveroo dinner,HKD,409.45,HKD,409.45,,,0.09,33.81,375.64,finalAmount,false
+demo-172,2026-02-18,15:22,expense,HSBC Everyday,,Shopping,Hotel weekend,HKD,1650.00,HKD,1650.00,,,0.09,136.24,1513.76,finalAmount,false
+demo-173,2026-02-17,16:19,expense,HSBC Everyday,,Shopping,Muji,CNY,221.74,CNY,221.74,,,0.09,18.31,203.43,finalAmount,false
+demo-174,2026-02-16,11:16,income,Investments,,Dividends,Index fund distribution,USD,83.00,USD,83.00,,,0.15,14.65,97.65,finalAmount,false
+demo-175,2026-02-15,09:13,expense,HSBC Everyday,,Transport,Metro ticket,JPY,1242.70,JPY,1242.70,,,0.09,102.61,1140.09,finalAmount,false
+demo-176,2026-02-13,19:07,expense,HSBC Everyday,,Food,Dinner with friends,USD,34.14,USD,34.14,,,0.09,2.82,31.32,finalAmount,false
+demo-177,2026-02-11,18:01,expense,HSBC Everyday,,Other,Haircut,HKD,246.13,HKD,246.13,,,0.09,20.32,225.81,finalAmount,false
+demo-178,2026-02-09,12:55,expense,Mainland Wallet,,Food,Noodle restaurant,CNY,78.42,CNY,78.42,,,0.09,6.48,71.94,finalAmount,false
+demo-179,2026-02-07,10:49,expense,HSBC Everyday,,Utilities,Internet and mobile,HKD,615.70,HKD,615.70,,,0.09,50.84,564.86,finalAmount,false
+demo-180,2026-02-05,15:43,expense,Apple Card,,Shopping,Uniqlo,USD,65.66,USD,65.66,,,0.09,5.42,60.24,finalAmount,false
+demo-181,2026-02-04,10:40,transfer,Emergency Savings,HSBC Everyday,Other,EUR travel pocket funding,HKD,3688.00,HKD,3688.00,EUR,400.00,,,,,false
+demo-182,2026-02-03,09:37,expense,HSBC Everyday,,Transport,MTR journeys,HKD,203.20,HKD,203.20,,,0.09,16.78,186.42,finalAmount,false
+demo-183,2026-02-01,08:31,expense,HSBC Everyday,,Food,Breakfast cafe,HKD,91.54,HKD,91.54,,,0.09,7.56,83.98,finalAmount,false
+demo-184,2026-01-28,18:45,transfer,HSBC Everyday,Apple Card,Other,Apple Card payment,HKD,703.79,HKD,703.79,USD,90.23,,,,,false
+demo-185,2026-01-28,17:45,expense,HSBC Everyday,,Other,Dental check-up,HKD,278.51,HKD,278.51,,,0.09,23.00,255.51,finalAmount,false
+demo-186,2026-01-28,09:45,income,Emergency Savings,,Interest,Savings interest,HKD,33.00,HKD,33.00,,,0.15,5.82,38.82,finalAmount,false
+demo-187,2026-01-28,09:45,income,Investments,,Interest,USD cash interest,USD,5.00,USD,5.00,,,0.15,0.88,5.88,finalAmount,false
+demo-188,2026-01-27,15:42,expense,HSBC Everyday,,Shopping,Uniqlo,HKD,619.44,HKD,619.44,,,0.09,51.15,568.29,finalAmount,false
+demo-189,2026-01-26,20:39,expense,Cash,,Transport,Taxi,HKD,90.18,HKD,90.18,,,0.09,7.45,82.73,finalAmount,false
+demo-190,2026-01-26,10:39,transfer,HSBC Everyday,Emergency Savings,Other,Monthly savings,HKD,8000.00,HKD,8000.00,HKD,8000.00,,,,,false
+demo-191,2026-01-25,10:36,income,HSBC Everyday,,Salary,Monthly salary,HKD,22000.00,HKD,22000.00,,,0.15,3882.35,25882.35,finalAmount,false
+demo-192,2026-01-24,12:33,expense,HSBC Everyday,,Food,Penang lunch,MYR,47.46,HKD,79.26,,,0.09,3.92,43.54,finalAmount,false
+demo-193,2026-01-23,14:30,expense,HSBC Everyday,,Other,Museum tickets,EUR,25.21,EUR,25.21,,,0.09,2.08,23.13,finalAmount,false
+demo-194,2026-01-21,10:24,expense,Apple Card,,Utilities,Cloud storage and mobile,USD,31.31,USD,31.31,,,0.09,2.59,28.72,finalAmount,false
+demo-195,2026-01-19,19:18,expense,HSBC Everyday,,Food,ParknShop,HKD,322.49,HKD,322.49,,,0.09,26.63,295.86,finalAmount,false
+demo-196,2026-01-17,16:12,expense,HSBC Everyday,,Shopping,Taobao,CNY,174.28,CNY,174.28,,,0.09,14.39,159.89,finalAmount,false
+demo-197,2026-01-15,09:06,expense,HSBC Everyday,,Transport,JR ticket,JPY,978.50,JPY,978.50,,,0.09,80.79,897.71,finalAmount,false
+demo-198,2026-01-13,19:00,expense,HSBC Everyday,,Food,Restaurant,USD,30.57,USD,30.57,,,0.09,2.52,28.05,finalAmount,false
+demo-199,2026-01-12,14:57,income,Mainland Wallet,,Other Income,Sold used books,CNY,300.00,CNY,300.00,,,0.15,52.94,352.94,finalAmount,false
+demo-200,2026-01-11,18:54,expense,HSBC Everyday,,Other,Cinema,HKD,193.74,HKD,193.74,,,0.09,16.00,177.74,finalAmount,false
+demo-201,2026-01-09,12:48,expense,Mainland Wallet,,Food,Shenzhen lunch,CNY,70.30,CNY,70.30,,,0.09,5.80,64.50,finalAmount,false
+demo-202,2026-01-07,10:42,expense,HSBC Everyday,,Utilities,Electricity bill,HKD,484.51,HKD,484.51,,,0.09,40.01,444.50,finalAmount,false
+demo-203,2026-01-05,15:36,expense,Apple Card,,Shopping,Amazon,USD,58.92,USD,58.92,,,0.09,4.86,54.06,finalAmount,false
+demo-204,2026-01-04,10:33,transfer,Emergency Savings,HSBC Everyday,Other,CNY travel pocket funding,HKD,1296.00,HKD,1296.00,CNY,1200.00,,,,,false
+demo-205,2026-01-03,09:30,expense,HSBC Everyday,,Transport,Octopus top-up,HKD,159.86,HKD,159.86,,,0.09,13.20,146.66,finalAmount,false
+demo-206,2026-01-01,08:24,expense,HSBC Everyday,,Food,Cafe de Coral,HKD,72.14,HKD,72.14,,,0.09,5.96,66.18,finalAmount,false
+demo-207,2025-12-28,18:38,transfer,HSBC Everyday,Apple Card,Other,Apple Card payment,HKD,611.91,HKD,611.91,USD,78.45,,,,,false
+demo-208,2025-12-28,17:38,expense,HSBC Everyday,,Other,Travel insurance,HKD,231.09,HKD,231.09,,,0.09,19.08,212.01,finalAmount,false
+demo-209,2025-12-28,09:38,income,Emergency Savings,,Interest,Savings interest,HKD,30.00,HKD,30.00,,,0.15,5.29,35.29,finalAmount,false
+demo-210,2025-12-28,09:38,income,Investments,,Interest,USD cash interest,USD,4.00,USD,4.00,,,0.15,0.71,4.71,finalAmount,false
+demo-211,2025-12-27,15:35,expense,HSBC Everyday,,Shopping,Department store,HKD,512.86,HKD,512.86,,,0.09,42.35,470.51,finalAmount,false
+demo-212,2025-12-26,20:32,expense,Cash,,Transport,Evening transport,HKD,74.80,HKD,74.80,,,0.09,6.18,68.62,finalAmount,false
+demo-213,2025-12-26,10:32,transfer,HSBC Everyday,Emergency Savings,Other,Monthly savings,HKD,8000.00,HKD,8000.00,HKD,8000.00,,,,,false
+demo-214,2025-12-25,10:29,income,HSBC Everyday,,Salary,Monthly salary,HKD,23000.00,HKD,23000.00,,,0.15,4058.82,27058.82,finalAmount,false
+demo-215,2025-12-24,12:26,expense,HSBC Everyday,,Food,Cafe lunch,MYR,44.77,HKD,74.77,,,0.09,3.70,41.07,finalAmount,false
+demo-216,2025-12-23,14:23,expense,HSBC Everyday,,Other,Travel service,EUR,20.91,EUR,20.91,,,0.09,1.73,19.18,finalAmount,false
+demo-217,2025-12-21,10:17,expense,Apple Card,,Utilities,Subscriptions,USD,29.57,USD,29.57,,,0.09,2.44,27.13,finalAmount,false
+demo-218,2025-12-20,11:14,income,HSBC Everyday,,Bonus,Year-end bonus,HKD,12000.00,HKD,12000.00,,,0.15,2117.65,14117.65,finalAmount,false
+demo-219,2025-12-19,19:11,expense,HSBC Everyday,,Food,Family dinner,HKD,267.34,HKD,267.34,,,0.09,22.07,245.27,finalAmount,false
+demo-220,2025-12-17,16:05,expense,HSBC Everyday,,Shopping,Household supplies,CNY,164.74,CNY,164.74,,,0.09,13.60,151.14,finalAmount,false
+demo-221,2025-12-16,11:02,income,Investments,,Dividends,Index fund distribution,USD,59.00,USD,59.00,,,0.15,10.41,69.41,finalAmount,false
+demo-222,2025-12-15,09:59,expense,HSBC Everyday,,Transport,Airport rail,JPY,810.92,JPY,810.92,,,0.09,66.96,743.96,finalAmount,false
+demo-223,2025-12-13,19:53,expense,HSBC Everyday,,Food,Weekend brunch,USD,25.38,USD,25.38,,,0.09,2.10,23.28,finalAmount,false
+demo-224,2025-12-11,18:47,expense,HSBC Everyday,,Other,Pharmacy,HKD,160.51,HKD,160.51,,,0.09,13.25,147.26,finalAmount,false
+demo-225,2025-12-09,12:41,expense,Mainland Wallet,,Food,Dim sum,CNY,58.34,CNY,58.34,,,0.09,4.82,53.52,finalAmount,false
+demo-226,2025-12-07,10:35,expense,HSBC Everyday,,Utilities,Home utilities,HKD,401.28,HKD,401.28,,,0.09,33.13,368.15,finalAmount,false
+demo-227,2025-12-05,15:29,expense,Apple Card,,Shopping,Books and stationery,USD,48.88,USD,48.88,,,0.09,4.04,44.84,finalAmount,false
+demo-228,2025-12-04,10:26,transfer,HSBC Everyday,Investments,Other,Investment contribution,HKD,2340.00,HKD,2340.00,USD,300.00,,,,,false
+demo-229,2025-12-03,09:23,expense,HSBC Everyday,,Transport,Rail ticket,HKD,132.35,HKD,132.35,,,0.09,10.93,121.42,finalAmount,false
+demo-230,2025-12-01,08:17,expense,HSBC Everyday,,Food,McDonald's,HKD,59.84,HKD,59.84,,,0.09,4.94,54.90,finalAmount,false
+demo-231,2025-11-28,18:31,transfer,HSBC Everyday,Apple Card,Other,Apple Card payment,HKD,756.05,HKD,756.05,USD,96.93,,,,,false
+demo-232,2025-11-28,17:31,expense,HSBC Everyday,,Other,Gym membership,HKD,285.38,HKD,285.38,,,0.09,23.56,261.82,finalAmount,false
+demo-233,2025-11-28,09:31,income,Emergency Savings,,Interest,Savings interest,HKD,27.00,HKD,27.00,,,0.15,4.76,31.76,finalAmount,false
+demo-234,2025-11-28,09:31,income,Investments,,Interest,USD cash interest,USD,3.00,USD,3.00,,,0.15,0.53,3.53,finalAmount,false
+demo-235,2025-11-27,15:28,expense,HSBC Everyday,,Shopping,Home electronics,HKD,722.18,HKD,722.18,,,0.09,59.63,662.55,finalAmount,false
+demo-236,2025-11-26,20:25,expense,Cash,,Transport,Minibus and taxi,HKD,92.34,HKD,92.34,,,0.09,7.62,84.72,finalAmount,false
+demo-237,2025-11-26,10:25,transfer,HSBC Everyday,Emergency Savings,Other,Monthly savings,HKD,8000.00,HKD,8000.00,HKD,8000.00,,,,,false
+demo-238,2025-11-25,10:22,income,HSBC Everyday,,Salary,Monthly salary,HKD,22500.00,HKD,22500.00,,,0.15,3970.59,26470.59,finalAmount,false
+demo-239,2025-11-24,12:19,expense,HSBC Everyday,,Food,Food court,MYR,55.37,HKD,92.47,,,0.09,4.57,50.80,finalAmount,false
+demo-240,2025-11-23,14:16,expense,HSBC Everyday,,Other,Exhibition,EUR,25.80,EUR,25.80,,,0.09,2.13,23.67,finalAmount,false
+demo-241,2025-11-21,10:10,expense,Apple Card,,Utilities,Annual app installment,USD,36.56,USD,36.56,,,0.09,3.02,33.54,finalAmount,false
+demo-242,2025-11-19,19:04,expense,HSBC Everyday,,Food,Deliveroo dinner,HKD,329.84,HKD,329.84,,,0.09,27.23,302.61,finalAmount,false
+demo-243,2025-11-18,15:01,expense,HSBC Everyday,,Shopping,Flight to visit family,HKD,1900.00,HKD,1900.00,,,0.09,156.88,1743.12,finalAmount,false
+demo-244,2025-11-17,16:58,expense,HSBC Everyday,,Shopping,Muji,CNY,203.62,CNY,203.62,,,0.09,16.81,186.81,finalAmount,false
+demo-245,2025-11-15,09:52,expense,HSBC Everyday,,Transport,Metro ticket,JPY,1000.16,JPY,1000.16,,,0.09,82.58,917.58,finalAmount,false
+demo-246,2025-11-13,19:46,expense,HSBC Everyday,,Food,Dinner with friends,USD,31.36,USD,31.36,,,0.09,2.59,28.77,finalAmount,false
+demo-247,2025-11-11,18:40,expense,HSBC Everyday,,Other,Haircut,HKD,225.57,HKD,225.57,,,0.09,18.63,206.94,finalAmount,false
+demo-248,2025-11-09,12:34,expense,Mainland Wallet,,Food,Noodle restaurant,CNY,72.07,CNY,72.07,,,0.09,5.95,66.12,finalAmount,false
+demo-249,2025-11-07,10:28,expense,HSBC Everyday,,Utilities,Internet and mobile,HKD,564.48,HKD,564.48,,,0.09,46.61,517.87,finalAmount,false
+demo-250,2025-11-05,15:22,expense,Apple Card,,Shopping,Uniqlo,USD,60.37,USD,60.37,,,0.09,4.98,55.39,finalAmount,false
+demo-251,2025-11-04,10:19,transfer,HSBC Everyday,Cash,Other,Cash withdrawal,HKD,600.00,HKD,600.00,HKD,600.00,,,,,false
+demo-252,2025-11-03,09:16,expense,HSBC Everyday,,Transport,MTR journeys,HKD,186.37,HKD,186.37,,,0.09,15.39,170.98,finalAmount,false
+demo-253,2025-11-01,08:10,expense,HSBC Everyday,,Food,Breakfast cafe,HKD,73.88,HKD,73.88,,,0.09,6.10,67.78,finalAmount,false
+demo-254,2025-10-28,18:24,transfer,HSBC Everyday,Apple Card,Other,Apple Card payment,HKD,2019.42,HKD,2019.42,USD,258.90,,,,,false
+demo-255,2025-10-28,17:24,expense,HSBC Everyday,,Other,Dental check-up,HKD,232.18,HKD,232.18,,,0.09,19.17,213.01,finalAmount,false
+demo-256,2025-10-28,09:24,income,Emergency Savings,,Interest,Savings interest,HKD,24.00,HKD,24.00,,,0.15,4.24,28.24,finalAmount,false
+demo-257,2025-10-28,09:24,income,Investments,,Interest,USD cash interest,USD,2.00,USD,2.00,,,0.15,0.35,2.35,finalAmount,false
+demo-258,2025-10-27,15:21,expense,HSBC Everyday,,Shopping,Uniqlo,HKD,588.63,HKD,588.63,,,0.09,48.60,540.03,finalAmount,false
+demo-259,2025-10-26,20:18,expense,Cash,,Transport,Taxi,HKD,75.11,HKD,75.11,,,0.09,6.20,68.91,finalAmount,false
+demo-260,2025-10-26,10:18,transfer,HSBC Everyday,Emergency Savings,Other,Monthly savings,HKD,8000.00,HKD,8000.00,HKD,8000.00,,,,,false
+demo-261,2025-10-25,10:15,income,HSBC Everyday,,Salary,Monthly salary,HKD,22000.00,HKD,22000.00,,,0.15,3882.35,25882.35,finalAmount,false
+demo-262,2025-10-24,12:12,expense,HSBC Everyday,,Food,Penang lunch,MYR,45.12,HKD,75.35,,,0.09,3.73,41.39,finalAmount,false
+demo-263,2025-10-23,14:09,expense,HSBC Everyday,,Other,Museum tickets,EUR,23.91,EUR,23.91,,,0.09,1.97,21.94,finalAmount,false
+demo-264,2025-10-21,10:03,expense,Apple Card,,Utilities,Cloud storage and mobile,USD,29.78,USD,29.78,,,0.09,2.46,27.32,finalAmount,false
+demo-265,2025-10-19,19:57,expense,HSBC Everyday,,Food,ParknShop,HKD,305.97,HKD,305.97,,,0.09,25.26,280.71,finalAmount,false
+demo-266,2025-10-17,16:51,expense,HSBC Everyday,,Shopping,Taobao,CNY,165.82,CNY,165.82,,,0.09,13.69,152.13,finalAmount,false
+demo-267,2025-10-16,11:48,income,Investments,,Dividends,Index fund distribution,USD,35.00,USD,35.00,,,0.15,6.18,41.18,finalAmount,false
+demo-268,2025-10-15,09:45,expense,HSBC Everyday,,Transport,JR ticket,JPY,928.72,JPY,928.72,,,0.09,76.68,852.04,finalAmount,false
+demo-269,2025-10-13,19:39,expense,HSBC Everyday,,Food,Restaurant,USD,25.53,USD,25.53,,,0.09,2.11,23.42,finalAmount,false
+demo-270,2025-10-12,14:36,income,Mainland Wallet,,Other Income,Travel reimbursement,CNY,300.00,CNY,300.00,,,0.15,52.94,352.94,finalAmount,false
+demo-271,2025-10-11,18:33,expense,HSBC Everyday,,Other,Cinema,HKD,183.96,HKD,183.96,,,0.09,15.19,168.77,finalAmount,false
+demo-272,2025-10-09,12:27,expense,Mainland Wallet,,Food,Shenzhen lunch,CNY,58.66,CNY,58.66,,,0.09,4.84,53.82,finalAmount,false
+demo-273,2025-10-07,10:21,expense,HSBC Everyday,,Utilities,Electricity bill,HKD,460.22,HKD,460.22,,,0.09,38.00,422.22,finalAmount,false
+demo-274,2025-10-05,15:15,expense,Apple Card,,Shopping,Amazon,USD,49.12,USD,49.12,,,0.09,4.06,45.06,finalAmount,false
+demo-275,2025-10-04,10:12,transfer,Emergency Savings,HSBC Everyday,Other,USD travel pocket funding,HKD,7020.00,HKD,7020.00,USD,900.00,,,,,false
+demo-276,2025-10-03,09:09,expense,HSBC Everyday,,Transport,Octopus top-up,HKD,151.90,HKD,151.90,,,0.09,12.54,139.36,finalAmount,false
+demo-277,2025-10-01,08:03,expense,HSBC Everyday,,Food,Cafe de Coral,HKD,60.08,HKD,60.08,,,0.09,4.96,55.12,finalAmount,false

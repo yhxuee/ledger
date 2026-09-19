@@ -567,7 +567,8 @@ private struct OverviewAccountPickerButton: View {
             AccountCardView(account: accounts.first { $0.id == selectedAccountID },
                             portfolioBalance: portfolioBalance,
                             baseCurrency: store.state.settings.baseCurrency,
-                            layout: layout)
+                            layout: layout,
+                            showAccountName: layout != .portrait)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .buttonStyle(.plain)
@@ -651,7 +652,8 @@ private struct AccountPickerView: View {
                                     account: card.account,
                                     portfolioBalance: portfolioBalance,
                                     baseCurrency: baseCurrency,
-                                    layout: .portrait
+                                    layout: .portrait,
+                                    showAccountName: true
                                 )
                                 .frame(width: cardWidth, height: cardHeight)
                             }
@@ -685,7 +687,14 @@ private struct AccountPickerView: View {
                 .scrollPosition(id: $centeredID, anchor: .center)
                 .scrollClipDisabled()
                 .frame(height: cardHeight + 64)
-                .frame(maxHeight: .infinity, alignment: .center)
+
+                if cards.allSatisfy({ $0.account == nil }) {
+                    Text("No accounts added yet")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
             .background(LedgerBackground())
             .navigationTitle("Accounts")

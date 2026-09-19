@@ -166,7 +166,7 @@ final class LedgerCalculationsTests: XCTestCase {
     }
 
     func testRecurringLoanInterestUsesCurrentOutstandingPrincipal() throws {
-        var state = SeedData.makeEmpty()
+        var state = DemoDataFactory.makeWithSingleAccount()
         let accountID = state.accounts[0].id
         let ruleID = UUID()
         state.accounts[0].type = .loan
@@ -195,7 +195,7 @@ final class LedgerCalculationsTests: XCTestCase {
     }
 
     func testCategoryBudgetCountsRefundAndIgnoresDeletedTransactions() throws {
-        var state = SeedData.makeEmpty()
+        var state = DemoDataFactory.makeWithSingleAccount()
         let account = state.accounts[0]
         state.settings.budgetPlan = .init(mode: .category, categoryAllocations: [.food: 500, .transport: 300], accountAllocations: [:], updatedAt: .now)
         let food = makeTransaction(type: .expense, source: account, amount: 120)
@@ -223,7 +223,7 @@ final class LedgerCalculationsTests: XCTestCase {
     }
 
     func testDeletingAccountInvalidatesDefaultExpenseMapping() throws {
-        var state = SeedData.makeEmpty()
+        var state = DemoDataFactory.makeWithSingleAccount()
         let account = state.accounts[0]
         state.settings.defaultExpenseAccountByCategory[.food] = account.id
         let store = LedgerStore(stateForTesting: state)
@@ -235,7 +235,7 @@ final class LedgerCalculationsTests: XCTestCase {
     }
 
     func testDeletingRecurringRuleUsesTombstoneAndUndo() throws {
-        var state = SeedData.makeEmpty()
+        var state = DemoDataFactory.makeWithSingleAccount()
         let account = state.accounts[0]
         let rule = RecurringRule(id: UUID(), userID: state.settings.userID, type: .expense, accountID: account.id, destinationAccountID: nil, amount: 12, currency: account.currency, categoryID: .food, note: "Subscription", interval: .monthly, customIntervalDays: 30, nextRunAt: .now, isEnabled: true, createdAt: .now, updatedAt: .now)
         state.recurringRules = [rule]
@@ -248,7 +248,7 @@ final class LedgerCalculationsTests: XCTestCase {
     }
 
     func testPurchaseFinalizationCreatesOnlyChildTransactionsAndIsIdempotent() throws {
-        var state = SeedData.makeEmpty()
+        var state = DemoDataFactory.makeWithSingleAccount()
         let accountID = state.accounts[0].id
         let sessionID = UUID()
         let items = [
@@ -265,7 +265,7 @@ final class LedgerCalculationsTests: XCTestCase {
     }
 
     func testPurchasePresentationExpandsChildrenWhenFiltering() throws {
-        let state = SeedData.makeEmpty()
+        let state = DemoDataFactory.makeWithSingleAccount()
         let account = state.accounts[0]
         let sessionID = UUID()
         var first = makeTransaction(type: .expense, source: account, amount: 10)

@@ -27,26 +27,51 @@ struct AccountsView: View {
                         .listRowBackground(Color.clear)
                 }
             }
-            Section {
-                ForEach(store.accounts) { item in
-                    accountRowContent(item)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if !isReordering {
-                                editing = item
-                            }
+            if store.accounts.isEmpty {
+                Section {
+                    VStack(spacing: 12) {
+                        Image(systemName: "creditcard")
+                            .font(.system(size: 38))
+                            .foregroundStyle(.secondary)
+                        Text("No Accounts")
+                            .font(.headline)
+                        Button {
+                            creating = true
+                        } label: {
+                            Label("Add Account", systemImage: "plus")
+                                .font(.subheadline.weight(.semibold))
                         }
-                        .onLongPressGesture {
-                            if !isReordering {
-                                isReordering = true
-                            }
-                        }
-                        .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
+                        .buttonStyle(.borderedProminent)
+                        .tint(primaryActionColor)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 32)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                 }
-                .onMove { offsets, destination in
-                    store.moveAccounts(from: offsets, to: destination)
+            } else {
+                Section {
+                    ForEach(store.accounts) { item in
+                        accountRowContent(item)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if !isReordering {
+                                    editing = item
+                                }
+                            }
+                            .onLongPressGesture {
+                                if !isReordering {
+                                    isReordering = true
+                                }
+                            }
+                            .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+                    .onMove { offsets, destination in
+                        store.moveAccounts(from: offsets, to: destination)
+                    }
                 }
             }
         }

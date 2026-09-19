@@ -297,6 +297,26 @@ struct TransactionEditorView: View {
         }
         .pickerStyle(.segmented)
 
+        if activeAccounts.isEmpty {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("Create an account first")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
+        } else if type == .transfer && activeAccounts.count < 2 {
+            HStack(spacing: 8) {
+                Image(systemName: "info.circle.fill")
+                    .foregroundStyle(.secondary)
+                Text("Create at least two accounts to transfer between them")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
+        }
+
         if preferences.value.transactionLayout == .categoryFirst && type != .transfer {
             categoryPicker
             amountPanel
