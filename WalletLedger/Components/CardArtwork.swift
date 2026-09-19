@@ -1,9 +1,11 @@
 import SwiftUI
 import UIKit
+import ImageIO
 
 /// Decode and classify once per uploaded image, not while the carousel scrolls.
-@MainActor
-final class CardArtwork {
+// Immutable after construction. UIImage/UIColor are only read by rendering after
+// publication; decoding and analysis finish before crossing back to the main actor.
+final class CardArtwork: @unchecked Sendable {
     enum Surface {
         case fullBleed
         case opaque(UIColor)
@@ -12,20 +14,41 @@ final class CardArtwork {
 
     let image: UIImage
     let surface: Surface
-    private static let cache: NSCache<NSData, CardArtwork> = {
+    let foreground: Color
+    @MainActor private static let cache: NSCache<NSData, CardArtwork> = {
         let cache = NSCache<NSData, CardArtwork>()
         cache.totalCostLimit = 32 * 1_024 * 1_024
         return cache
     }()
 
-    static func load(_ data: Data?) -> CardArtwork? {
+    @MainActor private static var pending: [Data: Task<CardArtwork?, Never>] = [:]
+
+    @MainActor static func cached(_ data: Data?) -> CardArtwork? {
         guard let data else { return nil }
-        let key = data as NSData
-        if let cached = cache.object(forKey: key) { return cached }
-        guard let image = UIImage(data: data), image.size.height > 0 else { return nil }
-        let artwork = CardArtwork(image: image)
-        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? data.count
-        cache.setObject(artwork, forKey: key, cost: cost)
+        return cache.object(forKey: data as NSData)
+    }
+
+    @MainActor static func load(_ data: Data?) async -> CardArtwork? {
+        guard let data else { return nil }
+        if let cached = cached(data) { return cached }
+        if let task = pending[data] { return await task.value }
+        let task = Task.detached(priority: .utility) { () -> CardArtwork? in
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 1_200,
+                    kCGImageSourceShouldCacheImmediately: true
+                  ] as CFDictionary) else { return nil }
+            return CardArtwork(image: UIImage(cgImage: decoded))
+        }
+        pending[data] = task
+        let artwork = await task.value
+        if let artwork {
+            let cost = artwork.image.cgImage.map { $0.bytesPerRow * $0.height } ?? data.count
+            cache.setObject(artwork, forKey: data as NSData, cost: cost)
+        }
+        pending[data] = nil
         return artwork
     }
 
@@ -39,9 +62,10 @@ final class CardArtwork {
             let sample = Self.sample(image)
             surface = sample.transparent ? .glass : .opaque(sample.background)
         }
+        foreground = Self.foreground(for: surface)
     }
 
-    var foreground: Color {
+    private static func foreground(for surface: Surface) -> Color {
         switch surface {
         case .fullBleed: return .white
         case .glass: return .primary
@@ -103,6 +127,16 @@ private struct CardArtworkModifier: ViewModifier {
             .backgroundPreferenceValue(CardInformationBounds.self) { anchors in
                 GeometryReader { geometry in
                     surface(size: geometry.size, regions: anchors.map { geometry[$0] })
+                        .overlay {
+                            if artwork != nil {
+                                RoundedRectangle(cornerRadius: 25, style: .continuous)
+                                    .fill(.white.opacity(0.08))
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 25, style: .continuous)
+                                            .strokeBorder(.white.opacity(0.16), lineWidth: 0.8)
+                                    }
+                            }
+                        }
                 }
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -154,12 +188,31 @@ private struct CardArtworkModifier: ViewModifier {
     }
 }
 
+private struct AsyncCardArtworkModifier: ViewModifier {
+    let data: Data?
+    let fallback: LinearGradient
+    @State private var loaded: CardArtwork?
+    @State private var loadedData: Data?
+
+    func body(content: Content) -> some View {
+        content
+            .modifier(CardArtworkModifier(
+                artwork: loadedData == data ? loaded : CardArtwork.cached(data), fallback: fallback))
+            .task(id: data) {
+                let result = await CardArtwork.load(data)
+                guard !Task.isCancelled else { return }
+                loaded = result
+                loadedData = data
+            }
+    }
+}
+
 extension View {
     func cardInformationRegion() -> some View {
         anchorPreference(key: CardInformationBounds.self, value: .bounds) { [$0] }
     }
 
-    func cardArtwork(_ artwork: CardArtwork?, fallback: LinearGradient) -> some View {
-        modifier(CardArtworkModifier(artwork: artwork, fallback: fallback))
+    func cardArtwork(data: Data?, fallback: LinearGradient) -> some View {
+        modifier(AsyncCardArtworkModifier(data: data, fallback: fallback))
     }
 }

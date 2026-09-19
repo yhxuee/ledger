@@ -50,7 +50,7 @@ struct AccountCardView: View {
         }
         .padding(compact ? 16 : 22)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .cardArtwork(CardArtwork.load(account?.account.cardImageData), fallback: background)
+        .cardArtwork(data: account?.account.cardImageData, fallback: background)
         .aspectRatio(85.6 / 53.98, contentMode: .fit)
         .accessibilityElement(children: .combine)
     }

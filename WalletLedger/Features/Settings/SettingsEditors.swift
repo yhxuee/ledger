@@ -327,7 +327,7 @@ struct LayoutSettingsView: View {
 
             Section {
                 Picker("First Card", selection: Binding(
-                    get: { preferences.value.overviewMetrics.first ?? .weeklyActivity },
+                    get: { preferences.value.overviewMetrics.first ?? .sixMonthTrend },
                     set: { val in preferences.update { $0.setOverviewMetric(at: 0, to: val) } }
                 )) {
                     ForEach(OverviewMetricKind.allCases) { kind in
@@ -336,7 +336,7 @@ struct LayoutSettingsView: View {
                 }
 
                 Picker("Second Card", selection: Binding(
-                    get: { preferences.value.overviewMetrics.count > 1 ? preferences.value.overviewMetrics[1] : .budget },
+                    get: { preferences.value.overviewMetrics.count > 1 ? preferences.value.overviewMetrics[1] : .weekExpensePie },
                     set: { val in preferences.update { $0.setOverviewMetric(at: 1, to: val) } }
                 )) {
                     ForEach(OverviewMetricKind.allCases) { kind in

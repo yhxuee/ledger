@@ -79,7 +79,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
     var hapticFeedbackEnabled: Bool = true
     var dateFormat: AppDateFormat = .monthDay
     var transactionLayout: TransactionEditorLayout = .standard
-    var overviewMetrics: [OverviewMetricKind] = [.weeklyActivity, .budget]
+    var overviewMetrics: [OverviewMetricKind] = [.sixMonthTrend, .weekExpensePie]
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion, languageCode, biometricLockEnabled, swipeActionOrientation, hapticFeedbackEnabled, dateFormat, transactionLayout, overviewMetrics
@@ -89,7 +89,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
          swipeActionOrientation: SwipeActionOrientation = .refundLeadingDeleteTrailing,
          hapticFeedbackEnabled: Bool = true, dateFormat: AppDateFormat = .monthDay,
          transactionLayout: TransactionEditorLayout = .standard,
-         overviewMetrics: [OverviewMetricKind] = [.weeklyActivity, .budget]) {
+         overviewMetrics: [OverviewMetricKind] = [.sixMonthTrend, .weekExpensePie]) {
         self.schemaVersion = schemaVersion
         self.languageCode = languageCode
         self.biometricLockEnabled = biometricLockEnabled
@@ -97,7 +97,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
         self.hapticFeedbackEnabled = hapticFeedbackEnabled
         self.dateFormat = dateFormat
         self.transactionLayout = transactionLayout
-        self.overviewMetrics = overviewMetrics.count == 2 ? overviewMetrics : [.weeklyActivity, .budget]
+        self.overviewMetrics = overviewMetrics.count == 2 && Set(overviewMetrics).count == 2 ? overviewMetrics : [.sixMonthTrend, .weekExpensePie]
     }
 
     init(from decoder: Decoder) throws {
@@ -109,14 +109,14 @@ struct AppPreferences: Codable, Hashable, Sendable {
         hapticFeedbackEnabled = try values.decodeIfPresent(Bool.self, forKey: .hapticFeedbackEnabled) ?? true
         dateFormat = try values.decodeIfPresent(AppDateFormat.self, forKey: .dateFormat) ?? .monthDay
         transactionLayout = try values.decodeIfPresent(TransactionEditorLayout.self, forKey: .transactionLayout) ?? .standard
-        let decodedMetrics = try values.decodeIfPresent([OverviewMetricKind].self, forKey: .overviewMetrics) ?? [.weeklyActivity, .budget]
-        overviewMetrics = decodedMetrics.count == 2 ? decodedMetrics : [.weeklyActivity, .budget]
+        let decodedMetrics = (try? values.decodeIfPresent([OverviewMetricKind].self, forKey: .overviewMetrics)) ?? [.sixMonthTrend, .weekExpensePie]
+        overviewMetrics = decodedMetrics.count == 2 && Set(decodedMetrics).count == 2 ? decodedMetrics : [.sixMonthTrend, .weekExpensePie]
     }
 
     mutating func setOverviewMetric(at index: Int, to newKind: OverviewMetricKind) {
         guard index == 0 || index == 1 else { return }
-        if overviewMetrics.count != 2 {
-            overviewMetrics = [.weeklyActivity, .budget]
+        if overviewMetrics.count != 2 || Set(overviewMetrics).count != 2 {
+            overviewMetrics = [.sixMonthTrend, .weekExpensePie]
         }
         let otherIndex = index == 0 ? 1 : 0
         if overviewMetrics[otherIndex] == newKind {

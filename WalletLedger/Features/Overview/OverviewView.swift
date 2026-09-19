@@ -7,7 +7,6 @@ struct OverviewView: View {
     @EnvironmentObject private var privacy: PrivacyController
     @Binding var section: AppSection
     @Binding var selectedAccountID: UUID?
-    @State private var showAccountPicker = false
     @State private var showTransactionEditor = false
     @State private var editingTransaction: LedgerTransaction?
     @State private var showingBudgetDetail = false
@@ -62,7 +61,6 @@ struct OverviewView: View {
             if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
             ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() }
         }
-        .sheet(isPresented: $showAccountPicker) { AccountPickerView(selectedAccountID: $selectedAccountID) }
         .sheet(isPresented: $showTransactionEditor) {
             TransactionEditorView()
                 .presentationDetents([.large])
@@ -93,9 +91,7 @@ struct OverviewView: View {
     }
 
     private var hero: some View {
-        Button { showAccountPicker = true } label: {
-            AccountCardView(account: selected, portfolioBalance: LedgerCalculations.portfolioBalance(store.state), baseCurrency: store.state.settings.baseCurrency)
-        }.buttonStyle(.plain)
+        OverviewAccountPickerButton(selectedAccountID: $selectedAccountID)
     }
 
     private var metrics: some View {
@@ -469,28 +465,73 @@ struct OverviewMetricDetailSheet: View {
     }
 }
 
-/// A snapshot in persisted account order. Images are decoded when accounts change,
-/// never from the per-frame carousel effect.
-private struct OverviewPickerCard: Identifiable {
-    let account: AccountViewModel?
-    let artwork: CardArtwork?
-    var id: String { account?.id.uuidString ?? "all-accounts" }
+/// Keep presentation state separate from Overview's analytics render path.
+private struct OverviewAccountPickerButton: View {
+    @EnvironmentObject private var store: LedgerStore
+    @Binding var selectedAccountID: UUID?
+    @State private var showingPicker = false
+    @State private var accounts: [AccountViewModel] = []
+    @State private var cards: [OverviewPickerCard] = [OverviewPickerCard(account: nil)]
+    @State private var portfolioBalance: Double = 0
 
-    @MainActor init(account: AccountViewModel?) {
-        self.account = account
-        self.artwork = CardArtwork.load(account?.account.cardImageData)
+    var body: some View {
+        Button { showingPicker = true } label: {
+            AccountCardView(account: accounts.first { $0.id == selectedAccountID },
+                            portfolioBalance: portfolioBalance,
+                            baseCurrency: store.state.settings.baseCurrency)
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showingPicker) {
+            AccountPickerView(selectedAccountID: $selectedAccountID, cards: cards,
+                              portfolioBalance: portfolioBalance,
+                              baseCurrency: store.state.settings.baseCurrency)
+        }
+        .task(id: store.state) {
+            let state = store.state
+            // Balance calculations and card metadata are prepared before presentation.
+            let prepared = await Task.detached(priority: .userInitiated) {
+                LedgerCalculations.accountViews(state)
+            }.value
+            guard !Task.isCancelled else { return }
+            accounts = prepared
+            cards = [OverviewPickerCard(account: nil)] + prepared.map { OverviewPickerCard(account: $0) }
+            portfolioBalance = prepared.reduce(0) {
+                $0 + LedgerCalculations.convert($1.balance, from: $1.account.currency,
+                                                to: state.settings.baseCurrency, rates: state.settings.rates)
+            }
+            // Publish lightweight cards first. Cold artwork never delays sheet opening.
+            for account in prepared {
+                guard !Task.isCancelled else { return }
+                _ = await CardArtwork.load(account.account.cardImageData)
+            }
+        }
     }
 }
 
+/// Stable, lightweight snapshot in persisted account order; no decoding in init.
+private struct OverviewPickerCard: Identifiable {
+    let account: AccountViewModel?
+    var id: String { account?.id.uuidString ?? "all-accounts" }
+}
+
 private struct AccountPickerView: View {
-    @EnvironmentObject private var store: LedgerStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var selectedAccountID: UUID?
-    @State private var cards: [OverviewPickerCard] = []
+    let cards: [OverviewPickerCard]
+    let portfolioBalance: Double
+    let baseCurrency: CurrencyCode
     @State private var centeredID: String?
-    @State private var portfolioBalance: Double = 0
+
+    init(selectedAccountID: Binding<UUID?>, cards: [OverviewPickerCard],
+         portfolioBalance: Double, baseCurrency: CurrencyCode) {
+        _selectedAccountID = selectedAccountID
+        self.cards = cards
+        self.portfolioBalance = portfolioBalance
+        self.baseCurrency = baseCurrency
+        _centeredID = State(initialValue: selectedAccountID.wrappedValue?.uuidString ?? "all-accounts")
+    }
 
     var body: some View {
         NavigationStack {
@@ -518,7 +559,7 @@ private struct AccountPickerView: View {
                                 OverviewPortraitAccountCard(
                                     card: card,
                                     portfolioBalance: portfolioBalance,
-                                    baseCurrency: store.state.settings.baseCurrency
+                                    baseCurrency: baseCurrency
                                 )
                                 .frame(width: cardWidth, height: cardHeight)
                             }
@@ -569,22 +610,10 @@ private struct AccountPickerView: View {
                 }
             }
         }
-        .onAppear {
-            refreshCards(store.accounts)
-            centeredID = selectedAccountID?.uuidString ?? "all-accounts"
-        }
-        .onChange(of: store.accounts) { _, accounts in refreshCards(accounts) }
-        .onChange(of: store.state.settings) { _, _ in
-            portfolioBalance = LedgerCalculations.portfolioBalance(store.state)
-        }
-    }
-
-    private func refreshCards(_ accounts: [AccountViewModel]) {
-        portfolioBalance = LedgerCalculations.portfolioBalance(store.state)
-        // accountViews preserves state.accounts order; this picker never writes order.
-        cards = [OverviewPickerCard(account: nil)] + accounts.map { OverviewPickerCard(account: $0) }
-        if let centeredID, !cards.contains(where: { $0.id == centeredID }) {
-            self.centeredID = "all-accounts"
+        .onChange(of: cards.map(\.id)) { _, ids in
+            if let centeredID, !ids.contains(centeredID) {
+                self.centeredID = "all-accounts"
+            }
         }
     }
 }
@@ -633,7 +662,7 @@ private struct OverviewPortraitAccountCard: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .cardArtwork(card.artwork, fallback: LinearGradient(
+        .cardArtwork(data: account?.cardImageData, fallback: LinearGradient(
             colors: [Color(hex: style.startHex), Color(hex: style.endHex)],
             startPoint: .topLeading, endPoint: .bottomTrailing))
         .accessibilityElement(children: .combine)
