@@ -471,14 +471,15 @@ struct OverviewMetricDetailSheet: View {
 
 /// A snapshot in persisted account order. Images are decoded when accounts change,
 /// never from the per-frame carousel effect.
+@MainActor
 private struct OverviewPickerCard: Identifiable {
     let account: AccountViewModel?
-    let image: UIImage?
+    let artwork: CardArtwork?
     var id: String { account?.id.uuidString ?? "all-accounts" }
 
     init(account: AccountViewModel?) {
         self.account = account
-        self.image = account?.account.cardImageData.flatMap { UIImage(data: $0) }
+        self.artwork = CardArtwork.load(account?.account.cardImageData)
     }
 }
 
@@ -615,6 +616,7 @@ private struct OverviewPortraitAccountCard: View {
                 Image(systemName: account?.type.symbol ?? "wallet.bifold.fill")
                     .font(.subheadline)
             }
+            .cardInformationRegion()
             Spacer(minLength: 12)
             SensitiveMoneyText(amount: card.account?.balance ?? portfolioBalance,
                                currency: account?.currency ?? baseCurrency,
@@ -622,28 +624,17 @@ private struct OverviewPortraitAccountCard: View {
                 .font(.system(size: 34, weight: .bold, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
+                .cardInformationRegion()
             if let account {
                 AccountCardMetadata(account: account)
+                    .cardInformationRegion()
             }
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .background {
-            LinearGradient(colors: [Color(hex: style.startHex), Color(hex: style.endHex)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                .overlay {
-                    if let image = card.image {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                            .overlay(LinearGradient(colors: [.black.opacity(0.08), .black.opacity(0.48)],
-                                                    startPoint: .topLeading, endPoint: .bottomTrailing))
-                    }
-                }
-                .clipped()
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 25, style: .continuous))
-        .foregroundStyle(card.image == nil ? Color.black.opacity(0.84) : Color.white)
+        .cardArtwork(card.artwork, fallback: LinearGradient(
+            colors: [Color(hex: style.startHex), Color(hex: style.endHex)],
+            startPoint: .topLeading, endPoint: .bottomTrailing))
         .accessibilityElement(children: .combine)
     }
 }

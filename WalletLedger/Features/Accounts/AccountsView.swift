@@ -392,8 +392,16 @@ private struct AccountEditorView: View {
         let maximum: CGFloat = 1_200
         let scale = min(1, maximum / max(image.size.width, image.size.height))
         let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        let rendered = UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
-        return rendered.jpegData(compressionQuality: 0.82)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        // Preserve alpha-bearing uploads instead of flattening transparent PNG artwork.
+        let alpha = image.cgImage?.alphaInfo
+        let hasAlpha = alpha == .first || alpha == .last || alpha == .premultipliedFirst || alpha == .premultipliedLast || alpha == .alphaOnly
+        return hasAlpha ? rendered.pngData() : rendered.jpegData(compressionQuality: 0.82)
     }
 
     private var loanAPR: Binding<Double> { Binding(get: { account.loanMetadata?.annualPercentageRate ?? 0 }, set: { value in ensureLoanMetadata(); account.loanMetadata?.annualPercentageRate = max(0, value) }) }
