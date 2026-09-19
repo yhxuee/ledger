@@ -161,6 +161,7 @@ struct PurchaseSessionEditorView: View {
                 saveDraft()
             }
         }
+        .anchoredCurrencyDropdownLayer()
     }
 
     private func inlineRow(_ item: PurchaseItem) -> some View {

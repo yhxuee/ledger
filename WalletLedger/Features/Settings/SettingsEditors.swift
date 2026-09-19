@@ -218,17 +218,16 @@ struct RecurringRuleEditorView: View {
                     if type == .transfer { Picker("To Account", selection: $destinationID) { ForEach(accounts.filter { $0.id != accountID }) { Text($0.name).tag(Optional($0.id)) } } }
                     LabeledContent("Amount") { SensitiveValueContent { TextField("0", value: $amount, format: .number.precision(.fractionLength(2))).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($amountFocused) } }
                     LabeledContent("Currency") {
-                        CurrencyQuickPicker(codes: CurrencySelection.commonWithStablecoins,
-                                            selection: currency,
-                                            otherCurrencies: true,
-                                            onSelect: { currency = $0 }) {
+                        AnchoredCurrencyDropdown(title: "Currency",
+                                                 codes: CurrencySelection.commonWithStablecoins,
+                                                 selection: currency,
+                                                 otherCurrencies: true,
+                                                 onSelect: { currency = $0 }) {
                             HStack(spacing: 6) {
                                 Text(currency.rawValue).foregroundStyle(.secondary)
-                                Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.tertiary)
+                                Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
                             }
                         }
-                        .accessibilityLabel("Currency")
-                        .accessibilityValue(currency.rawValue)
                     }
                     if let sourceAccount, sourceAccount.hasMultiplePockets {
                         LabeledContent(type == .transfer ? "From Account Currency" : "Account Currency") {
@@ -258,6 +257,7 @@ struct RecurringRuleEditorView: View {
             .onAppear { if accountID == nil { accountID = accounts.first?.id; currency = accounts.first?.currency ?? .HKD }; if destinationID == nil { destinationID = accounts.first(where: { $0.id != accountID })?.id } }
             .onChange(of: accountID) { _, id in if let account = accounts.first(where: { $0.id == id }) { currency = account.currency }; if destinationID == id { destinationID = accounts.first(where: { $0.id != id })?.id } }
         }
+        .anchoredCurrencyDropdownLayer()
     }
     private func save() {
         guard let accountID else { return }; let now = Date.now
