@@ -54,13 +54,17 @@ final class CardArtwork: @unchecked Sendable {
 
     private init(image: UIImage) {
         self.image = image
+        let sample = Self.sample(image)
         let cardRatio: CGFloat = 85.60 / 53.98
         let ratio = image.size.width / image.size.height
-        if abs(ratio / cardRatio - 1) <= 0.08 {
+        let matchesCardRatio = abs(ratio / cardRatio - 1) <= 0.02
+
+        if sample.transparent {
+            surface = .glass
+        } else if matchesCardRatio {
             surface = .fullBleed
         } else {
-            let sample = Self.sample(image)
-            surface = sample.transparent ? .glass : .opaque(sample.background)
+            surface = .opaque(sample.background)
         }
         foreground = Self.foreground(for: surface)
     }
@@ -172,21 +176,22 @@ private struct CardArtworkModifier: ViewModifier {
     }
 
     private func centeredArtwork(_ image: UIImage, size: CGSize, regions: [CGRect]) -> some View {
+        let horizontalInset = size.width * 0.16
+        let availableWidth = max(0, size.width - horizontalInset * 2)
         let centerY = size.height / 2
-        // Reserve the actual header, amount and metadata bounds, including Dynamic Type.
-        // The available band shrinks symmetrically about the card center; text never moves.
-        let targetMaxWidth = size.width * 0.68
         let baseMaxHeight = size.height * 0.50
+
         let clearance = regions.reduce(baseMaxHeight / 2) { clearance, rect in
             let distance = max(0, max(rect.minY - centerY, centerY - rect.maxY) - 10)
             return min(clearance, distance)
         }
         let safeHeight = regions.isEmpty ? baseMaxHeight : max(0, clearance * 2)
-        let artworkMaxHeight = min(baseMaxHeight, safeHeight)
+        let availableHeight = min(baseMaxHeight, safeHeight)
+
         return Image(uiImage: image)
             .resizable()
             .scaledToFit()
-            .frame(width: targetMaxWidth, height: artworkMaxHeight)
+            .frame(maxWidth: availableWidth, maxHeight: availableHeight)
             .position(x: size.width / 2, y: centerY)
     }
 }
