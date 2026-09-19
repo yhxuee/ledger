@@ -18,6 +18,10 @@ enum LedgerPalette {
         if id == .utilities { return purple }
         return teal
     }
+
+    static func primaryAction(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? amber : .blue
+    }
 }
 
 struct CategoryIcon: View {

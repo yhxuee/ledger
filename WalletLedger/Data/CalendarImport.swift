@@ -86,7 +86,16 @@ struct CalendarEventPickerView: View {
             }
             .overlay { if model.loading { ProgressView() } else if model.candidates.isEmpty { ContentUnavailableView("No Calendar Events", systemImage: "calendar") } }
             .navigationTitle("Import from Calendar").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Cancel")
+                }
+            }
             .task { await model.load() }
             .alert("Calendar Import", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) { Button("OK") { model.errorMessage = nil } } message: { Text(model.errorMessage ?? "") }
         }

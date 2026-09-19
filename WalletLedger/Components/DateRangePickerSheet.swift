@@ -21,7 +21,14 @@ struct DateRangePickerSheet: View {
             .navigationTitle("Custom Range")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Cancel")
+                }
                 ToolbarItem(placement: .confirmationAction) { Button("Apply") { onApply(start, end); dismiss() }.fontWeight(.semibold) }
             }
         }

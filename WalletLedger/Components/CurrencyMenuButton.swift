@@ -81,7 +81,12 @@ struct CurrencyMenuButton: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { showingAllCurrencies = false }
+                        Button {
+                            showingAllCurrencies = false
+                        } label: {
+                            Image(systemName: "xmark")
+                        }
+                        .accessibilityLabel("Cancel")
                     }
                 }
             }

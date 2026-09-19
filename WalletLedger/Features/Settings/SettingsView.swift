@@ -194,7 +194,20 @@ struct ImportPreviewView: View {
                 Section { Text("Import replaces the current private local ledger. While viewing a shared ledger, it creates a separate local ledger and never overwrites collaborators’ CloudKit data.").font(.footnote).foregroundStyle(.secondary) }
             }
             .navigationTitle("Import Preview").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Import", action: confirm).fontWeight(.semibold) } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Cancel")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Import", action: confirm)
+                        .fontWeight(.semibold)
+                }
+            }
         }.presentationDetents([.medium, .large])
     }
 }

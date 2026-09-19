@@ -57,6 +57,10 @@ struct AccountsView: View {
 private struct AccountEditorView: View {
     @EnvironmentObject private var store: LedgerStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    private var primaryActionColor: Color {
+        LedgerPalette.primaryAction(for: colorScheme)
+    }
     let onDelete: (LedgerAccount) -> Void
     @State private var account: LedgerAccount
     @State private var desiredBalance: Double
@@ -294,8 +298,25 @@ private struct AccountEditorView: View {
                 }, uniquingKeysWith: { first, _ in first })
             }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("Save", action: save).disabled(account.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.pocketRemovalMessage(for: account) != nil) }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Cancel")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(action: save) {
+                        Image(systemName: "checkmark")
+                            .fontWeight(.semibold)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.circle)
+                    .tint(primaryActionColor)
+                    .disabled(account.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.pocketRemovalMessage(for: account) != nil)
+                    .accessibilityLabel("Save")
+                }
             }
             .onChange(of: photoItem) { _, item in
                 guard let item else { return }

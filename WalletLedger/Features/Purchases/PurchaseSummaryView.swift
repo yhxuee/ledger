@@ -4,6 +4,10 @@ import UIKit
 struct PurchaseSummaryView: View {
     @EnvironmentObject private var store: LedgerStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    private var primaryActionColor: Color {
+        LedgerPalette.primaryAction(for: colorScheme)
+    }
     let sessionID: UUID
     let readOnly: Bool
     @State private var receiptImage: UIImage?
@@ -40,7 +44,22 @@ struct PurchaseSummaryView: View {
             }
             .navigationTitle("Purchase Summary").navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) { PurchaseStatusNotice() }
-            .toolbar { ToolbarItem(placement: .cancellationAction) { if readOnly { Button("Done") { dismiss() } } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    if readOnly {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "checkmark")
+                                .fontWeight(.semibold)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.circle)
+                        .tint(primaryActionColor)
+                        .accessibilityLabel("Done")
+                    }
+                }
+            }
         }
         .sheet(isPresented: $showingCamera) { CameraPicker(image: $receiptImage) }
         .task(id: sessionID) {

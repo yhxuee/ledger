@@ -3,6 +3,10 @@ import SwiftUI
 struct PurchaseModeView: View {
     @EnvironmentObject private var store: LedgerStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    private var primaryActionColor: Color {
+        LedgerPalette.primaryAction(for: colorScheme)
+    }
     @State private var creating = false
     @State private var selected: PurchaseSession?
     var body: some View {
@@ -25,7 +29,27 @@ struct PurchaseModeView: View {
             }
             .navigationTitle("Purchase Mode").navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) { PurchaseStatusNotice() }
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }; ToolbarItem(placement: .primaryAction) { Button { creating = true } label: { Image(systemName: "plus") } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .fontWeight(.semibold)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.circle)
+                    .tint(primaryActionColor)
+                    .accessibilityLabel("Done")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        creating = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
             .sheet(isPresented: $creating) { PurchaseSessionEditorView(session: nil) }
             .sheet(item: $selected) { PurchaseSessionFlowView(sessionID: $0.id) }
         }
@@ -57,6 +81,10 @@ struct PurchaseSessionFlowView: View {
 struct PurchaseSessionEditorView: View {
     @EnvironmentObject private var store: LedgerStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    private var primaryActionColor: Color {
+        LedgerPalette.primaryAction(for: colorScheme)
+    }
     @State private var session: PurchaseSession
     @State private var initialized = false
     @State private var starting = false
@@ -134,7 +162,19 @@ struct PurchaseSessionEditorView: View {
             .navigationTitle(isNew ? "New Purchase" : "Edit Purchase").navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) { PurchaseStatusNotice() }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Done") { saveDraft(); dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        saveDraft()
+                        dismiss()
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .fontWeight(.semibold)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.circle)
+                    .tint(primaryActionColor)
+                    .accessibilityLabel("Done")
+                }
                 ToolbarItem(placement: .primaryAction) { EditButton() }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -238,6 +278,10 @@ struct ActivePurchaseView: View {
     @EnvironmentObject private var store: LedgerStore
     @EnvironmentObject private var preferences: AppPreferencesStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    private var primaryActionColor: Color {
+        LedgerPalette.primaryAction(for: colorScheme)
+    }
     let sessionID: UUID
     private var session: PurchaseSession? { store.purchaseSessions.first { $0.id == sessionID } }
     var body: some View {
@@ -274,7 +318,20 @@ struct ActivePurchaseView: View {
             }
             .navigationTitle(session?.name ?? "Purchase").navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) { PurchaseStatusNotice() }
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .fontWeight(.semibold)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.circle)
+                    .tint(primaryActionColor)
+                    .accessibilityLabel("Done")
+                }
+            }
             .task(id: sessionID) { await refreshFromSharedBridge() }
         }
     }

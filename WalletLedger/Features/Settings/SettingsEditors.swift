@@ -180,6 +180,10 @@ struct RecurringTransactionsView: View {
 struct RecurringRuleEditorView: View {
     @EnvironmentObject private var store: LedgerStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    private var primaryActionColor: Color {
+        LedgerPalette.primaryAction(for: colorScheme)
+    }
     private let originalID: UUID?
     private let originalCreatedAt: Date
     @State private var type: LedgerTransactionType
@@ -244,7 +248,31 @@ struct RecurringRuleEditorView: View {
                 }
             }
             .navigationTitle(originalID == nil ? "New Recurring" : "Edit Recurring").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Save", action: save).disabled(!canSave).fontWeight(.semibold) }; ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { amountFocused = false } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Cancel")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(action: save) {
+                        Image(systemName: "checkmark")
+                            .fontWeight(.semibold)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.circle)
+                    .tint(primaryActionColor)
+                    .disabled(!canSave)
+                    .accessibilityLabel("Save")
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { amountFocused = false }
+                }
+            }
             .onAppear { if accountID == nil { accountID = accounts.first?.id; currency = accounts.first?.currency ?? .HKD }; if destinationID == nil { destinationID = accounts.first(where: { $0.id != accountID })?.id } }
             .onChange(of: accountID) { _, id in if let account = accounts.first(where: { $0.id == id }) { currency = account.currency }; if destinationID == id { destinationID = accounts.first(where: { $0.id != id })?.id } }
         }

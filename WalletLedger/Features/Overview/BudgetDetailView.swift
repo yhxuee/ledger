@@ -4,6 +4,10 @@ struct BudgetDetailView: View {
     @EnvironmentObject private var store: LedgerStore
     @EnvironmentObject private var privacy: PrivacyController
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    private var primaryActionColor: Color {
+        LedgerPalette.primaryAction(for: colorScheme)
+    }
     @State private var editing = false
     private var detail: BudgetBreakdown { LedgerCalculations.budgetBreakdown(store.state) }
     var body: some View {
@@ -29,8 +33,44 @@ struct BudgetDetailView: View {
                 }.padding()
             }
             .background(LedgerBackground()).navigationTitle("Budget Detail").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }; ToolbarItem(placement: .primaryAction) { Button("Edit") { editing = true } } }
-            .sheet(isPresented: $editing) { NavigationStack { BudgetEditorView().toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { editing = false } } } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .fontWeight(.semibold)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.circle)
+                    .tint(primaryActionColor)
+                    .accessibilityLabel("Done")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Edit") {
+                        editing = true
+                    }
+                }
+            }
+            .sheet(isPresented: $editing) {
+                NavigationStack {
+                    BudgetEditorView()
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button {
+                                    editing = false
+                                } label: {
+                                    Image(systemName: "checkmark")
+                                        .fontWeight(.semibold)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .buttonBorderShape(.circle)
+                                .tint(primaryActionColor)
+                                .accessibilityLabel("Done")
+                            }
+                        }
+                }
+            }
         }
     }
     private func summaryMetric(_ title: String, _ amount: Double) -> some View {

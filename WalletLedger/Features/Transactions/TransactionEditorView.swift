@@ -6,6 +6,9 @@ struct TransactionEditorView: View {
     @EnvironmentObject private var preferences: AppPreferencesStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    private var primaryActionColor: Color {
+        LedgerPalette.primaryAction(for: colorScheme)
+    }
     private let original: LedgerTransaction?
     @State private var type: LedgerTransactionType
     @State private var accountID: UUID?
@@ -113,17 +116,26 @@ struct TransactionEditorView: View {
             .navigationTitle(original == nil ? "Add Transaction" : "Edit Transaction")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Cancel")
+                }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { Task { await save() } }
-                        .buttonStyle(.plain)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(colorScheme == .dark ? LedgerPalette.amber : Color.blue, in: Capsule())
-                        .opacity(canSave && !saving ? 1 : 0.45)
-                        .disabled(!canSave || saving)
+                    Button {
+                        Task { await save() }
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .fontWeight(.semibold)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.circle)
+                    .tint(primaryActionColor)
+                    .disabled(!canSave || saving)
+                    .accessibilityLabel("Save")
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     if noteFocused {
@@ -318,7 +330,16 @@ struct TransactionEditorView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { showingDatePicker = false }
+                        Button {
+                            showingDatePicker = false
+                        } label: {
+                            Image(systemName: "checkmark")
+                                .fontWeight(.semibold)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.circle)
+                        .tint(primaryActionColor)
+                        .accessibilityLabel("Done")
                     }
                 }
         }
@@ -545,6 +566,10 @@ private struct TransactionNoteCamera: UIViewControllerRepresentable {
 private struct CategoryEditorSheet: View {
     @EnvironmentObject private var store: LedgerStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    private var primaryActionColor: Color {
+        LedgerPalette.primaryAction(for: colorScheme)
+    }
     @State private var name = ""
     @State private var detail = ""
     @State private var mode = 0
@@ -582,12 +607,27 @@ private struct CategoryEditorSheet: View {
             .navigationTitle("New Category")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Cancel")
+                }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
+                    Button {
                         let value = mode == 0 ? "emoji:\(String(emoji.prefix(1)))" : selectedSymbol
                         if let id = store.addCategory(name: name, detail: detail, symbol: value, colorHex: color.rgbHex) { onAdd(id); dismiss() }
-                    }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (mode == 0 && emoji.isEmpty))
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .fontWeight(.semibold)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.circle)
+                    .tint(primaryActionColor)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (mode == 0 && emoji.isEmpty))
+                    .accessibilityLabel("Save")
                 }
             }
         }

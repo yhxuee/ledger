@@ -115,6 +115,10 @@ private struct MiniActivityChart: View {
 private struct AccountPickerView: View {
     @EnvironmentObject private var store: LedgerStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    private var primaryActionColor: Color {
+        LedgerPalette.primaryAction(for: colorScheme)
+    }
     @Binding var selectedAccountID: UUID?
     var body: some View {
         NavigationStack {
@@ -123,7 +127,23 @@ private struct AccountPickerView: View {
                     Button { selectedAccountID = nil; dismiss() } label: { AccountCardView(account: nil, portfolioBalance: LedgerCalculations.portfolioBalance(store.state), baseCurrency: store.state.settings.baseCurrency, compact: true) }.buttonStyle(.plain)
                     ForEach(store.accounts) { item in Button { selectedAccountID = item.id; dismiss() } label: { AccountCardView(account: item, baseCurrency: store.state.settings.baseCurrency, compact: true) }.buttonStyle(.plain) }
                 }.padding()
-            }.navigationTitle("Wallet").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            }
+            .navigationTitle("Wallet")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .fontWeight(.semibold)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.circle)
+                    .tint(primaryActionColor)
+                    .accessibilityLabel("Done")
+                }
+            }
         }.presentationDetents([.medium, .large])
     }
 }

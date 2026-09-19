@@ -39,6 +39,10 @@ struct LedgerBookMenu: View {
 private struct NewLedgerSheet: View {
     @EnvironmentObject private var store: LedgerStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    private var primaryActionColor: Color {
+        LedgerPalette.primaryAction(for: colorScheme)
+    }
     @State private var name = ""
 
     var body: some View {
@@ -47,8 +51,28 @@ private struct NewLedgerSheet: View {
                 .navigationTitle("New Ledger")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) { Button("Add") { store.createBook(named: name); dismiss() } }
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark")
+                        }
+                        .accessibilityLabel("Cancel")
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button {
+                            store.createBook(named: name)
+                            dismiss()
+                        } label: {
+                            Image(systemName: "checkmark")
+                                .fontWeight(.semibold)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.circle)
+                        .tint(primaryActionColor)
+                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityLabel("Save")
+                    }
                 }
         }
         .presentationDetents([.medium])
