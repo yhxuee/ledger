@@ -635,7 +635,8 @@ private struct AccountPickerView: View {
                 let cardSpacing: CGFloat = -8
                 let sideInset = (viewportWidth - cardWidth) / 2
 
-                ScrollView(.horizontal, showsIndicators: false) {
+                VStack(spacing: 8) {
+                    ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: cardSpacing) {
                         ForEach(cards) { card in
                             Button {
