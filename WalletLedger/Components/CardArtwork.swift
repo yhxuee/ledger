@@ -175,8 +175,8 @@ private struct CardArtworkModifier: ViewModifier {
         let centerY = size.height / 2
         // Reserve the actual header, amount and metadata bounds, including Dynamic Type.
         // The available band shrinks symmetrically about the card center; text never moves.
-        let targetMaxWidth = size.width * 0.34
-        let baseMaxHeight = size.height * 0.38
+        let targetMaxWidth = size.width * 0.68
+        let baseMaxHeight = size.height * 0.50
         let clearance = regions.reduce(baseMaxHeight / 2) { clearance, rect in
             let distance = max(0, max(rect.minY - centerY, centerY - rect.maxY) - 10)
             return min(clearance, distance)
