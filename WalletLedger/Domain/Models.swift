@@ -9,6 +9,8 @@ enum AccountType: String, Codable, CaseIterable, Identifiable, Sendable {
     case loan = "Loan"
     case lending = "Lending / Receivable"
     case stocks = "Stocks"
+    case eWallet = "E-Wallet"
+    case crypto = "Cryptocurrency"
     var id: String { rawValue }
     var symbol: String {
         switch self {
@@ -20,7 +22,48 @@ enum AccountType: String, Codable, CaseIterable, Identifiable, Sendable {
         case .loan: "building.columns.fill"
         case .lending: "person.crop.circle.badge.clock"
         case .stocks: "chart.bar.fill"
+        case .eWallet: "wallet.pass"
+        case .crypto: "bitcoinsign.circle"
         }
+    }
+
+    static func from(aliasOrRaw raw: String) -> AccountType {
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "checking", "checking account":
+            return .checking
+        case "savings", "saving", "savings account":
+            return .savings
+        case "credit", "credit card", "creditcard":
+            return .credit
+        case "investment", "investments":
+            return .investment
+        case "cash":
+            return .cash
+        case "loan":
+            return .loan
+        case "lending", "lending / receivable", "receivable":
+            return .lending
+        case "stocks", "stock":
+            return .stocks
+        case "e-wallet", "ewallet", "digital wallet", "electronic wallet", "wallet", "e_wallet":
+            return .eWallet
+        case "crypto", "cryptocurrency", "crypto wallet", "crypto_wallet":
+            return .crypto
+        default:
+            return AccountType(rawValue: raw) ?? .checking
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        self = AccountType(rawValue: raw) ?? Self.from(aliasOrRaw: raw)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
@@ -199,7 +242,7 @@ struct LedgerAccount: Identifiable, Codable, Hashable, Sendable {
     }
 
     /// Account types that may hold more than one currency pocket.
-    static let multiCurrencyTypes: Set<AccountType> = [.checking, .savings, .credit]
+    static let multiCurrencyTypes: Set<AccountType> = [.checking, .savings, .credit, .eWallet, .crypto]
 
     var supportsMultiCurrency: Bool { Self.multiCurrencyTypes.contains(type) }
 

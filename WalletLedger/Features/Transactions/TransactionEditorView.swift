@@ -383,21 +383,25 @@ struct TransactionEditorView: View {
             taxChanged = true
             HapticFeedback.selection(enabled: preferences.value.hapticFeedbackEnabled)
         } label: {
-            HStack(spacing: 5) {
-                Text("Tax \(TaxCalculations.percent(effectiveDisplayTaxRate)) \u{00B7}")
-                SensitiveValueText(LedgerMoneyFormat.code(taxSnapshot?.hypotheticalTax ?? 0, currency: currency))
+            HStack(spacing: 6) {
+                HStack(spacing: 4) {
+                    Text("Tax \(TaxCalculations.percent(effectiveDisplayTaxRate)) \u{00B7}")
+                    SensitiveValueText(LedgerMoneyFormat.code(taxSnapshot?.hypotheticalTax ?? 0, currency: currency))
+                }
+                .strikethrough(isTaxExempt)
+                .opacity(isTaxExempt ? 0.60 : 1.0)
+
                 if isTaxExempt {
                     Text("Tax Free")
                         .font(.system(size: 10, weight: .semibold))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1.5)
-                        .background(Color.secondary.opacity(0.15), in: Capsule())
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.green.opacity(0.20), in: Capsule())
                 }
             }
             .font(.subheadline)
             .foregroundStyle(.secondary)
-            .strikethrough(isTaxExempt)
-            .opacity(isTaxExempt ? 0.65 : 1.0)
             .frame(maxWidth: .infinity, alignment: .center)
             .contentShape(Rectangle())
         }

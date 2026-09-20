@@ -90,7 +90,10 @@ struct RootView: View {
             .alert("Wallet Ledger", isPresented: Binding(get: { store.presentedError != nil }, set: { if !$0 { store.presentedError = nil } })) { Button("OK") { store.presentedError = nil } } message: { Text(store.presentedError ?? "") }
             .overlay(alignment: .bottom) { undoToast }
             .onChange(of: store.activeBookID) { _, _ in selectedAccountID = nil }
-            .sheet(isPresented: Binding(get: { store.routedPurchaseID != nil }, set: { if !$0 { store.routedPurchaseID = nil } })) {
+            .sheet(isPresented: Binding(get: { store.activeRoute == .addTransaction }, set: { if !$0 && store.activeRoute == .addTransaction { store.activeRoute = nil } })) {
+                TransactionEditorView()
+            }
+            .sheet(isPresented: Binding(get: { store.routedPurchaseID != nil }, set: { if !$0 { store.routedPurchaseID = nil; if case .purchase = store.activeRoute { store.activeRoute = nil } } })) {
                 if let id = store.routedPurchaseID { PurchaseSessionFlowView(sessionID: id) }
             }
     }

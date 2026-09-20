@@ -85,16 +85,6 @@ enum LegacyWebBackup {
 
     private static func cleanHex(_ value: String) -> String { value.trimmingCharacters(in: CharacterSet(charactersIn: "#")).uppercased() }
     private static func accountType(_ value: String) -> AccountType {
-        switch value.lowercased() {
-        case "checking": .checking
-        case "savings": .savings
-        case "credit", "credit card": .credit
-        case "investment": .investment
-        case "cash": .cash
-        case "loan": .loan
-        case "lending", "lending / receivable", "receivable": .lending
-        case "stocks", "stock": .stocks
-        default: AccountType(rawValue: value) ?? .checking
-        }
+        AccountType.from(aliasOrRaw: value)
     }
 }

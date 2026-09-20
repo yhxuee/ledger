@@ -7,6 +7,7 @@ struct OverviewMetricEntry: TimelineEntry {
     let date: Date
     let metric: OverviewMetricWidgetOption
     let snapshot: OverviewWidgetSnapshot
+    let bridgeState: OverviewWidgetBridgeState
 }
 
 struct OverviewMetricTimelineProvider: AppIntentTimelineProvider {
@@ -14,17 +15,20 @@ struct OverviewMetricTimelineProvider: AppIntentTimelineProvider {
     typealias Intent = SelectOverviewMetricIntent
 
     func placeholder(in context: Context) -> OverviewMetricEntry {
-        OverviewMetricEntry(date: .now, metric: .budgetRemain, snapshot: .placeholder)
+        OverviewMetricEntry(date: .now, metric: .budgetRemain, snapshot: .placeholder, bridgeState: .available)
     }
 
     func snapshot(for configuration: SelectOverviewMetricIntent, in context: Context) async -> OverviewMetricEntry {
-        let snapshot = OverviewWidgetSnapshotStore.read()
-        return OverviewMetricEntry(date: .now, metric: configuration.metric, snapshot: snapshot)
+        let result = OverviewWidgetSnapshotStore.readResult()
+        if context.isPreview && !result.state.isAvailable {
+            return OverviewMetricEntry(date: .now, metric: configuration.metric, snapshot: .placeholder, bridgeState: .available)
+        }
+        return OverviewMetricEntry(date: .now, metric: configuration.metric, snapshot: result.snapshot, bridgeState: result.state)
     }
 
     func timeline(for configuration: SelectOverviewMetricIntent, in context: Context) async -> Timeline<OverviewMetricEntry> {
-        let snapshot = OverviewWidgetSnapshotStore.read()
-        let entry = OverviewMetricEntry(date: .now, metric: configuration.metric, snapshot: snapshot)
+        let result = OverviewWidgetSnapshotStore.readResult()
+        let entry = OverviewMetricEntry(date: .now, metric: configuration.metric, snapshot: result.snapshot, bridgeState: result.state)
         let nextUpdate = Calendar.current.date(byAdding: .minute, value: 30, to: .now) ?? .now.addingTimeInterval(1800)
         return Timeline(entries: [entry], policy: .after(nextUpdate))
     }
@@ -80,18 +84,36 @@ private struct OverviewSmallMetricView: View {
     let entry: OverviewMetricEntry
 
     var body: some View {
-        switch entry.metric {
-        case .budgetRemain:
-            smallBudgetRemain
-        case .weeklyActivity:
-            smallWeeklyActivity
-        case .todayExpense:
-            smallExpense(title: "TODAY EXPENSE", data: entry.snapshot.todayExpense)
-        case .weekExpense:
-            smallExpense(title: "WEEK EXPENSE", data: entry.snapshot.weekExpense)
-        case .sixMonthTrend:
-            smallSixMonthTrend
+        if !entry.bridgeState.isAvailable {
+            unavailableView
+        } else {
+            switch entry.metric {
+            case .budgetRemain:
+                smallBudgetRemain
+            case .weeklyActivity:
+                smallWeeklyActivity
+            case .todayExpense:
+                smallExpense(title: "TODAY EXPENSE", data: entry.snapshot.todayExpense)
+            case .weekExpense:
+                smallExpense(title: "WEEK EXPENSE", data: entry.snapshot.weekExpense)
+            case .sixMonthTrend:
+                smallSixMonthTrend
+            }
         }
+    }
+
+    private var unavailableView: some View {
+        VStack(spacing: 6) {
+            Image(systemName: entry.bridgeState == .snapshotMissing ? "arrow.clockwise" : "exclamationmark.triangle")
+                .font(.system(size: 20))
+                .foregroundStyle(.secondary)
+            Text(entry.bridgeState.message ?? "Data unavailable")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 4)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var smallBudgetRemain: some View {
@@ -297,18 +319,40 @@ private struct OverviewMediumMetricView: View {
     let entry: OverviewMetricEntry
 
     var body: some View {
-        switch entry.metric {
-        case .budgetRemain:
-            mediumBudgetRemain
-        case .weeklyActivity:
-            mediumWeeklyActivity
-        case .todayExpense:
-            mediumExpense(title: "TODAY EXPENSE", data: entry.snapshot.todayExpense)
-        case .weekExpense:
-            mediumExpense(title: "WEEK EXPENSE", data: entry.snapshot.weekExpense)
-        case .sixMonthTrend:
-            mediumSixMonthTrend
+        if !entry.bridgeState.isAvailable {
+            unavailableView
+        } else {
+            switch entry.metric {
+            case .budgetRemain:
+                mediumBudgetRemain
+            case .weeklyActivity:
+                mediumWeeklyActivity
+            case .todayExpense:
+                mediumExpense(title: "TODAY EXPENSE", data: entry.snapshot.todayExpense)
+            case .weekExpense:
+                mediumExpense(title: "WEEK EXPENSE", data: entry.snapshot.weekExpense)
+            case .sixMonthTrend:
+                mediumSixMonthTrend
+            }
         }
+    }
+
+    private var unavailableView: some View {
+        HStack(spacing: 12) {
+            Image(systemName: entry.bridgeState == .snapshotMissing ? "arrow.clockwise" : "exclamationmark.triangle")
+                .font(.system(size: 26))
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.bridgeState.message ?? "Data unavailable")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(entry.bridgeState == .snapshotMissing ? "Launch Finsy to sync your overview metrics." : "Could not load overview metrics snapshot.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
     }
 
     private var mediumBudgetRemain: some View {

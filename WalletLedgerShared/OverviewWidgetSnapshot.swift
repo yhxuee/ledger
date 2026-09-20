@@ -198,26 +198,173 @@ struct OverviewWidgetSnapshot: Codable, Sendable, Hashable {
     }
 }
 
+enum OverviewWidgetBridgeState: Equatable, Sendable {
+    case available
+    case containerUnavailable
+    case snapshotMissing
+    case decodeFailed
+    case writeFailed(String)
+
+    var isAvailable: Bool {
+        if case .available = self { return true }
+        return false
+    }
+
+    var message: String? {
+        switch self {
+        case .available:
+            return nil
+        case .snapshotMissing:
+            return "Open Finsy to update"
+        case .containerUnavailable, .decodeFailed, .writeFailed:
+            return "Data unavailable"
+        }
+    }
+}
+
+struct OverviewWidgetReadResult: Sendable {
+    var snapshot: OverviewWidgetSnapshot
+    var state: OverviewWidgetBridgeState
+}
+
+struct OverviewWidgetBridgeDiagnostics: Equatable, Sendable {
+    var appGroupIdentifier: String
+    var containerReachable: Bool
+    var containerPath: String?
+    var snapshotFileExists: Bool
+    var snapshotFileSize: Int?
+    var snapshotFileModifiedAt: Date?
+    var state: OverviewWidgetBridgeState
+    var detail: String?
+
+    var report: String {
+        var lines = [
+            "App Group identifier: \(appGroupIdentifier)",
+            "containerURL available: \(containerReachable)",
+            "snapshot file exists: \(snapshotFileExists)"
+        ]
+        if let size = snapshotFileSize {
+            lines.append("snapshot size: \(size) bytes")
+        }
+        if let date = snapshotFileModifiedAt {
+            lines.append("snapshot modified: \(date)")
+        }
+        lines.append("bridge state: \(state)")
+        if let detail {
+            lines.append("detail: \(detail)")
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
 enum OverviewWidgetSnapshotStore {
     static let appGroupIdentifier = "group.com.finsy.app"
-    static let suiteKey = "overview_widget_snapshot"
+    static let fileName = "overview-widget.json"
+    static let legacySuiteKey = "overview_widget_snapshot"
+
+    static func containerURL() -> URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)
+    }
+
+    static func snapshotURL() -> URL? {
+        containerURL()?.appending(path: fileName)
+    }
 
     static func userDefaults() -> UserDefaults? {
         UserDefaults(suiteName: appGroupIdentifier)
     }
 
-    static func write(_ snapshot: OverviewWidgetSnapshot) {
-        guard let defaults = userDefaults(),
-              let data = try? JSONEncoder().encode(snapshot) else { return }
-        defaults.set(data, forKey: suiteKey)
+    @discardableResult
+    static func write(_ snapshot: OverviewWidgetSnapshot) -> OverviewWidgetBridgeState {
+        guard let url = snapshotURL() else {
+            // Also attempt writing to suite defaults as fallback
+            if let defaults = userDefaults(),
+               let data = try? JSONEncoder().encode(snapshot) {
+                defaults.set(data, forKey: legacySuiteKey)
+            }
+            return .containerUnavailable
+        }
+
+        do {
+            let data = try JSONEncoder().encode(snapshot)
+            try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            if let defaults = userDefaults() {
+                defaults.set(data, forKey: legacySuiteKey)
+            }
+            return .available
+        } catch {
+            return .writeFailed(error.localizedDescription)
+        }
+    }
+
+    static func readResult() -> OverviewWidgetReadResult {
+        guard let url = snapshotURL() else {
+            if let defaults = userDefaults(),
+               let data = defaults.data(forKey: legacySuiteKey) {
+                if let snapshot = try? JSONDecoder().decode(OverviewWidgetSnapshot.self, from: data) {
+                    return OverviewWidgetReadResult(snapshot: snapshot, state: .available)
+                }
+                return OverviewWidgetReadResult(snapshot: .empty, state: .decodeFailed)
+            }
+            return OverviewWidgetReadResult(snapshot: .empty, state: .containerUnavailable)
+        }
+
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            if let defaults = userDefaults(),
+               let data = defaults.data(forKey: legacySuiteKey),
+               let snapshot = try? JSONDecoder().decode(OverviewWidgetSnapshot.self, from: data) {
+                return OverviewWidgetReadResult(snapshot: snapshot, state: .available)
+            }
+            return OverviewWidgetReadResult(snapshot: .empty, state: .snapshotMissing)
+        }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let snapshot = try JSONDecoder().decode(OverviewWidgetSnapshot.self, from: data)
+            return OverviewWidgetReadResult(snapshot: snapshot, state: .available)
+        } catch {
+            return OverviewWidgetReadResult(snapshot: .empty, state: .decodeFailed)
+        }
     }
 
     static func read() -> OverviewWidgetSnapshot {
-        guard let defaults = userDefaults(),
-              let data = defaults.data(forKey: suiteKey),
-              let snapshot = try? JSONDecoder().decode(OverviewWidgetSnapshot.self, from: data) else {
-            return .empty
+        readResult().snapshot
+    }
+
+    static func diagnostics() -> OverviewWidgetBridgeDiagnostics {
+        let identifier = appGroupIdentifier
+        guard let folder = containerURL() else {
+            return OverviewWidgetBridgeDiagnostics(
+                appGroupIdentifier: identifier,
+                containerReachable: false,
+                containerPath: nil,
+                snapshotFileExists: false,
+                snapshotFileSize: nil,
+                snapshotFileModifiedAt: nil,
+                state: .containerUnavailable,
+                detail: "containerURL(forSecurityApplicationGroupIdentifier:) returned nil"
+            )
         }
-        return snapshot
+
+        let file = folder.appending(path: fileName)
+        let exists = FileManager.default.fileExists(atPath: file.path)
+        var size: Int?
+        var modified: Date?
+        if exists, let attrs = try? FileManager.default.attributesOfItem(atPath: file.path) {
+            size = attrs[.size] as? Int
+            modified = attrs[.modificationDate] as? Date
+        }
+
+        let result = readResult()
+        return OverviewWidgetBridgeDiagnostics(
+            appGroupIdentifier: identifier,
+            containerReachable: true,
+            containerPath: folder.path,
+            snapshotFileExists: exists,
+            snapshotFileSize: size,
+            snapshotFileModifiedAt: modified,
+            state: result.state,
+            detail: nil
+        )
     }
 }

@@ -9,8 +9,12 @@ final class AppPreferencesStore: ObservableObject {
     init() { value = Self.load() ?? AppPreferences() }
 
     func update(_ change: (inout AppPreferences) -> Void) {
+        let oldLock = value.biometricLockEnabled
         change(&value)
         let snapshot = value
+        if oldLock != snapshot.biometricLockEnabled {
+            OverviewWidgetRelay.updatePrivacyMask(isPrivacyMasked: snapshot.biometricLockEnabled)
+        }
         saveTask?.cancel()
         saveTask = Task {
             try? await Task.sleep(for: .milliseconds(120))

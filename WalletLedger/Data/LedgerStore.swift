@@ -2,6 +2,11 @@ import Foundation
 import SwiftUI
 import CloudKit
 
+enum AppRoute: Equatable, Sendable {
+    case addTransaction
+    case purchase(UUID)
+}
+
 @MainActor
 final class LedgerStore: ObservableObject {
     static let shared = LedgerStore()
@@ -16,6 +21,7 @@ final class LedgerStore: ObservableObject {
     @Published var purchaseSyncWarning: String?
     @Published var undoMessage: String?
     @Published var routedPurchaseID: UUID?
+    @Published var activeRoute: AppRoute?
     @Published var requestedAnalyticsType: LedgerTransactionType? = nil
     @Published var requestedAnalyticsRange: AnalyticsRange? = nil
     @Published var requestedAnalyticsCustomRange: ClosedRange<Date>? = nil
@@ -722,8 +728,16 @@ final class LedgerStore: ObservableObject {
     }
 
     func handleDeepLink(_ url: URL) {
-        guard (url.scheme == "finsy" || url.scheme == "walletledger"), url.host == "purchase", let rawID = url.pathComponents.dropFirst().first, let id = UUID(uuidString: rawID), purchaseSessions.contains(where: { $0.id == id }) else { return }
-        routedPurchaseID = id
+        guard url.scheme == "finsy" || url.scheme == "walletledger" else { return }
+        if url.host == "transaction" && (url.path == "/add" || url.pathComponents.contains("add")) {
+            activeRoute = .addTransaction
+            return
+        }
+        if url.host == "purchase", let rawID = url.pathComponents.dropFirst().first, let id = UUID(uuidString: rawID), purchaseSessions.contains(where: { $0.id == id }) {
+            routedPurchaseID = id
+            activeRoute = .purchase(id)
+            return
+        }
     }
 
     func saveRecurringRule(_ rule: RecurringRule) {

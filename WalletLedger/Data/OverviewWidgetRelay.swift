@@ -6,7 +6,19 @@ enum OverviewWidgetRelay {
     static func updateSnapshot(store: LedgerStore, preferences: AppPreferences? = nil) {
         let state = store.state
         let baseCurrency = state.settings.baseCurrency
-        let isPrivacyMasked = preferences?.biometricLockEnabled ?? false
+        let isPrivacyMasked: Bool = {
+            if let preferences {
+                return preferences.biometricLockEnabled
+            }
+            if let loaded = AppPreferencesStore.load() {
+                return loaded.biometricLockEnabled
+            }
+            let existing = OverviewWidgetSnapshotStore.readResult()
+            if existing.state == .available {
+                return existing.snapshot.isPrivacyMasked
+            }
+            return false
+        }()
 
         // 1. Weekly activity
         let weeklySummary = LedgerCalculations.analytics(state, range: .week, type: .expense, accountID: nil)
@@ -67,6 +79,17 @@ enum OverviewWidgetRelay {
             sixMonthTrend: .init(total: sixMonthsSummary.total, buckets: sixMonthsBuckets)
         )
 
+        OverviewWidgetSnapshotStore.write(snapshot)
+        WidgetCenter.shared.reloadTimelines(ofKind: "FinsyOverviewMetric")
+    }
+
+    static func updatePrivacyMask(isPrivacyMasked: Bool) {
+        let result = OverviewWidgetSnapshotStore.readResult()
+        guard result.state.isAvailable else { return }
+        var snapshot = result.snapshot
+        guard snapshot.isPrivacyMasked != isPrivacyMasked else { return }
+        snapshot.isPrivacyMasked = isPrivacyMasked
+        snapshot.updatedAt = .now
         OverviewWidgetSnapshotStore.write(snapshot)
         WidgetCenter.shared.reloadTimelines(ofKind: "FinsyOverviewMetric")
     }
