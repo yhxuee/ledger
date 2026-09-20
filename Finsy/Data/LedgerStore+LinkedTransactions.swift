@@ -278,6 +278,33 @@ extension LedgerStore {
         let amount2 = LedgerCalculations.convert(second.recognizedExpenseAmount, from: second.currency, to: parentCurrency, rates: state.settings.rates)
         let parentID = UUID()
 
+        var parent = LedgerTransaction(
+            id: parentID,
+            userID: state.settings.userID,
+            type: .expense,
+            accountID: first.accountID,
+            destinationAccountID: nil,
+            amount: amount1 + amount2,
+            currency: parentCurrency,
+            accountAmount: 0,
+            destinationAmount: nil,
+            accountCurrency: nil,
+            destinationAccountCurrency: nil,
+            categoryID: first.categoryID,
+            occurredAt: max(first.occurredAt, second.occurredAt),
+            note: nil,
+            exchangeRateAtTransaction: CurrencyRates.reference(parentCurrency, in: state.settings.rates) ?? 1,
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: nil,
+            version: 1,
+            syncStatus: .pending
+        )
+        parent.groupMode = .combinedPayment
+        parent.isTaxExempt = true
+        parent.taxAmount = 0
+        parent.taxBaseAmount = 0
+
         mutateState { state in
             state.transactions[idx1].parentTransactionID = parentID
             state.transactions[idx1].linkedTransactionKind = .combinedPaymentItem
