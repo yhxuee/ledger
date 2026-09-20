@@ -19,6 +19,16 @@ struct SettingsView: View {
     @State private var showingCloudSharing = false
 
     var body: some View {
+        scrollContent
+            .background(LedgerBackground())
+            .navigationTitle("Settings")
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() } }
+            .modifier(fileTransferModifier)
+            .modifier(alertsModifier)
+            .overlay { progressOverlay }
+    }
+
+    private var scrollContent: some View {
         ScrollView {
             VStack(spacing: 16) {
                 basicSection
@@ -30,60 +40,38 @@ struct SettingsView: View {
             }
             .padding()
         }
-        .background(LedgerBackground())
-        .navigationTitle("Settings")
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() } }
-        .fileExporter(isPresented: $showingExporter, document: exportDocument, contentType: .fsyBackup, defaultFilename: backupFileName) { result in
-            if case .failure(let error) = result { store.presentedError = error.localizedDescription }
-        }
-        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.fsyBackup, .legacyWalletLedgerBackup, .json, .commaSeparatedText]) { result in
-            do {
-                let url = try result.get()
-                let accessed = url.startAccessingSecurityScopedResource()
-                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-                importPreview = try BackupCodec.decode(Data(contentsOf: url), sourceName: url.lastPathComponent, existingState: store.state)
-            } catch { store.presentedError = error.localizedDescription }
-        }
-        .sheet(item: $importPreview) { preview in
-            ImportPreviewView(preview: preview) {
-                store.replace(with: preview.envelope)
-                importPreview = nil
-            }
-            .environmentObject(store)
-        }
-        .sheet(isPresented: $showingCloudSharing) {
-            if let cloudShare {
-                CloudSharingView(share: cloudShare, container: CKContainer(identifier: "iCloud.com.finsy.app"))
-            }
-        }
-        .overlay {
-            if working {
-                ProgressView()
-                    .controlSize(.large)
-                    .padding(24)
-                    .ledgerGlass(in: RoundedRectangle(cornerRadius: 22))
-            }
-        }
-        .alert("Backup", isPresented: Binding(get: { statusMessage != nil }, set: { if !$0 { statusMessage = nil } })) {
-            Button("OK") { statusMessage = nil }
-        } message: {
-            Text(statusMessage ?? "")
-        }
-        .confirmationDialog("Reset App Data?", isPresented: $confirmingReset, titleVisibility: .visible) {
-            Button("Reset Local App Data", role: .destructive) {
-                Task { await resetAppData() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This clears local ledgers, receipts, caches, and device preferences. It does not delete CloudKit ledgers owned by or shared with other people.")
-        }
-        .confirmationDialog("Cloud Changes Pending", isPresented: $confirmingPendingCloud, titleVisibility: .visible) {
-            Button("Continue Anyway") {
-                executePendingBackupAction()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Cloud changes may still be pending. This backup will contain the latest data currently available on this device.")
+    }
+
+    private var fileTransferModifier: SettingsFileTransferModifier {
+        SettingsFileTransferModifier(
+            store: store,
+            showingExporter: $showingExporter,
+            showingImporter: $showingImporter,
+            exportDocument: exportDocument,
+            backupFileName: backupFileName,
+            importPreview: $importPreview,
+            showingCloudSharing: $showingCloudSharing,
+            cloudShare: cloudShare
+        )
+    }
+
+    private var alertsModifier: SettingsAlertsModifier {
+        SettingsAlertsModifier(
+            statusMessage: $statusMessage,
+            confirmingReset: $confirmingReset,
+            confirmingPendingCloud: $confirmingPendingCloud,
+            onReset: { Task { await resetAppData() } },
+            onContinuePendingCloud: { executePendingBackupAction() }
+        )
+    }
+
+    @ViewBuilder
+    private var progressOverlay: some View {
+        if working {
+            ProgressView()
+                .controlSize(.large)
+                .padding(24)
+                .ledgerGlass(in: RoundedRectangle(cornerRadius: 22))
         }
     }
 
@@ -213,8 +201,11 @@ struct SettingsView: View {
             NavigationLink {
                 RecordingReminderSettingsView()
             } label: {
-                let count = preferences.value.recordingReminderSlots.filter(\.isEnabled).count
-                SettingsLinkRow("Bookkeeping Reminders", systemImage: "bell.badge", detail: count > 0 ? "\(count) active" : "Off")
+                SettingsLinkRow(
+                    "Bookkeeping Reminders",
+                    systemImage: "bell.badge",
+                    detail: activeReminderCount > 0 ? "\(activeReminderCount) active" : "Off"
+                )
             }
             .foregroundStyle(.primary)
 
@@ -355,6 +346,10 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.top, 4)
             .padding(.bottom, 24)
+    }
+
+    private var activeReminderCount: Int {
+        preferences.value.recordingReminderSlots.filter(\.isEnabled).count
     }
 
     private func preferenceBinding(_ keyPath: WritableKeyPath<AppPreferences, Bool>) -> Binding<Bool> {
@@ -530,6 +525,112 @@ struct SettingsView: View {
         } catch {
             store.presentedError = error.localizedDescription
         }
+    }
+}
+
+private struct SettingsFileTransferModifier: ViewModifier {
+    @ObservedObject var store: LedgerStore
+    @Binding var showingExporter: Bool
+    @Binding var showingImporter: Bool
+    let exportDocument: BackupDocument?
+    let backupFileName: String
+    @Binding var importPreview: ImportPreview?
+    @Binding var showingCloudSharing: Bool
+    let cloudShare: CKShare?
+
+    func body(content: Content) -> some View {
+        content
+            .fileExporter(
+                isPresented: $showingExporter,
+                document: exportDocument,
+                contentType: .fsyBackup,
+                defaultFilename: backupFileName
+            ) { result in
+                if case .failure(let error) = result {
+                    store.presentedError = error.localizedDescription
+                }
+            }
+            .fileImporter(
+                isPresented: $showingImporter,
+                allowedContentTypes: [.fsyBackup, .legacyWalletLedgerBackup, .json, .commaSeparatedText]
+            ) { result in
+                handleImport(result: result)
+            }
+            .sheet(item: $importPreview) { preview in
+                ImportPreviewView(preview: preview) {
+                    store.replace(with: preview.envelope)
+                    importPreview = nil
+                }
+                .environmentObject(store)
+            }
+            .sheet(isPresented: $showingCloudSharing) {
+                if let cloudShare {
+                    CloudSharingView(share: cloudShare, container: CKContainer(identifier: "iCloud.com.finsy.app"))
+                }
+            }
+    }
+
+    private func handleImport(result: Result<URL, Error>) {
+        do {
+            let url = try result.get()
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessed {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            importPreview = try BackupCodec.decode(
+                Data(contentsOf: url),
+                sourceName: url.lastPathComponent,
+                existingState: store.state
+            )
+        } catch {
+            store.presentedError = error.localizedDescription
+        }
+    }
+}
+
+private struct SettingsAlertsModifier: ViewModifier {
+    @Binding var statusMessage: String?
+    @Binding var confirmingReset: Bool
+    @Binding var confirmingPendingCloud: Bool
+    let onReset: () -> Void
+    let onContinuePendingCloud: () -> Void
+
+    private var isStatusAlertPresented: Binding<Bool> {
+        Binding(
+            get: { statusMessage != nil },
+            set: { isPresent in
+                if !isPresent {
+                    statusMessage = nil
+                }
+            }
+        )
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Backup", isPresented: isStatusAlertPresented) {
+                Button("OK") { statusMessage = nil }
+            } message: {
+                Text(statusMessage ?? "")
+            }
+            .confirmationDialog("Reset App Data?", isPresented: $confirmingReset, titleVisibility: .visible) {
+                Button("Reset Local App Data", role: .destructive) {
+                    onReset()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This clears local ledgers, receipts, caches, and device preferences. It does not delete CloudKit ledgers owned by or shared with other people.")
+            }
+            .confirmationDialog("Cloud Changes Pending", isPresented: $confirmingPendingCloud, titleVisibility: .visible) {
+                Button("Continue Anyway") {
+                    onContinuePendingCloud()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Cloud changes may still be pending. This backup will contain the latest data currently available on this device.")
+            }
     }
 }
 
