@@ -44,6 +44,7 @@ extension LedgerStore {
         }
         scheduleSave()
     }
+}
 
 struct PurchasePersistenceFingerprint: Equatable, Sendable {
     let id: UUID
