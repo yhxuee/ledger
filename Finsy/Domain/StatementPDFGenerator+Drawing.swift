@@ -3,17 +3,17 @@ import UIKit
 extension StatementPDFGenerator {
     // MARK: - Calculation Helpers
 
-    private static func calculateBalance(account: LedgerAccount, upTo cutoff: Date, in state: LedgerState) -> Double {
+    static func calculateBalance(account: LedgerAccount, upTo cutoff: Date, in state: LedgerState) -> Double {
         ThreeMonthFinancialEngine.calculateBalance(account: account, upTo: cutoff, in: state, includeCutoff: false)
     }
 
-    private static func calculatePocketBalance(pocket: CurrencyCode, account: LedgerAccount, upTo cutoff: Date, in state: LedgerState) -> Double {
+    static func calculatePocketBalance(pocket: CurrencyCode, account: LedgerAccount, upTo cutoff: Date, in state: LedgerState) -> Double {
         ThreeMonthFinancialEngine.calculatePocketBalance(pocket: pocket, account: account, upTo: cutoff, in: state, includeCutoff: false)
     }
 
     // MARK: - Drawing Components
 
-    private static func drawHeader(
+    static func drawHeader(
         title: String,
         periodString: String,
         baseCurrency: CurrencyCode?,
@@ -88,7 +88,7 @@ extension StatementPDFGenerator {
         yOffset += 12
     }
 
-    private static func drawSectionTitle(_ title: String, yOffset: inout CGFloat) {
+    static func drawSectionTitle(_ title: String, yOffset: inout CGFloat) {
         let attrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 13, weight: .bold),
             .foregroundColor: textColor
@@ -97,7 +97,7 @@ extension StatementPDFGenerator {
         yOffset += 18
     }
 
-    private static func measureDescriptionHeight(text: String, width: CGFloat) -> CGFloat {
+    static func measureDescriptionHeight(text: String, width: CGFloat) -> CGFloat {
         let descParagraph = NSMutableParagraphStyle()
         descParagraph.lineBreakMode = .byWordWrapping
         descParagraph.alignment = .left
@@ -117,7 +117,7 @@ extension StatementPDFGenerator {
 
     // MARK: - Footer & Common Drawing
 
-    private static func drawFooter(pageNumber: Int, totalWidth: CGFloat, totalHeight: CGFloat, disclaimer: String) {
+    static func drawFooter(pageNumber: Int, totalWidth: CGFloat, totalHeight: CGFloat, disclaimer: String) {
         let footerY = totalHeight - margin - footerHeight
         let usableWidth = totalWidth - (margin * 2)
 
@@ -145,7 +145,7 @@ extension StatementPDFGenerator {
         disclaimer.draw(in: disclaimerRect, withAttributes: disclaimerAttrs)
     }
 
-    private static func drawText(_ text: String, in rect: CGRect, attrs: [NSAttributedString.Key: Any], alignment: NSTextAlignment) {
+    static func drawText(_ text: String, in rect: CGRect, attrs: [NSAttributedString.Key: Any], alignment: NSTextAlignment) {
         let style = NSMutableParagraphStyle()
         style.alignment = alignment
         style.lineBreakMode = .byTruncatingTail
@@ -154,7 +154,7 @@ extension StatementPDFGenerator {
         (text as NSString).draw(in: rect, withAttributes: finalAttrs)
     }
 
-    private static func drawHLine(y: CGFloat, width: CGFloat) {
+    static func drawHLine(y: CGFloat, width: CGFloat) {
         let path = UIBezierPath()
         path.move(to: CGPoint(x: margin, y: y))
         path.addLine(to: CGPoint(x: margin + width, y: y))
@@ -163,7 +163,7 @@ extension StatementPDFGenerator {
         path.stroke()
     }
 
-    private static func formatMoney(_ amount: Double) -> String {
+    static func formatMoney(_ amount: Double) -> String {
         String(format: "%.2f", amount)
     }
 

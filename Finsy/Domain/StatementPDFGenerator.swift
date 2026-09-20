@@ -11,14 +11,14 @@ enum StatementPDFGenerator {
     static let footerHeight: CGFloat = 46
 
     // Fixed print-safe colors for document rendering (independent of trait environment / Dark Mode)
-    private static let textColor = UIColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 1.0)
-    private static let secondaryTextColor = UIColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1.0)
-    private static let ruleColor = UIColor(red: 0.85, green: 0.85, blue: 0.85, alpha: 1.0)
-    private static let tableHeaderBgColor = UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0)
-    private static let alternateRowBgColor = UIColor(red: 0.985, green: 0.985, blue: 0.985, alpha: 1.0)
+    static let textColor = UIColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 1.0)
+    static let secondaryTextColor = UIColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1.0)
+    static let ruleColor = UIColor(red: 0.85, green: 0.85, blue: 0.85, alpha: 1.0)
+    static let tableHeaderBgColor = UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0)
+    static let alternateRowBgColor = UIColor(red: 0.985, green: 0.985, blue: 0.985, alpha: 1.0)
 
-    private static let mandatoryDisclaimer = "Disclaimer: Finsy is a personal bookkeeping tool and is NOT a bank, financial institution, or licensed tax advisor. This statement is generated solely from user-entered records for informational and personal budgeting purposes only."
-    private static let taxDisclaimer = "Disclaimer: Finsy is a personal bookkeeping tool and is NOT a bank, financial institution, or licensed tax advisor. This statement is generated solely from user-entered records for informational and personal budgeting purposes only. This document does not constitute official tax advice."
+    static let mandatoryDisclaimer = "Disclaimer: Finsy is a personal bookkeeping tool and is NOT a bank, financial institution, or licensed tax advisor. This statement is generated solely from user-entered records for informational and personal budgeting purposes only."
+    static let taxDisclaimer = "Disclaimer: Finsy is a personal bookkeeping tool and is NOT a bank, financial institution, or licensed tax advisor. This statement is generated solely from user-entered records for informational and personal budgeting purposes only. This document does not constitute official tax advice."
 
     struct AccountMonthlySummary: Sendable {
         let account: LedgerAccount
@@ -42,7 +42,7 @@ enum StatementPDFGenerator {
 
     // MARK: - Date Helpers
 
-    private static func periodEnd(for startOfMonth: Date, calendar: Calendar, now: Date) -> Date {
+    static func periodEnd(for startOfMonth: Date, calendar: Calendar, now: Date) -> Date {
         guard let endOfMonth = calendar.date(byAdding: DateComponents(month: 1, second: -1), to: startOfMonth) else {
             return now
         }
@@ -53,7 +53,7 @@ enum StatementPDFGenerator {
         }
     }
 
-    private static func formatPeriodString(startOfMonth: Date, periodEnd: Date, calendar: Calendar, now: Date) -> String {
+    static func formatPeriodString(startOfMonth: Date, periodEnd: Date, calendar: Calendar, now: Date) -> String {
         let monthFormatter = DateFormatter()
         monthFormatter.dateFormat = "MMMM"
         let monthName = monthFormatter.string(from: startOfMonth)
@@ -64,7 +64,7 @@ enum StatementPDFGenerator {
         return "\(monthName) \(startDay)–\(endDay), \(year)"
     }
 
-    private static func formatAccountsHeader(accounts: [LedgerAccount], allAccountsSelected: Bool) -> String {
+    static func formatAccountsHeader(accounts: [LedgerAccount], allAccountsSelected: Bool) -> String {
         if allAccountsSelected {
             return "Accounts: All"
         } else if accounts.count == 1 {
@@ -74,7 +74,7 @@ enum StatementPDFGenerator {
         }
     }
 
-    private static func formatFXRate(_ rate: Double) -> String {
+    static func formatFXRate(_ rate: Double) -> String {
         if abs(rate - 1.0) < 0.00001 {
             return "1"
         }
@@ -89,7 +89,7 @@ enum StatementPDFGenerator {
         return trimmed
     }
 
-    private static func computeThreeMonthWindows(
+    static func computeThreeMonthWindows(
         startOfMonth: Date,
         cutoffEnd: Date,
         calendar: Calendar,

@@ -49,7 +49,7 @@ extension StatementPDFGenerator {
 
     // MARK: - General Base-Currency Finsy Statement
 
-    private static func generateGeneralFinsyStatement(
+    static func generateGeneralFinsyStatement(
         accounts: [LedgerAccount],
         allAccountsSelected: Bool,
         startOfMonth: Date,
@@ -207,13 +207,13 @@ extension StatementPDFGenerator {
         let monthStr = String(format: "%02d", month)
         let filename = "Finsy_Statement_\(year)_\(monthStr).pdf"
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-        try pdfData.write(to: tempURL, options: .atomic)
+        try pdfData.write(to: tempURL, options: [.atomic])
         return tempURL
     }
 
     // MARK: - Native Multi-Currency Account Statement Mode
 
-    private static func generateSingleMultiCurrencyStatement(
+    static func generateSingleMultiCurrencyStatement(
         account: LedgerAccount,
         startOfMonth: Date,
         cutoffEnd: Date,
@@ -378,14 +378,14 @@ extension StatementPDFGenerator {
         let monthStr = String(format: "%02d", month)
         let filename = "Finsy_Statement_\(year)_\(monthStr).pdf"
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-        try pdfData.write(to: tempURL, options: .atomic)
+        try pdfData.write(to: tempURL, options: [.atomic])
         return tempURL
     }
 
 
     // MARK: - General Statement Tables
 
-    private static func drawGeneralAccountSummaryTable(
+    static func drawGeneralAccountSummaryTable(
         summaries: [AccountMonthlySummary],
         baseCurrency: CurrencyCode,
         contentWidth: CGFloat,
@@ -482,7 +482,7 @@ extension StatementPDFGenerator {
         drawHLine(y: yOffset, width: contentWidth)
     }
 
-    private static func drawGeneralTransactionTableHeader(
+    static func drawGeneralTransactionTableHeader(
         baseCurrency: CurrencyCode,
         accentColor: UIColor,
         contentWidth: CGFloat,
@@ -511,7 +511,7 @@ extension StatementPDFGenerator {
         yOffset += 4
     }
 
-    private static func drawGeneralTransactionRow(
+    static func drawGeneralTransactionRow(
         posting: MonthlyStatementPosting,
         baseCurrency: CurrencyCode,
         in state: LedgerState,
@@ -598,7 +598,7 @@ extension StatementPDFGenerator {
 
     // MARK: - Native Multi-Currency Account Drawing Helpers
 
-    private static func drawPocketSummaryTable(
+    static func drawPocketSummaryTable(
         pocketCurrency: CurrencyCode,
         opening: Double,
         inflow: Double,
@@ -649,7 +649,7 @@ extension StatementPDFGenerator {
         drawHLine(y: yOffset, width: contentWidth)
     }
 
-    private static func drawMultiCurrencyTransactionTableHeader(
+    static func drawMultiCurrencyTransactionTableHeader(
         pocketCurrency: CurrencyCode,
         accentColor: UIColor,
         contentWidth: CGFloat,
@@ -678,7 +678,7 @@ extension StatementPDFGenerator {
         yOffset += 4
     }
 
-    private static func drawMultiCurrencyTransactionRow(
+    static func drawMultiCurrencyTransactionRow(
         posting: MonthlyStatementPosting,
         pocketCurrency: CurrencyCode,
         in state: LedgerState,
@@ -759,7 +759,7 @@ extension StatementPDFGenerator {
 
     // MARK: - 3-Month Personal Summary Dedicated Page
 
-    private static func drawThreeMonthPersonalSummaryPage(
+    static func drawThreeMonthPersonalSummaryPage(
         startOfMonth: Date,
         cutoffEnd: Date,
         pageWidth: CGFloat,

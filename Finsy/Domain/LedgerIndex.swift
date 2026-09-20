@@ -97,4 +97,16 @@ public struct LedgerIndex: Sendable {
         self.purchaseSessionsByID = purchaseSessionsByID
         self.purchaseTransactionsBySessionID = purchaseTransactionsBySessionID
     }
+
+    public func transactions(for accountID: UUID) -> [LedgerTransaction] {
+        transactionsByAccountID[accountID] ?? []
+    }
+
+    public func children(of parentID: UUID) -> [LedgerTransaction] {
+        childrenByParentID[parentID] ?? []
+    }
+
+    public var activeTransactionsSorted: [LedgerTransaction] {
+        sortedActiveTransactions
+    }
 }

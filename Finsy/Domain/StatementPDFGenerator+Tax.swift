@@ -160,13 +160,13 @@ extension StatementPDFGenerator {
         let monthStr = String(format: "%02d", month)
         let filename = "Finsy_Tax_Statement_\(year)_\(monthStr).pdf"
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-        try pdfData.write(to: tempURL, options: .atomic)
+        try pdfData.write(to: tempURL, options: [.atomic])
         return tempURL
     }
 
     // MARK: - Tax Statement Tables (Landscape)
 
-    private static func drawTaxCategorySummaryTable(
+    static func drawTaxCategorySummaryTable(
         categoryTotals: [String: (base: Double, tax: Double, count: Int)],
         totalBase: Double,
         totalTax: Double,
@@ -249,7 +249,7 @@ extension StatementPDFGenerator {
         drawHLine(y: yOffset, width: contentWidth)
     }
 
-    private static func drawTaxTableHeader(accentColor: UIColor, contentWidth: CGFloat, yOffset: inout CGFloat) {
+    static func drawTaxTableHeader(accentColor: UIColor, contentWidth: CGFloat, yOffset: inout CGFloat) {
         let colWidths: [CGFloat] = [
             contentWidth * 0.09,
             contentWidth * 0.12,
@@ -283,7 +283,7 @@ extension StatementPDFGenerator {
         yOffset += 4
     }
 
-    private static func drawTaxRow(
+    static func drawTaxRow(
         item: TaxItem,
         in state: LedgerState,
         contentWidth: CGFloat,
