@@ -180,7 +180,8 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
             }
             .foregroundStyle(.white)
             .frame(width: min(width, standardWidth))
-            .frame(width: width, maxHeight: .infinity)
+            .frame(width: width)
+            .frame(maxHeight: .infinity)
             .background(
                 item.color.opacity(tintOpacity)
                     .clipShape(shape)
