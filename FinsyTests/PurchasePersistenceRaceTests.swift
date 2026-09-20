@@ -37,7 +37,7 @@ final class PurchasePersistenceRaceTests: XCTestCase {
         let gate = SuspensionGate()
 
         store.persistenceTestHook = {
-            try await withCheckedContinuation { (cont: CheckedContinuation<Void, Error>) in
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
                 gate.continuation = cont
             }
         }
@@ -122,7 +122,7 @@ final class PurchasePersistenceRaceTests: XCTestCase {
         let gate = SuspensionGate()
 
         store.persistenceTestHook = {
-            try await withCheckedContinuation { (cont: CheckedContinuation<Void, Error>) in
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
                 gate.continuation = cont
             }
         }
