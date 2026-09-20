@@ -371,13 +371,7 @@ extension LedgerStore {
             return refundInstallmentParent(original)
         }
 
-        // Normal standalone expense: convert into Refund group parent with 2 children
-        if TransactionSemantics.eligible(original) {
-            _ = convertExpenseToRefundGroup(original)
-            return nil
-        }
-
-        // Standalone income or transfer: reversal workflow
+        // Standalone expense, income or transfer: reversal workflow
         let now = Date.now
         guard let originalIndex = state.transactions.firstIndex(where: { $0.id == original.id && $0.deletedAt == nil }),
               !state.transactions.contains(where: { $0.reversalOfTransactionID == original.id && $0.deletedAt == nil }) else { return nil }

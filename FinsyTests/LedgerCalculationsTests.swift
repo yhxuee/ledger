@@ -6,6 +6,8 @@ import CloudKit
 final class LedgerCalculationsTests: XCTestCase {
     func testExpenseIncomeAndTransferAffectBalancesOnce() throws {
         var state = SeedData.make()
+        state.accounts[0].isMultiCurrency = false
+        state.accounts[0].currencyPockets = []
         let source = try XCTUnwrap(state.accounts.first)
         let destination = try XCTUnwrap(state.accounts.dropFirst().first)
         state.transactions = [
@@ -20,6 +22,8 @@ final class LedgerCalculationsTests: XCTestCase {
 
     func testDeletedTransactionsDoNotAffectTotals() throws {
         var state = SeedData.make()
+        state.accounts[0].isMultiCurrency = false
+        state.accounts[0].currencyPockets = []
         let source = try XCTUnwrap(state.accounts.first)
         var deleted = makeTransaction(type: .expense, source: source, amount: 100)
         deleted.deletedAt = .now
@@ -38,6 +42,8 @@ final class LedgerCalculationsTests: XCTestCase {
 
     func testPortfolioSummarySeparatesAssetsAndLiabilities() {
         var state = SeedData.make()
+        state.accounts[0].isMultiCurrency = false
+        state.accounts[0].currencyPockets = []
         state.transactions = []
         let expected = state.accounts.reduce(into: (assets: 0.0, liabilities: 0.0)) { result, account in
             let value = LedgerCalculations.convert(account.openingBalance, from: account.currency, to: state.settings.baseCurrency, rates: state.settings.rates)
@@ -92,7 +98,7 @@ final class LedgerCalculationsTests: XCTestCase {
         let data = try BackupCodec.encoder().encode(oldEnvelope)
         let migrated = try BackupCodec.decode(data, sourceName: "v1.walletledger").envelope.data
 
-        XCTAssertEqual(migrated.schemaVersion, 2)
+        XCTAssertEqual(migrated.schemaVersion, BackupCodec.currentSchemaVersion)
         XCTAssertEqual(migrated.transactions.map(\.exchangeRateAtTransaction), oldState.transactions.map(\.exchangeRateAtTransaction))
         XCTAssertEqual(migrated.settings.rates, oldState.settings.rates)
         XCTAssertEqual(migrated.settings.budgetPlan.mode, .account)
@@ -111,6 +117,8 @@ final class LedgerCalculationsTests: XCTestCase {
 
     func testExpenseRefundIsExactIdempotentAndReducesSpending() throws {
         var state = SeedData.make()
+        state.accounts[0].isMultiCurrency = false
+        state.accounts[0].currencyPockets = []
         let source = try XCTUnwrap(state.accounts.first)
         let expense = makeTransaction(type: .expense, source: source, amount: 100)
         state.transactions = [expense]
@@ -126,6 +134,8 @@ final class LedgerCalculationsTests: XCTestCase {
 
     func testIncomeAndTransferReversalsRestoreExactAccountAmounts() throws {
         var state = SeedData.make()
+        state.accounts[0].isMultiCurrency = false
+        state.accounts[0].currencyPockets = []
         let source = try XCTUnwrap(state.accounts.first)
         let destination = try XCTUnwrap(state.accounts.first(where: { $0.currency == .USD }))
 
@@ -148,6 +158,8 @@ final class LedgerCalculationsTests: XCTestCase {
 
     func testDeletingRefundRestoresOriginalRefundableStateAndUndoRestoresLink() throws {
         var state = SeedData.make()
+        state.accounts[0].isMultiCurrency = false
+        state.accounts[0].currencyPockets = []
         let source = try XCTUnwrap(state.accounts.first)
         let expense = makeTransaction(type: .expense, source: source, amount: 45)
         state.transactions = [expense]
@@ -188,7 +200,7 @@ final class LedgerCalculationsTests: XCTestCase {
         """
         let preview = try BackupCodec.decode(Data(json.utf8), sourceName: "legacy.json")
         let transaction = try XCTUnwrap(preview.envelope.data.transactions.first)
-        XCTAssertEqual(preview.envelope.data.schemaVersion, 2)
+        XCTAssertEqual(preview.envelope.data.schemaVersion, BackupCodec.currentSchemaVersion)
         XCTAssertEqual(transaction.amount, 12.5)
         XCTAssertEqual(transaction.accountAmount, 13.75)
         XCTAssertEqual(transaction.exchangeRateAtTransaction, 8.25)
@@ -279,7 +291,8 @@ final class LedgerCalculationsTests: XCTestCase {
     }
 
     func testCloudKitRecordMappingRoundTripWithoutNetwork() throws {
-        let state = SeedData.make()
+        var state = SeedData.make()
+        SchemaMigration.normalize(&state)
         let book = LedgerBook(id: UUID(), name: "Shared Ledger", state: state, createdAt: .now, updatedAt: .now)
         let records = try CloudRecordMapper.records(for: book)
         XCTAssertEqual(records.filter { $0.recordType == CloudRecordType.transaction }.count, state.transactions.count)

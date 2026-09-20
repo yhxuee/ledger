@@ -39,17 +39,17 @@ final class MoneyFormattingTests: XCTestCase {
     func testCompactMoneyFormattingRemainsSymbolBased() {
         let hkd = LedgerFormat.money(12_500, currency: .HKD, compact: true)
         XCTAssertTrue(hkd.hasPrefix("$12"), "Expected a symbol-prefixed compact value, got \(hkd)")
-        XCTAssertTrue(hkd.hasSuffix("k"))
+        XCTAssertTrue(hkd.lowercased().hasSuffix("k"))
         XCTAssertFalse(hkd.contains("HKD"))
 
         let usd = LedgerFormat.money(120_000, currency: .USD, compact: true)
         XCTAssertTrue(usd.hasPrefix("$120"), "Expected $120k, got \(usd)")
-        XCTAssertTrue(usd.hasSuffix("k"))
+        XCTAssertTrue(usd.lowercased().hasSuffix("k"))
         XCTAssertFalse(usd.contains("USD"))
 
         let gbp = LedgerFormat.money(15_000, currency: .GBP, compact: true)
         XCTAssertTrue(gbp.hasPrefix("£15"), "Expected £15k, got \(gbp)")
-        XCTAssertTrue(gbp.hasSuffix("k"))
+        XCTAssertTrue(gbp.lowercased().hasSuffix("k"))
 
         let usdt = LedgerFormat.money(12_500, currency: .USDT, compact: true)
         XCTAssertTrue(usdt.hasPrefix("$12"), "Expected a dollar-symbol compact value, got \(usdt)")

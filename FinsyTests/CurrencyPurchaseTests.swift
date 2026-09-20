@@ -429,6 +429,7 @@ final class CurrencyPurchaseTests: XCTestCase {
 
     func testOldDevelopmentPurchaseDecodesAndMigratesWithinSchemaTwo() throws {
         var state = DemoDataFactory.makeWithSingleAccount()
+        state.schemaVersion = 2
         var session = makeSession(accountID: state.accounts[0].id)
         for i in session.items.indices { session.items[i].resolvedAccountID = state.accounts[0].id }
         let encoded = try JSONEncoder().encode(session)
