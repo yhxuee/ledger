@@ -126,14 +126,14 @@ struct MetricCard<Content: View>: View {
 
     var body: some View {
         let isSideColumn = (layout == .portraitSideColumn || compact)
-        VStack(alignment: .leading, spacing: isSideColumn ? 6 : 10) {
+        VStack(alignment: .leading, spacing: isSideColumn ? 6 : 8) {
             Text(title.uppercased())
                 .font((isSideColumn ? Font.caption2 : .caption).weight(.semibold))
                 .foregroundStyle(.secondary)
                 .tracking(0.7)
             content
         }
-        .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(isSideColumn ? 12 : 18)
         .frame(
             maxWidth: .infinity,

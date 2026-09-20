@@ -272,6 +272,23 @@ private struct CardArtworkModifier: ViewModifier {
                 .accessibilityHidden(true)
             }
             .clipShape(RoundedRectangle(cornerRadius: 25, style: .continuous))
+            .overlay {
+                cardPerimeterBorder
+                    .allowsHitTesting(false)
+            }
+    }
+
+    @ViewBuilder
+    private var cardPerimeterBorder: some View {
+        let shape = RoundedRectangle(cornerRadius: 25, style: .continuous)
+        if colorScheme == .dark {
+            ZStack {
+                shape.strokeBorder(Color.black.opacity(0.40), lineWidth: 1.0)
+                shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 0.8)
+            }
+        } else {
+            shape.strokeBorder(Color.black.opacity(0.20), lineWidth: 0.9)
+        }
     }
 
     @ViewBuilder private func surface(size: CGSize, regions: [CGRect]) -> some View {

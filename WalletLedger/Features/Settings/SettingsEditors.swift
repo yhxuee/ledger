@@ -11,41 +11,60 @@ struct DefaultExpenseAccountsView: View {
     }
 
     var body: some View {
-        List {
-            Section("Expense Categories") {
-                ForEach(expenseCategories) { category in
-                    categoryRow(category)
+        ScrollView {
+            VStack(spacing: 16) {
+                SettingsGlassSection("Expense Categories") {
+                    VStack(spacing: 0) {
+                        ForEach(Array(expenseCategories.enumerated()), id: \.element.id) { index, category in
+                            categoryRow(category)
+                                .padding(.vertical, 4)
+                            if index < expenseCategories.count - 1 {
+                                Divider().padding(.vertical, 4)
+                            }
+                        }
+                    }
                 }
-            }
-            if !incomeCategories.isEmpty {
-                Section("Income Categories") {
-                    ForEach(incomeCategories) { category in
-                        categoryRow(category)
+
+                if !incomeCategories.isEmpty {
+                    SettingsGlassSection("Income Categories") {
+                        VStack(spacing: 0) {
+                            ForEach(Array(incomeCategories.enumerated()), id: \.element.id) { index, category in
+                                categoryRow(category)
+                                    .padding(.vertical, 4)
+                                if index < incomeCategories.count - 1 {
+                                    Divider().padding(.vertical, 4)
+                                }
+                            }
+                        }
                     }
                 }
             }
+            .padding()
         }
-        .scrollContentBackground(.hidden)
         .background(LedgerBackground())
         .navigationTitle("Default Accounts")
         .navigationBarTitleDisplayMode(.inline)
     }
 
     private func categoryRow(_ category: LedgerCategory) -> some View {
-        Picker(selection: mappingBinding(category.id)) {
-            Text("No Default").tag(Optional<UUID>.none)
-            ForEach(store.accounts) { item in Text(item.account.name).tag(Optional(item.id)) }
-        } label: {
-            HStack(spacing: 10) {
-                CategoryIcon(
-                    category: category,
-                    font: .system(size: 17, weight: .semibold)
-                )
-                .frame(width: 32, height: 32, alignment: .center)
+        HStack(spacing: 10) {
+            CategoryIcon(
+                category: category,
+                font: .system(size: 17, weight: .semibold)
+            )
+            .frame(width: 32, height: 32, alignment: .center)
 
-                Text(category.name)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            Text(category.name)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Picker(selection: mappingBinding(category.id)) {
+                Text("No Default").tag(Optional<UUID>.none)
+                ForEach(store.accounts) { item in Text(item.account.name).tag(Optional(item.id)) }
+            } label: {
+                EmptyView()
             }
+            .pickerStyle(.menu)
+            .labelsHidden()
         }
     }
 
@@ -68,32 +87,76 @@ struct ExchangeRateEditorView: View {
         store.currencyCatalog.filter { item in item.code != base && (query.isEmpty || item.code.rawValue.localizedCaseInsensitiveContains(query) || item.name.localizedCaseInsensitiveContains(query)) }
     }
     var body: some View {
-        List {
-            Section {
-                Toggle("Automatic Daily Rates", isOn: automaticBinding)
-                Button { Task { await refresh(showConfirmation: true) } } label: { Label(updating ? "Updating…" : "Update Now", systemImage: "arrow.triangle.2.circlepath") }.disabled(updating)
-                if let date = store.state.settings.exchangeRatesUpdatedAt { LabeledContent("Last Updated", value: date.formatted(date: .abbreviated, time: .shortened)) }
-            } footer: { Text("Automatic mode uses Frankfurter, keeps the last successful values offline, and locks manual input.") }
-            Section("1 unit equals") {
-                ForEach(currencies) { currency in
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) { Text(currency.code.rawValue).font(.body.weight(.semibold)) }
-                        Spacer(minLength: 8)
-                        SensitiveValueContent {
-                            TextField("Rate", value: rateBinding(currency.code), format: .number.precision(.fractionLength(0...8)))
-                                .keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(width: 112)
-                                .focused($focusedRate, equals: currency.code).disabled(automatic || currency.code.isUSDStablecoin)
+        ScrollView {
+            VStack(spacing: 16) {
+                SettingsGlassSection("Automatic Rates", footer: "Automatic mode uses Frankfurter, keeps the last successful values offline, and locks manual input.") {
+                    Toggle("Automatic Daily Rates", isOn: automaticBinding)
+
+                    Divider()
+
+                    Button {
+                        Task { await refresh(showConfirmation: true) }
+                    } label: {
+                        HStack {
+                            Label(updating ? "Updating…" : "Update Now", systemImage: "arrow.triangle.2.circlepath")
+                            Spacer()
                         }
-                        Text(base.rawValue).font(.caption).foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(updating)
+
+                    if let date = store.state.settings.exchangeRatesUpdatedAt {
+                        Divider()
+                        LabeledContent("Last Updated", value: date.formatted(date: .abbreviated, time: .shortened))
+                    }
+                }
+
+                SettingsGlassSection("1 Unit Equals") {
+                    if currencies.isEmpty {
+                        Text("No currencies found")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 8)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(Array(currencies.enumerated()), id: \.element.code) { index, currency in
+                                HStack(spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(currency.code.rawValue).font(.body.weight(.semibold))
+                                        if !currency.name.isEmpty {
+                                            Text(currency.name).font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    Spacer(minLength: 8)
+                                    SensitiveValueContent {
+                                        TextField("Rate", value: rateBinding(currency.code), format: .number.precision(.fractionLength(0...8)))
+                                            .keyboardType(.decimalPad)
+                                            .multilineTextAlignment(.trailing)
+                                            .frame(width: 112)
+                                            .textFieldStyle(.roundedBorder)
+                                            .focused($focusedRate, equals: currency.code)
+                                            .disabled(automatic || currency.code.isUSDStablecoin)
+                                    }
+                                    Text(base.rawValue).font(.caption).foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 4)
+
+                                if index < currencies.count - 1 {
+                                    Divider().padding(.vertical, 4)
+                                }
+                            }
+                        }
                     }
                 }
             }
+            .padding()
         }
-        .scrollContentBackground(.hidden)
         .background(LedgerBackground())
         .navigationTitle("Exchange Rates")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, prompt: "Currency code or name").scrollDismissesKeyboard(.interactively)
+        .searchable(text: $query, prompt: "Currency code or name")
+        .scrollDismissesKeyboard(.interactively)
         .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { focusedRate = nil } } }
         .alert("Exchange Rates", isPresented: Binding(get: { statusMessage != nil }, set: { if !$0 { statusMessage = nil } })) { Button("OK") { statusMessage = nil } } message: { Text(statusMessage ?? "") }
     }
@@ -125,26 +188,59 @@ struct ExchangeRateEditorView: View {
 struct BudgetEditorView: View {
     @EnvironmentObject private var store: LedgerStore
     @FocusState private var focused: Bool
+
     var body: some View {
-        List {
-            Section {
-                Picker("Budget Mode", selection: modeBinding) { ForEach(BudgetMode.allCases) { Text($0.title).tag($0) } }.pickerStyle(.segmented)
-            } footer: { Text("Category and account allocations are stored separately. Switching modes does not reinterpret identifiers or discard the other mode’s values.") }
-            if store.state.settings.budgetPlan.mode == .category {
-                Section("Monthly Category Budgets") {
-                    ForEach(store.state.categories.filter { $0.kind == .expense }) { category in
-                        LabeledContent { amountField(categoryAllocation(category.id), currency: store.state.settings.baseCurrency) } label: { HStack { CategoryIcon(category: category); Text(category.name) } }
+        ScrollView {
+            VStack(spacing: 16) {
+                SettingsGlassSection("Budget Mode", footer: "Category and account allocations are stored separately. Switching modes does not reinterpret identifiers or discard the other mode’s values.") {
+                    Picker("Budget Mode", selection: modeBinding) {
+                        ForEach(BudgetMode.allCases) { Text($0.title).tag($0) }
                     }
+                    .pickerStyle(.segmented)
                 }
-            } else {
-                Section("Monthly Account Budgets") {
-                    ForEach(store.accounts) { item in
-                        LabeledContent { amountField(accountAllocation(item.id), currency: item.account.currency) } label: { Text(item.account.name) }
+
+                if store.state.settings.budgetPlan.mode == .category {
+                    let cats = store.state.categories.filter { $0.kind == .expense }
+                    SettingsGlassSection("Monthly Category Budgets") {
+                        VStack(spacing: 0) {
+                            ForEach(Array(cats.enumerated()), id: \.element.id) { index, category in
+                                HStack {
+                                    CategoryIcon(category: category)
+                                        .frame(width: 28, height: 28, alignment: .center)
+                                    Text(category.name)
+                                    Spacer()
+                                    amountField(categoryAllocation(category.id), currency: store.state.settings.baseCurrency)
+                                }
+                                .padding(.vertical, 4)
+
+                                if index < cats.count - 1 {
+                                    Divider().padding(.vertical, 4)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    let accts = store.accounts
+                    SettingsGlassSection("Monthly Account Budgets") {
+                        VStack(spacing: 0) {
+                            ForEach(Array(accts.enumerated()), id: \.element.id) { index, item in
+                                HStack {
+                                    Text(item.account.name)
+                                    Spacer()
+                                    amountField(accountAllocation(item.id), currency: item.account.currency)
+                                }
+                                .padding(.vertical, 4)
+
+                                if index < accts.count - 1 {
+                                    Divider().padding(.vertical, 4)
+                                }
+                            }
+                        }
                     }
                 }
             }
+            .padding()
         }
-        .scrollContentBackground(.hidden)
         .background(LedgerBackground())
         .navigationTitle("Budget")
         .navigationBarTitleDisplayMode(.inline)
@@ -155,23 +251,56 @@ struct BudgetEditorView: View {
     private func categoryAllocation(_ id: LedgerCategoryID) -> Binding<Double> { Binding(get: { store.state.settings.budgetPlan.categoryAllocations[id] ?? 0 }, set: { value in store.updateSettings { $0.budgetPlan.categoryAllocations[id] = max(0, value); $0.budgetPlan.updatedAt = .now } }) }
     private func accountAllocation(_ id: UUID) -> Binding<Double> { Binding(get: { store.state.settings.budgetPlan.accountAllocations[id] ?? 0 }, set: { value in store.updateSettings { $0.budgetPlan.accountAllocations[id] = max(0, value); $0.budgetPlan.updatedAt = .now } }) }
     private func amountField(_ binding: Binding<Double>, currency: CurrencyCode) -> some View {
-        HStack { SensitiveValueContent { TextField("0", value: binding, format: .number.precision(.fractionLength(2))).keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(width: 110).focused($focused) }; Text(currency.symbol).font(.caption).foregroundStyle(.secondary) }
+        HStack(spacing: 6) {
+            SensitiveValueContent {
+                TextField("0", value: binding, format: .number.precision(.fractionLength(2)))
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 100)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focused)
+            }
+            Text(currency.symbol).font(.caption).foregroundStyle(.secondary)
+        }
     }
 }
 
 struct SwipeActionsEditorView: View {
     @EnvironmentObject private var preferences: AppPreferencesStore
+
     var body: some View {
-        List {
-            Section {
-                ForEach(SwipeActionOrientation.allCases) { option in
-                    Button { preferences.update { $0.swipeActionOrientation = option } } label: {
-                        HStack { Text(option.title); Spacer(); if preferences.value.swipeActionOrientation == option { Image(systemName: "checkmark").fontWeight(.semibold) } }
+        ScrollView {
+            VStack(spacing: 16) {
+                SettingsGlassSection("Swipe Actions", footer: "Leading means swiping right. Trailing means swiping left.") {
+                    VStack(spacing: 0) {
+                        ForEach(Array(SwipeActionOrientation.allCases.enumerated()), id: \.element.id) { index, option in
+                            Button {
+                                preferences.update { $0.swipeActionOrientation = option }
+                            } label: {
+                                HStack {
+                                    Text(option.title)
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if preferences.value.swipeActionOrientation == option {
+                                        Image(systemName: "checkmark")
+                                            .fontWeight(.semibold)
+                                            .foregroundStyle(.tint)
+                                    }
+                                }
+                                .padding(.vertical, 6)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+
+                            if index < SwipeActionOrientation.allCases.count - 1 {
+                                Divider().padding(.vertical, 4)
+                            }
+                        }
                     }
                 }
-            } footer: { Text("Leading means swiping right. Trailing means swiping left.") }
+            }
+            .padding()
         }
-        .scrollContentBackground(.hidden)
         .background(LedgerBackground())
         .navigationTitle("Swipe Actions")
         .navigationBarTitleDisplayMode(.inline)
@@ -184,35 +313,108 @@ struct RecurringTransactionsView: View {
     @State private var editing: RecurringRule?
     @State private var showingCalendarImport = false
     @State private var importedDraft: RecurringImportDraft?
+
     var body: some View {
-        List {
-            Section {
-                Button { showingNew = true } label: { Label("Add Recurring Transaction", systemImage: "calendar.badge.plus") }
-                Button { showingCalendarImport = true } label: { Label("Import from Calendar", systemImage: "calendar.badge.arrowtriangle.forward") }
-            }
-            Section {
-                ForEach(store.recurringRules) { rule in
-                    Button { if rule.effectiveAmountKind == .fixed { editing = rule } } label: {
+        ScrollView {
+            VStack(spacing: 16) {
+                SettingsGlassSection("Actions") {
+                    Button {
+                        showingNew = true
+                    } label: {
                         HStack {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(rule.note?.isEmpty == false ? rule.note! : rule.type.title).font(.body.weight(.semibold))
-                                HStack(spacing: 4) {
-                                    Text("\(rule.interval.title) ·")
-                                    if rule.effectiveAmountKind == .loanInterest { SensitiveValueText("Dynamic interest") }
-                                    else { SensitiveMoneyText(amount: rule.amount, currency: rule.currency) }
-                                    Text("· next \(rule.nextRunAt.formatted(date: .abbreviated, time: .omitted))")
-                                }.font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                            }
+                            Label("Add Recurring Transaction", systemImage: "calendar.badge.plus")
                             Spacer()
-                            Toggle("Enabled", isOn: Binding(get: { rule.isEnabled }, set: { store.setRecurringRule(rule, enabled: $0) })).labelsHidden()
                         }
-                    }.buttonStyle(.plain)
-                    .swipeActions { if rule.effectiveAmountKind == .fixed { Button("Delete", role: .destructive) { store.deleteRecurringRule(rule) } } }
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider()
+
+                    Button {
+                        showingCalendarImport = true
+                    } label: {
+                        HStack {
+                            Label("Import from Calendar", systemImage: "calendar.badge.arrowtriangle.forward")
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.plain)
                 }
-                if store.recurringRules.isEmpty { ContentUnavailableView("No Recurring Transactions", systemImage: "calendar.badge.clock") }
+
+                SettingsGlassSection("Recurring Rules") {
+                    if store.recurringRules.isEmpty {
+                        ContentUnavailableView("No Recurring Transactions", systemImage: "calendar.badge.clock")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(Array(store.recurringRules.enumerated()), id: \.element.id) { index, rule in
+                                HStack {
+                                    Button {
+                                        if rule.effectiveAmountKind == .fixed { editing = rule }
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(rule.note?.isEmpty == false ? rule.note! : rule.type.title)
+                                                .font(.body.weight(.semibold))
+                                                .foregroundStyle(.primary)
+                                            HStack(spacing: 4) {
+                                                Text("\(rule.interval.title) ·")
+                                                if rule.effectiveAmountKind == .loanInterest {
+                                                    SensitiveValueText("Dynamic interest")
+                                                } else {
+                                                    SensitiveMoneyText(amount: rule.amount, currency: rule.currency)
+                                                }
+                                                Text("· next \(rule.nextRunAt.formatted(date: .abbreviated, time: .omitted))")
+                                            }
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    Spacer()
+
+                                    Toggle("Enabled", isOn: Binding(
+                                        get: { rule.isEnabled },
+                                        set: { store.setRecurringRule(rule, enabled: $0) }
+                                    ))
+                                    .labelsHidden()
+
+                                    if rule.effectiveAmountKind == .fixed {
+                                        Button(role: .destructive) {
+                                            store.deleteRecurringRule(rule)
+                                        } label: {
+                                            Image(systemName: "trash")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.red)
+                                                .frame(width: 32, height: 32)
+                                                .contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        .accessibilityLabel("Delete rule")
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                                .contextMenu {
+                                    if rule.effectiveAmountKind == .fixed {
+                                        Button("Edit") { editing = rule }
+                                        Button("Delete", role: .destructive) { store.deleteRecurringRule(rule) }
+                                    }
+                                }
+
+                                if index < store.recurringRules.count - 1 {
+                                    Divider().padding(.vertical, 4)
+                                }
+                            }
+                        }
+                    }
+                }
             }
+            .padding()
         }
-        .scrollContentBackground(.hidden)
         .background(LedgerBackground())
         .navigationTitle("Recurring")
         .navigationBarTitleDisplayMode(.inline)

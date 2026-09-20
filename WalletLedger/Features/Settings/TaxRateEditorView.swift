@@ -4,39 +4,47 @@ struct TaxRateEditorView: View {
     @EnvironmentObject private var store: LedgerStore
 
     var body: some View {
-        List {
-            Section {
-                Toggle("Tax-Inclusive Amounts", isOn: Binding(
-                    get: { store.state.settings.isTaxInclusive },
-                    set: { newValue in
-                        store.updateSettings { settings in
-                            var taxes = settings.taxSettings ?? TaxSettings()
-                            taxes.isTaxInclusive = newValue
-                            settings.taxSettings = taxes
+        ScrollView {
+            VStack(spacing: 16) {
+                SettingsGlassSection("Tax Input", footer: "When enabled, entered amounts include tax (or after-tax for income). When disabled, amounts are entered before tax.") {
+                    Toggle("Tax-Inclusive Amounts", isOn: Binding(
+                        get: { store.state.settings.isTaxInclusive },
+                        set: { newValue in
+                            store.updateSettings { settings in
+                                var taxes = settings.taxSettings ?? TaxSettings()
+                                taxes.isTaxInclusive = newValue
+                                settings.taxSettings = taxes
+                            }
                         }
-                    }
-                ))
-            } footer: {
-                Text("When enabled, entered amounts include tax (or after-tax for income). When disabled, amounts are entered before tax.")
-            }
+                    ))
+                }
 
-            ratesSection("Expense Categories", kind: .expense)
-            ratesSection("Income Categories", kind: .income)
+                ratesGlassSection("Expense Categories", kind: .expense)
+                ratesGlassSection("Income Categories", kind: .income)
+            }
+            .padding()
         }
-        .scrollContentBackground(.hidden)
         .background(LedgerBackground())
         .navigationTitle("Tax Rates")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func ratesSection(_ title: LocalizedStringKey, kind: LedgerCategoryKind) -> some View {
-        Section(title) {
-            ForEach(store.state.categories.filter { $0.kind == kind }) { category in
-                TaxRateField(category: category, rate: store.state.settings.taxRate(for: category)) { rate in
-                    store.updateSettings { settings in
-                        var taxes = settings.taxSettings ?? TaxSettings()
-                        taxes.categoryRates[category.id] = rate
-                        settings.taxSettings = taxes
+    private func ratesGlassSection(_ title: String, kind: LedgerCategoryKind) -> some View {
+        let categories = store.state.categories.filter { $0.kind == kind }
+        return SettingsGlassSection(title) {
+            VStack(spacing: 0) {
+                ForEach(Array(categories.enumerated()), id: \.element.id) { index, category in
+                    TaxRateField(category: category, rate: store.state.settings.taxRate(for: category)) { rate in
+                        store.updateSettings { settings in
+                            var taxes = settings.taxSettings ?? TaxSettings()
+                            taxes.categoryRates[category.id] = rate
+                            settings.taxSettings = taxes
+                        }
+                    }
+                    .padding(.vertical, 4)
+
+                    if index < categories.count - 1 {
+                        Divider().padding(.vertical, 4)
                     }
                 }
             }
