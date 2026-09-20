@@ -1,5 +1,6 @@
 import CloudKit
 import Foundation
+import CryptoKit
 
 final class CloudLedgerSyncCoordinator: CKSyncEngineDelegate, @unchecked Sendable {
     private let database: CKDatabase

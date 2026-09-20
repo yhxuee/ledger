@@ -114,7 +114,7 @@ enum CSVTransactionImporter {
     ) throws -> ImportPreview {
         let rows = parseRows(from: csvText)
         guard !rows.isEmpty else {
-            throw BackupError.corruptArchive
+            throw BackupError.invalidFormat
         }
 
         var accountsByName: [String: LedgerAccount] = [:]
@@ -160,7 +160,7 @@ enum CSVTransactionImporter {
 
             let dateString = "\(r.date) \(r.time)"
             let date = dateFormatter.date(from: dateString) ?? .now
-            let txType: TransactionType
+            let txType: LedgerTransactionType
             switch r.type.lowercased() {
             case "income": txType = .income
             case "transfer": txType = .transfer
@@ -171,37 +171,34 @@ enum CSVTransactionImporter {
             let acctCurrencyCode = CurrencyCode(rawValue: r.accountCurrency) ?? account.currency
             let destCurrencyCode = r.destinationCurrency.isEmpty ? nil : CurrencyCode(rawValue: r.destinationCurrency)
 
-            var taxSnapshot: TaxRateSnapshot? = nil
-            if let rate = r.taxRate, rate > 0 {
-                taxSnapshot = TaxRateSnapshot(
-                    rate: rate,
-                    amount: r.taxAmount ?? 0,
-                    baseAmount: r.taxBaseAmount ?? r.amount,
-                    inputMode: TaxInputMode(rawValue: r.taxInputMode ?? "finalAmount") ?? .finalAmount,
-                    isTaxExempt: r.isTaxExempt
-                )
-            }
-
-            let tx = LedgerTransaction(
+            var tx = LedgerTransaction(
                 id: UUID(),
-                date: Calendar.current.startOfDay(for: date),
-                occurredAt: date,
-                time: r.time,
+                userID: existingState.settings.userID,
                 type: txType,
                 accountID: account.id,
                 destinationAccountID: destAccountID,
-                categoryID: category.id,
-                note: r.note,
-                currency: currencyCode,
                 amount: r.amount,
-                exchangeRateAtTransaction: 1.0,
-                taxSnapshot: taxSnapshot,
-                accountCurrency: acctCurrencyCode,
+                currency: currencyCode,
                 accountAmount: r.accountAmount ?? r.amount,
+                destinationAmount: r.destinationAmount,
+                accountCurrency: acctCurrencyCode,
                 destinationAccountCurrency: destCurrencyCode,
-                destinationAccountAmount: r.destinationAmount,
-                updatedAt: date
+                categoryID: category.id,
+                occurredAt: date,
+                note: r.note.isEmpty ? nil : r.note,
+                exchangeRateAtTransaction: 1.0,
+                createdAt: date,
+                updatedAt: date,
+                deletedAt: nil,
+                version: 1,
+                syncStatus: .pending
             )
+            tx.taxRate = r.taxRate
+            tx.taxAmount = r.taxAmount
+            tx.taxBaseAmount = r.taxBaseAmount
+            tx.taxInputMode = r.taxInputMode.flatMap { TaxInputMode(rawValue: $0) }
+            tx.isTaxExempt = r.isTaxExempt
+
             transactions.append(tx)
         }
 

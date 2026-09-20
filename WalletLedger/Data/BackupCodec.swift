@@ -106,7 +106,7 @@ enum BackupCodec {
             } else if let direct = try? decoder().decode(LedgerBackupEnvelope.self, from: innerData) {
                 envelope = direct
             } else {
-                throw BackupError.corruptArchive
+                throw BackupError.invalidFormat
             }
 
             PurchaseRules.migrateDevelopmentSessions(in: &envelope.data)

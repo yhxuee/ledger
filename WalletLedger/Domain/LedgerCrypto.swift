@@ -430,7 +430,7 @@ enum LedgerCryptoService {
         )
         let encodedPayload = try JSONEncoder().encode(payload)
 
-        let sender = try HPKE.Sender(
+        var sender = try HPKE.Sender(
             recipientKey: recipientKey,
             ciphersuite: hpkeSuite,
             info: hpkeInfo
@@ -453,7 +453,7 @@ enum LedgerCryptoService {
         envelope: FinsyKeyGrantEnvelope,
         devicePrivateKey: P256.KeyAgreement.PrivateKey
     ) throws -> (key: SymmetricKey, ledgerID: UUID, fingerprint: String) {
-        let recipient = try HPKE.Recipient(
+        var recipient = try HPKE.Recipient(
             privateKey: devicePrivateKey,
             ciphersuite: hpkeSuite,
             info: hpkeInfo,
