@@ -24,18 +24,20 @@ enum LedgerCalculations {
         return value
     }
 
-    static func transactionEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, type: LedgerTransactionType) -> Double? {
+    static func transactionEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, type: LedgerTransactionType, now: Date = .now) -> Double? {
         guard type == .expense || type == .income else { return nil }
+        let scale = TransactionSemantics.analyticsScale(transaction, now: now)
+        guard scale > 0 else { return nil }
         if let originalID = transaction.reversalOfTransactionID {
             guard let original = state.transactions.first(where: { $0.id == originalID }), original.type == type else { return nil }
             return -historical(transaction, to: target, rates: state.settings.rates)
         }
         guard transaction.type == type else { return nil }
-        return historical(transaction, to: target, rates: state.settings.rates)
+        return historical(transaction, to: target, rates: state.settings.rates) * scale
     }
 
-    static func expenseEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode) -> Double? {
-        transactionEffect(transaction, in: state, to: target, type: .expense)
+    static func expenseEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, now: Date = .now) -> Double? {
+        transactionEffect(transaction, in: state, to: target, type: .expense, now: now)
     }
 
     /// Pocket a source posting lands in. Single-currency accounts always use their primary currency.
@@ -67,6 +69,7 @@ enum LedgerCalculations {
     static func pocketBalance(_ currency: CurrencyCode, for account: LedgerAccount, in state: LedgerState) -> Double {
         let opening = account.normalizedPockets.first(where: { $0.currency == currency })?.openingBalance ?? 0
         return activeTransactions(state).reduce(opening) { balance, transaction in
+            guard TransactionSemantics.posts(transaction) else { return balance }
             if transaction.accountID == account.id, sourcePocket(transaction, for: account) == currency {
                 let posted = sourcePosting(transaction, for: account, in: state)
                 switch transaction.type {
@@ -97,8 +100,10 @@ enum LedgerCalculations {
 
     /// Account-side expense effect, expressed in the account's primary currency.
     /// Uses the actual posting (`accountAmount`) instead of re-pricing the original amount.
-    static func accountExpenseEffect(_ transaction: LedgerTransaction, for account: LedgerAccount, in state: LedgerState) -> Double? {
+    static func accountExpenseEffect(_ transaction: LedgerTransaction, for account: LedgerAccount, in state: LedgerState, now: Date = .now) -> Double? {
         guard transaction.accountID == account.id else { return nil }
+        let scale = TransactionSemantics.analyticsScale(transaction, now: now)
+        guard scale > 0 else { return nil }
         let posted = sourcePosting(transaction, for: account, in: state)
         let primaryValue = convert(posted, from: sourcePocket(transaction, for: account), to: account.currency, rates: state.settings.rates)
         if let originalID = transaction.reversalOfTransactionID {
@@ -106,7 +111,7 @@ enum LedgerCalculations {
             return -primaryValue
         }
         guard transaction.type == .expense else { return nil }
-        return primaryValue
+        return primaryValue * scale
     }
 
     static func accountViews(_ state: LedgerState) -> [AccountViewModel] {
@@ -145,7 +150,7 @@ enum LedgerCalculations {
             let categoryMap = Dictionary(uniqueKeysWithValues: state.categories.map { ($0.id, $0) })
             lines = plan.categoryAllocations.filter { $0.value > 0 }.map { categoryID, allocation in
                 let spent = monthly.reduce(0) { partial, transaction in
-                    guard transaction.categoryID == categoryID, let value = expenseEffect(transaction, in: state, to: target) else { return partial }
+                    guard transaction.categoryID == categoryID, let value = expenseEffect(transaction, in: state, to: target, now: now) else { return partial }
                     return partial + value
                 }
                 return .init(id: "category:\(categoryID.rawValue)", title: categoryMap[categoryID]?.name ?? categoryID.rawValue, currency: target, budget: allocation, spent: spent)
@@ -154,7 +159,7 @@ enum LedgerCalculations {
             lines = plan.accountAllocations.compactMap { accountID, allocation in
                 guard allocation > 0, let account = accountMap[accountID] else { return nil }
                 let spent = monthly.reduce(0) { partial, transaction in
-                    guard transaction.accountID == accountID, let value = accountExpenseEffect(transaction, for: account, in: state) else { return partial }
+                    guard transaction.accountID == accountID, let value = accountExpenseEffect(transaction, for: account, in: state, now: now) else { return partial }
                     return partial + value
                 }
                 return .init(id: "account:\(accountID.uuidString)", title: account.name, currency: account.currency, budget: allocation, spent: spent)
@@ -180,7 +185,7 @@ enum LedgerCalculations {
         guard budget > 0 else { return (0, 0, 0) }
         let calendar = Calendar.current
         let spent = activeTransactions(state).reduce(0) { partial, transaction in
-            guard transaction.accountID == account.id, (includedCategories == nil || includedCategories!.contains(transaction.categoryID)), calendar.isDate(transaction.occurredAt, equalTo: now, toGranularity: .month), let value = accountExpenseEffect(transaction, for: account, in: state) else { return partial }
+            guard transaction.accountID == account.id, (includedCategories == nil || includedCategories!.contains(transaction.categoryID)), calendar.isDate(transaction.occurredAt, equalTo: now, toGranularity: .month), let value = accountExpenseEffect(transaction, for: account, in: state, now: now) else { return partial }
             return partial + value
         }
         return (budget, spent, spent / budget)
@@ -253,11 +258,11 @@ enum LedgerCalculations {
             }
         }
 
-        let relevantCategories = state.categories.filter { $0.kind == (type == .income ? .income : .expense) }
+        let relevantCategories = state.categories.filter { $0.kind == (type == .income ? .income : .expense) && !$0.id.isSystemLinked }
         var totals = Dictionary(uniqueKeysWithValues: relevantCategories.map { ($0.id, 0.0) })
         for transaction in activeTransactions(state) where transaction.occurredAt >= start && transaction.occurredAt < end && (accountID == nil || transaction.accountID == accountID) && (accountIDs.isEmpty || accountIDs.contains(transaction.accountID)) {
             guard categories.isEmpty || categories.contains(transaction.categoryID) else { continue }
-            guard let value = transactionEffect(transaction, in: state, to: target, type: type) else { continue }
+            guard let value = transactionEffect(transaction, in: state, to: target, type: type, now: now) else { continue }
             let key: String
             switch bucketMode {
             case .day: key = dayKey(transaction.occurredAt)

@@ -5,6 +5,7 @@ struct TransactionRow: View {
     let transaction: LedgerTransaction
     let category: LedgerCategory
     var showsDate = true
+    var attention: TransactionAttentionState? = nil
     var body: some View {
         HStack(spacing: 12) {
             CategoryIcon(category: category, font: .system(size: 17, weight: .semibold))
@@ -29,6 +30,17 @@ struct TransactionRow: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
                     .allowsTightening(true)
+                if let attention {
+                    Group {
+                        switch attention {
+                        case .splitOutstanding(let count): Text("Split ? \(count) unpaid")
+                        case .reimbursementPending(let amount, let currency):
+                            Text("Awaiting Reimbursement") + Text(" ? ") + Text(LedgerMoneyFormat.code(amount, currency: currency))
+                        }
+                    }.font(.caption.weight(.semibold)).foregroundStyle(.red)
+                } else if transaction.groupMode == .split {
+                    Text("Fully Settled").font(.caption).foregroundStyle(.secondary)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(2)
@@ -47,7 +59,8 @@ struct TransactionRow: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 9)
-        .opacity(transaction.isRefunded ? 0.5 : 1)
+        .background(attention != nil ? Color.red.opacity(0.05) : Color.clear)
+        .opacity(transaction.isRefunded || (transaction.linkedTransactionKind == .installment && transaction.occurredAt > .now) ? 0.5 : 1)
         .contentShape(Rectangle())
     }
 }

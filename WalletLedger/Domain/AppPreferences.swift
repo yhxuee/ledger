@@ -121,6 +121,8 @@ struct AppPreferences: Codable, Hashable, Sendable {
     var languageCode: String = "en"
     var biometricLockEnabled: Bool = false
     var swipeActionOrientation: SwipeActionOrientation = .refundLeadingDeleteTrailing
+    var splitActionOnRightSwipe: Bool = true
+    var reimbursementActionOnRightSwipe: Bool = true
     var hapticFeedbackEnabled: Bool = true
     var dateFormat: AppDateFormat = .monthDay
     var transactionLayout: TransactionEditorLayout = .standard
@@ -129,6 +131,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
     var accountCardMaterialStyle: AccountCardMaterialStyle = .auto
 
     enum CodingKeys: String, CodingKey {
+        case splitActionOnRightSwipe, reimbursementActionOnRightSwipe
         case schemaVersion, languageCode, biometricLockEnabled, swipeActionOrientation, hapticFeedbackEnabled, dateFormat, transactionLayout, overviewMetrics, overviewCardLayout, accountCardMaterialStyle
     }
 
@@ -153,6 +156,8 @@ struct AppPreferences: Codable, Hashable, Sendable {
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        splitActionOnRightSwipe = try values.decodeIfPresent(Bool.self, forKey: .splitActionOnRightSwipe) ?? true
+        reimbursementActionOnRightSwipe = try values.decodeIfPresent(Bool.self, forKey: .reimbursementActionOnRightSwipe) ?? true
         schemaVersion = try values.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
         languageCode = try values.decodeIfPresent(String.self, forKey: .languageCode) ?? "en"
         biometricLockEnabled = try values.decodeIfPresent(Bool.self, forKey: .biometricLockEnabled) ?? false

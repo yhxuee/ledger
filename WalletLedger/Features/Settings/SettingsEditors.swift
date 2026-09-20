@@ -298,6 +298,18 @@ struct SwipeActionsEditorView: View {
                         }
                     }
                 }
+                SettingsGlassSection("Split Transactions") {
+                    Picker("Split Transactions", selection: Binding(get: { preferences.value.splitActionOnRightSwipe }, set: { value in preferences.update { $0.splitActionOnRightSwipe = value } })) {
+                        Text("Settle Right / Delete Left").tag(true)
+                        Text("Delete Right / Settle Left").tag(false)
+                    }
+                }
+                SettingsGlassSection("Reimbursement Transactions") {
+                    Picker("Reimbursement Transactions", selection: Binding(get: { preferences.value.reimbursementActionOnRightSwipe }, set: { value in preferences.update { $0.reimbursementActionOnRightSwipe = value } })) {
+                        Text("Reimburse Right / Delete Left").tag(true)
+                        Text("Delete Right / Reimburse Left").tag(false)
+                    }
+                }
             }
             .padding()
         }

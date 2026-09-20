@@ -1,7 +1,7 @@
 import Foundation
 
 enum BackupCodec {
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder()
@@ -56,6 +56,7 @@ enum BackupCodec {
         let categoryIDs = state.categories.map(\.id)
         guard Set(categoryIDs).count == categoryIDs.count, LedgerCategoryID.builtIns.allSatisfy(categoryIDs.contains) else { throw BackupError.invalidValue("categories") }
         let accountsByID = Dictionary(uniqueKeysWithValues: state.accounts.map { ($0.id, $0) })
+        try LinkedTransactionValidation.validate(state)
         for account in state.accounts {
             if let stock = account.stockMetadata {
                 guard stock.averageCost.isFinite, stock.averageCost >= 0,
@@ -84,7 +85,7 @@ enum BackupCodec {
                 guard account.pocketCurrencies.contains(currency) else { throw BackupError.invalidValue("transaction destination pocket") }
             }
             if transaction.type == .transfer {
-                guard let destination = transaction.destinationAccountID, destination != transaction.accountID, knownAccounts.contains(destination) else { throw BackupError.invalidTransfer }
+                guard let destination = transaction.destinationAccountID, knownAccounts.contains(destination), let source = accountsByID[transaction.accountID], TransactionSemantics.validTransfer(source: source, destinationID: destination, sourceCurrency: transaction.accountCurrency, destinationCurrency: transaction.destinationAccountCurrency) else { throw BackupError.invalidTransfer }
             }
             if let originalID = transaction.reversalOfTransactionID {
                 guard originalID != transaction.id, let original = transactionsByID[originalID], original.reversalTransactionID == transaction.id else { throw BackupError.invalidValue("refund relationship") }

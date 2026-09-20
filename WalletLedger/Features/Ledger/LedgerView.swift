@@ -13,7 +13,6 @@ struct LedgerView: View {
     @State private var showingCalendar = false
     @State private var calendarDay = Date.now
     @State private var hasCalendarDay = false
-    @State private var expandedPurchaseIDs = Set<UUID>()
 
     private var filtered: [LedgerTransaction] {
         store.activeTransactions.filter { item in
@@ -25,17 +24,14 @@ struct LedgerView: View {
         }
     }
 
-    private var entries: [PurchaseLedgerEntry] {
-        PurchaseLedgerPresentation.entries(
-            transactions: filtered,
-            sessions: store.purchaseSessions,
-            collapsePurchases: !filtersActive
-        )
+    private var entries: [LedgerPresentationEntry] {
+        LedgerPresentation.entries(transactions: filtered, state: store.state)
+
     }
 
     private struct DateGroup: Identifiable {
         let day: Date
-        let entries: [PurchaseLedgerEntry]
+        let entries: [LedgerPresentationEntry]
         var id: Date { day }
     }
 
@@ -63,18 +59,8 @@ struct LedgerView: View {
                                     if entry.id != group.entries.first?.id {
                                         Divider().padding(.leading, 67)
                                     }
-                                    switch entry {
-                                    case .transaction(let item):
-                                        transactionButton(item)
-                                    case .purchase(let session, let children):
-                                        purchaseRow(session: session, children: children)
-                                        if expandedPurchaseIDs.contains(session.id) {
-                                            ForEach(children) { child in
-                                                Divider().padding(.leading, 67)
-                                                transactionButton(child, isPurchaseChild: true)
-                                            }
-                                        }
-                                    }
+                                    LedgerEntryRow(entry: entry)
+
                                 }
                             }
                             .ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -156,73 +142,4 @@ struct LedgerView: View {
             .padding(.bottom, 6)
     }
 
-    private func category(_ id: LedgerCategoryID) -> LedgerCategory { store.state.categories.first { $0.id == id } ?? SeedData.categories.first { $0.id == id } ?? LedgerCategory(id: .other, name: "Other", detail: "Everything else", symbol: "dollarsign.circle.fill", colorHex: "62B28F") }
-
-    private func transactionButton(_ item: LedgerTransaction, isPurchaseChild: Bool = false) -> some View {
-        Button { if !item.isLockedByReversal { editing = item } } label: {
-            TransactionRow(transaction: item, category: category(item.categoryID), showsDate: false)
-                .padding(.leading, isPurchaseChild ? 22 : 14).padding(.trailing, 14)
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            if preferences.value.swipeActionOrientation == .refundLeadingDeleteTrailing {
-                refundButton(item)
-                deleteButton(item)
-            } else {
-                deleteButton(item)
-                refundButton(item)
-            }
-        }
-    }
-
-    private func purchaseRow(session: PurchaseSession, children: [LedgerTransaction]) -> some View {
-        Button {
-            withAnimation(.snappy) {
-                if expandedPurchaseIDs.contains(session.id) { expandedPurchaseIDs.remove(session.id) }
-                else { expandedPurchaseIDs.insert(session.id) }
-            }
-        } label: {
-            HStack(spacing: 13) {
-                Image(systemName: "cart.fill").font(.system(size: 17, weight: .semibold)).frame(width: 40, height: 40)
-                    .background(.primary.opacity(0.08), in: Circle())
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(session.name).font(.body.weight(.semibold)).lineLimit(1)
-                    Text("\(children.count) items · Purchase").font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 8)
-                SensitiveMoneyText(amount: PurchaseLedgerPresentation.displayedTotal(children, session: session, rates: store.state.settings.rates), currency: session.currency, maxIntegerDigits: 4)
-                    .font(.subheadline.monospacedDigit().weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                    .frame(minWidth: LedgerAmountWidth.row, alignment: .trailing)
-                    .layoutPriority(1)
-                Image(systemName: expandedPurchaseIDs.contains(session.id) ? "chevron.down" : "chevron.right")
-                    .font(.caption.bold()).foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 14).padding(.vertical, 9)
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.plain)
-        .onLongPressGesture {
-            withAnimation(.snappy) {
-                _ = expandedPurchaseIDs.insert(session.id)
-            }
-        }
-        .accessibilityHint("Expands the individual purchase transactions")
-    }
-
-    private func deleteButton(_ item: LedgerTransaction) -> some View {
-        Button("Delete", role: .destructive) {
-            HapticFeedback.warning(enabled: preferences.value.hapticFeedbackEnabled)
-            store.deleteTransaction(item)
-        }
-    }
-
-    private func refundButton(_ item: LedgerTransaction) -> some View {
-        Button { store.refundTransaction(item) } label: { Label("Refund", systemImage: "arrow.uturn.backward.circle") }
-            .tint(.blue)
-            .disabled(item.isLockedByReversal)
-    }
 }
-

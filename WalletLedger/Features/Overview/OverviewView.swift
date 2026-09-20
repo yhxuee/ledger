@@ -312,10 +312,9 @@ struct VerticalOverviewHeroLayout: Layout {
                 .accessibilityLabel("Open Ledger")
             }
             LazyVStack(spacing: 0) {
-                ForEach(transactions.prefix(8)) { item in
-                    Button { if !item.isLockedByReversal { editingTransaction = item } } label: { TransactionRow(transaction: item, category: category(item.categoryID)).padding(.horizontal, 15).padding(.vertical, 7) }
-                        .buttonStyle(.plain)
-                    if item.id != transactions.prefix(8).last?.id { Divider().padding(.leading, 67) }
+                ForEach(Array(LedgerPresentation.entries(transactions: transactions, state: store.state).prefix(8))) { entry in
+                    LedgerEntryRow(entry: entry, showsDate: true).padding(.vertical, 7)
+                    Divider().padding(.leading, 67)
                 }
                 if transactions.isEmpty { ContentUnavailableView("No Transactions", systemImage: "tray", description: Text("Add the first entry for this account.")) }
             }

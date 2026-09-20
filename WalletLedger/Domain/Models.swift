@@ -357,6 +357,13 @@ struct LedgerTransaction: Identifiable, Codable, Hashable, Sendable {
     var reversalTransactionID: UUID? = nil
     var purchaseSessionID: UUID? = nil
     var purchaseItemID: UUID? = nil
+    // Optional Codable properties synthesize decodeIfPresent for pre-link backups.
+    var groupMode: TransactionGroupMode? = nil
+    var parentTransactionID: UUID? = nil
+    var linkedTransactionKind: LinkedTransactionKind? = nil
+    var linkedTransactionIndex: Int? = nil
+    var splitMetadata: SplitTransactionMetadata? = nil
+    var installmentMetadata: InstallmentPlanMetadata? = nil
     var createdAt: Date
     var updatedAt: Date
     var deletedAt: Date?

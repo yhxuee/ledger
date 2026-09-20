@@ -26,7 +26,10 @@ enum SeedData {
     ]
 
     static var categories: [LedgerCategory] {
-        expenseCategories + incomeCategories
+        expenseCategories + incomeCategories + [
+            .init(id: .settlement, name: "Settlement", detail: "Split recovery", symbol: "arrow.left.arrow.right.circle.fill", colorHex: "777777", kind: .income),
+            .init(id: .reimbursement, name: "Reimbursement", detail: "Expense recovery", symbol: "arrow.uturn.backward.circle.fill", colorHex: "777777", kind: .income)
+        ]
     }
 
     /// Production empty state with zero accounts and zero transactions,
@@ -34,7 +37,7 @@ enum SeedData {
     static func makeProductionEmpty() -> LedgerState {
         let now = Date()
         return LedgerState(
-            schemaVersion: 2,
+            schemaVersion: BackupCodec.currentSchemaVersion,
             accounts: [],
             transactions: [],
             categories: categories,

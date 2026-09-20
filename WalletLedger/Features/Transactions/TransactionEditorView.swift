@@ -10,6 +10,10 @@ struct TransactionEditorView: View {
         LedgerPalette.primaryAction(for: colorScheme)
     }
     private let original: LedgerTransaction?
+    private let isLinkedDraft: Bool
+    @State private var internalDestinationCurrency: CurrencyCode?
+    private var isInternalTransfer: Bool { type == .transfer && accountID != nil && accountID == destinationID && sourceAccount?.usesCurrencyPockets == true }
+    private var isLinked: Bool { original?.parentTransactionID != nil }
     @State private var type: LedgerTransactionType
     @State private var accountID: UUID?
     @State private var destinationID: UUID?
@@ -43,7 +47,9 @@ struct TransactionEditorView: View {
     @State private var taxChanged = false
     @FocusState private var noteFocused: Bool
 
-    init(transaction: LedgerTransaction? = nil) {
+    init(transaction: LedgerTransaction? = nil, isLinkedDraft: Bool = false) {
+        self.isLinkedDraft = isLinkedDraft
+        _internalDestinationCurrency = State(initialValue: transaction?.destinationAccountCurrency)
         original = transaction
         _showingNoteEditor = State(initialValue: transaction != nil)
         let initialType = transaction?.type ?? .expense
@@ -58,7 +64,7 @@ struct TransactionEditorView: View {
         _taxRate = State(initialValue: initialType == .transfer ? nil : transaction?.taxRate)
         _taxInputMode = State(initialValue: initialType == .transfer ? .finalAmount : (transaction?.taxInputMode ?? .finalAmount))
         _isTaxExempt = State(initialValue: initialType == .transfer ? false : (transaction?.isTaxExempt ?? false))
-        let rawAmount = initialType != .transfer && transaction?.taxInputMode == .beforeTax
+        let rawAmount = transaction?.parentTransactionID == nil && initialType != .transfer && transaction?.taxInputMode == .beforeTax
             ? (transaction?.taxBaseAmount ?? transaction?.amount ?? 0) : (transaction?.amount ?? 0)
         _isNegative = State(initialValue: rawAmount < 0)
         _minorUnits = State(initialValue: String(Int((abs(rawAmount) * 100).rounded())))
@@ -76,6 +82,10 @@ struct TransactionEditorView: View {
     }
     private var taxSnapshot: TaxSnapshot? {
         guard type != .transfer else { return nil }
+        if isLinked, let original {
+            if original.linkedTransactionKind == .installment { return original.taxSnapshot }
+            return TaxCalculations.resolve(entered: enteredAmount, type: .income, rate: 0, mode: .finalAmount, exempt: true)
+        }
         if !taxChanged, let original { return original.taxSnapshot }
         guard let taxRate else { return nil }
         return TaxCalculations.resolve(entered: enteredAmount, type: type, rate: taxRate,
@@ -83,11 +93,13 @@ struct TransactionEditorView: View {
     }
     private var amount: Double {
         guard type != .transfer else { return enteredAmount }
+        if isLinked { return abs(enteredAmount) }
         if !taxChanged, let original { return original.amount }
         return (isNegative ? -1 : 1) * TaxCalculations.rounded(taxSnapshot?.finalAmount ?? abs(enteredAmount))
     }
     private func reloadTaxRate() {
         taxChanged = true
+        if isLinked { return }
         if type == .transfer {
             taxRate = nil
             taxInputMode = .finalAmount
@@ -102,8 +114,8 @@ struct TransactionEditorView: View {
         }
     }
 
-    private var activeAccounts: [LedgerAccount] { store.accounts.map(\.account) }
-    private var canSave: Bool { abs(amount) > 0 && accountID != nil && (type != .transfer || (destinationID != nil && destinationID != accountID)) }
+    private var activeAccounts: [LedgerAccount] { store.accounts.map(\.account).filter { original?.linkedTransactionKind != .installment || $0.type == .credit } }
+    private var canSave: Bool { abs(amount) > 0 && accountID != nil && (type != .transfer || (destinationID != nil && (destinationID != accountID || (isInternalTransfer && internalDestinationCurrency != nil && currency != internalDestinationCurrency)))) }
     private var hasNote: Bool {
         !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || noteImage != nil || noteAttachmentID != nil
     }
@@ -112,11 +124,12 @@ struct TransactionEditorView: View {
     private var destinationAccount: LedgerAccount? { destinationID.flatMap { id in activeAccounts.first { $0.id == id } } }
 
     private var activeKind: LedgerCategoryKind { type == .income ? .income : .expense }
-    private var availableCategories: [LedgerCategory] { store.state.categories.filter { $0.kind == activeKind } }
+    private var availableCategories: [LedgerCategory] { store.state.categories.filter { $0.kind == activeKind && (isLinked ? $0.id == original?.categoryID : !$0.id.isSystemLinked) } }
 
     /// Pocket actually used on the source account. Defaults to the transaction currency when the
     /// account already holds it, otherwise to the account's primary currency.
     private var sourcePocket: CurrencyCode {
+        if isInternalTransfer { return currency }
         guard let sourceAccount else { return currency }
         if let original,
            type == original.type,
@@ -130,6 +143,7 @@ struct TransactionEditorView: View {
     }
 
     private var targetPocket: CurrencyCode {
+        if isInternalTransfer { return internalDestinationCurrency ?? currency }
         guard let destinationAccount else { return currency }
         if let original,
            type == original.type,
@@ -165,6 +179,7 @@ struct TransactionEditorView: View {
            destinationID == original.destinationAccountID,
            currency == original.currency,
            amount == original.amount,
+           (!isInternalTransfer || targetPocket == original.destinationAccountCurrency),
            !destinationAmountOverridden,
            let stored = original.destinationAmount {
             return stored
@@ -184,7 +199,7 @@ struct TransactionEditorView: View {
                 }
             }
             .background(LedgerBackground())
-            .navigationTitle(original == nil ? "Add Transaction" : "Edit Transaction")
+            .navigationTitle(original == nil || isLinkedDraft ? "Add Transaction" : "Edit Transaction")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -261,7 +276,11 @@ struct TransactionEditorView: View {
             destinationAmountOverridden = false
             syncAmountFields()
         }
+        .onChange(of: internalDestinationCurrency) { _, value in
+            if isInternalTransfer, let accountID, let value { _ = store.ensureCurrencyPocket(accountID: accountID, currency: value); destinationAmountOverridden = false; syncAmountFields() }
+        }
         .onChange(of: currency) { _, _ in
+            if isInternalTransfer, let accountID { _ = store.ensureCurrencyPocket(accountID: accountID, currency: currency) }
             taxChanged = true
             accountAmountOverridden = false
             destinationAmountOverridden = false
@@ -296,6 +315,7 @@ struct TransactionEditorView: View {
             ForEach(LedgerTransactionType.allCases) { Text($0.title).tag($0) }
         }
         .pickerStyle(.segmented)
+        .disabled(isLinked)
 
         if activeAccounts.isEmpty {
             HStack(spacing: 8) {
@@ -306,7 +326,7 @@ struct TransactionEditorView: View {
                     .foregroundStyle(.secondary)
             }
             .padding(.vertical, 4)
-        } else if type == .transfer && activeAccounts.count < 2 {
+        } else if type == .transfer && activeAccounts.count < 2 && !activeAccounts.contains(where: \.usesCurrencyPockets) {
             HStack(spacing: 8) {
                 Image(systemName: "info.circle.fill")
                     .foregroundStyle(.secondary)
@@ -360,7 +380,21 @@ struct TransactionEditorView: View {
 
     private var amountPanel: some View {
         VStack(spacing: 8) {
-            TransactionCurrencyPicker(selection: $currency)
+            if isInternalTransfer {
+                CurrencyMenuButton(selection: $currency, codes: sourceAccount?.pocketCurrencies ?? [], title: "From Currency", showsOther: true)
+            } else {
+                TransactionCurrencyPicker(selection: $currency).disabled(original?.linkedTransactionKind == .installment)
+            }
+            if isInternalTransfer {
+                Image(systemName: "arrow.right")
+                if let target = internalDestinationCurrency {
+                    CurrencyMenuButton(selection: Binding(get: { internalDestinationCurrency ?? target }, set: { internalDestinationCurrency = $0 }),
+                        codes: sourceAccount?.pocketCurrencies ?? [], title: "To Currency", showsOther: true)
+                } else {
+                    CurrencyMenuButton(adding: (sourceAccount?.pocketCurrencies ?? []).filter { $0 != currency },
+                        otherCodes: store.availableCurrencies.filter { $0 != currency }) { internalDestinationCurrency = $0 }
+                }
+            }
             SensitiveMoneyText(amount: enteredAmount, currency: currency)
                 .font(.system(size: 58, weight: .bold, design: .rounded))
                 .minimumScaleFactor(0.5)
@@ -406,6 +440,7 @@ struct TransactionEditorView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(isLinked)
         .accessibilityLabel("Tax Free")
         .accessibilityValue(isTaxExempt ? "On" : "Off")
     }
@@ -440,8 +475,8 @@ struct TransactionEditorView: View {
                 .onChange(of: accountID) { _, newValue in
                     if !applyingDefaultAccount { accountExplicitlyOverridden = true }
                     accountAmountOverridden = false
-                    if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
-                    if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
+                    if !isLinked, let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
+                    if destinationID == newValue && sourceAccount?.usesCurrencyPockets != true { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
                     syncAmountFields()
                 }
 
@@ -479,7 +514,24 @@ struct TransactionEditorView: View {
         .accessibilityLabel("Note")
     }
 
-    private var transferRow: some View {
+    @ViewBuilder private var transferRow: some View {
+        if isInternalTransfer {
+            HStack {
+                Menu {
+                    Button("Cancel Internal Transfer") { destinationID = activeAccounts.first(where: { $0.id != accountID })?.id }
+                    ForEach(activeAccounts) { account in
+                        Button(account.name) {
+                            if account.usesCurrencyPockets { accountID = account.id; destinationID = account.id; currency = account.currency; internalDestinationCurrency = account.pocketCurrencies.first { $0 != currency } }
+                        }
+                    }
+                } label: { Label(sourceAccount?.name ?? "Internal Transfer", systemImage: "arrow.left.arrow.right") }
+                .frame(maxWidth: .infinity).frame(height: 50).ledgerGlass(in: Capsule())
+                compactDateButton.ledgerGlass(in: Capsule())
+            }
+        } else { normalTransferRow }
+    }
+
+    private var normalTransferRow: some View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "arrow.up.circle.fill")
@@ -501,8 +553,8 @@ struct TransactionEditorView: View {
             .onChange(of: accountID) { _, newValue in
                 if !applyingDefaultAccount { accountExplicitlyOverridden = true }
                 accountAmountOverridden = false
-                if let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
-                if destinationID == newValue { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
+                if !isLinked, let account = activeAccounts.first(where: { $0.id == newValue }) { currency = account.currency }
+                if destinationID == newValue && sourceAccount?.usesCurrencyPockets != true { destinationID = activeAccounts.first(where: { $0.id != newValue })?.id }
                 syncAmountFields()
             }
 
@@ -512,7 +564,7 @@ struct TransactionEditorView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize()
                     .layoutPriority(1)
-                AccountSelectorMenu(accounts: activeAccounts.filter { $0.id != accountID }, selection: $destinationID,
+                AccountSelectorMenu(accounts: activeAccounts.filter { $0.id != accountID || $0.usesCurrencyPockets }, selection: $destinationID,
                                     title: "To Account",
                                     display: .logo,
                                     valueAlignment: .center)
@@ -524,6 +576,7 @@ struct TransactionEditorView: View {
             .clipped()
             .ledgerGlass(in: Capsule())
             .onChange(of: destinationID) { _, _ in
+                if isInternalTransfer { internalDestinationCurrency = sourceAccount?.pocketCurrencies.first { $0 != currency } }
                 destinationAmountOverridden = false
                 syncAmountFields()
             }
@@ -759,7 +812,7 @@ struct TransactionEditorView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                Button { showingCategoryEditor = true } label: {
+                if !isLinked { Button { showingCategoryEditor = true } label: {
                     VStack(spacing: 6) {
                         Image(systemName: "plus.circle.fill").font(.title2)
                         Text("New Category").font(.caption.weight(.semibold))
@@ -768,6 +821,7 @@ struct TransactionEditorView: View {
                     .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                }
             }
             .padding(.vertical, 4)
         }
@@ -809,7 +863,18 @@ struct TransactionEditorView: View {
             store.presentedError = error.localizedDescription
             return
         }
-        if var original {
+        if isInternalTransfer {
+            guard let target = internalDestinationCurrency,
+                  store.ensureCurrencyPocket(accountID: accountID, currency: currency),
+                  store.ensureCurrencyPocket(accountID: accountID, currency: target) else { return }
+        }
+        if isLinkedDraft, let draft = original, let parentID = draft.parentTransactionID {
+            guard store.addRecovery(parentID: parentID, kind: .reimbursement, accountID: accountID,
+                amount: amount, currency: currency, occurredAt: occurredAt, note: note,
+                accountCurrency: sourceAccountCurrency, accountAmount: sourcePostingValue, noteAttachmentID: savedAttachmentID) else {
+                store.presentedError = "The reimbursement could not be saved."; return
+            }
+        } else if var original {
             original.type = type; original.accountID = accountID; original.destinationAccountID = type == .transfer ? destinationID : nil
             original.amount = amount; original.currency = currency; original.categoryID = type == .transfer ? .other : categoryID
             original.occurredAt = occurredAt; original.note = note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : note
@@ -893,12 +958,14 @@ private struct CategoryEditorSheet: View {
                         Text("Income").tag(LedgerCategoryKind.income)
                     }
                     .pickerStyle(.segmented)
+        .disabled(isLinked)
                     TextField("Name", text: $name)
                     TextField("Description", text: $detail)
                     ColorPicker("Color", selection: $color)
                 }
                 Section("Appearance") {
                     Picker("Type", selection: $mode) { Text("Emoji").tag(0); Text("Icon").tag(1) }.pickerStyle(.segmented)
+        .disabled(isLinked)
                     if mode == 0 {
                         TextField("Emoji", text: $emoji).font(.title2)
                     } else {

@@ -110,10 +110,13 @@ struct LedgerCategoryID: RawRepresentable, Codable, Hashable, Identifiable, Send
     static let interest = Self(rawValue: "interest")
     static let bonus = Self(rawValue: "bonus")
     static let otherIncome = Self(rawValue: "other_income")
+    static let settlement = Self(rawValue: "settlement")
+    static let reimbursement = Self(rawValue: "reimbursement")
+    var isSystemLinked: Bool { self == .settlement || self == .reimbursement }
 
     static let expenseBuiltIns: [Self] = [.food, .transport, .shopping, .utilities, .other]
     static let incomeBuiltIns: [Self] = [.salary, .dividends, .interest, .bonus, .otherIncome]
-    static let builtIns: [Self] = expenseBuiltIns + incomeBuiltIns
+    static let builtIns: [Self] = expenseBuiltIns + incomeBuiltIns + [.settlement, .reimbursement]
 }
 
 enum SyncStatus: String, Codable, Sendable { case synced, pending, conflict }

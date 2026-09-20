@@ -81,6 +81,8 @@ private struct NewLedgerSheet: View {
 
 struct RootView: View {
     @EnvironmentObject private var store: LedgerStore
+    @Environment(\.scenePhase) private var scenePhase
+    private let financialClock = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var section: AppSection = .overview
     @State private var selectedAccountID: UUID?
@@ -89,6 +91,8 @@ struct RootView: View {
         ZStack { LedgerBackground(); content }
             .alert("Wallet Ledger", isPresented: Binding(get: { store.presentedError != nil }, set: { if !$0 { store.presentedError = nil } })) { Button("OK") { store.presentedError = nil } } message: { Text(store.presentedError ?? "") }
             .overlay(alignment: .bottom) { undoToast }
+            .onReceive(financialClock) { store.refreshDueInstallments(now: $0) }
+            .onChange(of: scenePhase) { _, phase in if phase == .active { store.refreshDueInstallments() } }
             .onChange(of: store.activeBookID) { _, _ in selectedAccountID = nil }
             .sheet(isPresented: Binding(get: { store.activeRoute == .addTransaction }, set: { if !$0 && store.activeRoute == .addTransaction { store.activeRoute = nil } })) {
                 TransactionEditorView()

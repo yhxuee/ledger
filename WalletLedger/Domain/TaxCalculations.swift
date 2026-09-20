@@ -156,7 +156,7 @@ extension LedgerTransaction {
 }
 
 extension LedgerCalculations {
-    static func taxEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode) -> Double? {
+    static func taxEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, now: Date = .now) -> Double? {
         guard (transaction.type == .expense || transaction.type == .income),
               transaction.deletedAt == nil,
               transaction.isTaxExempt != true,
@@ -170,7 +170,7 @@ extension LedgerCalculations {
                   (original.type == .expense || original.type == .income),
                   original.isTaxExempt != true else { return nil }
         }
-        let effect = tax * transaction.exchangeRateAtTransaction / targetRate
+        let effect = tax * transaction.exchangeRateAtTransaction / targetRate * TransactionSemantics.analyticsScale(transaction, now: now)
         return effect.isFinite ? (transaction.isReversal ? -effect : effect) : nil
     }
 }

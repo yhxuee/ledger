@@ -80,8 +80,10 @@ enum SchemaMigration {
     /// - A pocket referenced by an active posting is re-created, otherwise that money would silently
     ///   disappear from the account total.
     static func normalize(_ state: inout LedgerState) {
+        guard state.schemaVersion <= BackupCodec.currentSchemaVersion else { return }
+        state.schemaVersion = BackupCodec.currentSchemaVersion
         let existingCategoryIDs = Set(state.categories.map(\.id))
-        for category in SeedData.incomeCategories {
+        for category in SeedData.categories {
             if !existingCategoryIDs.contains(category.id) {
                 state.categories.append(category)
             }

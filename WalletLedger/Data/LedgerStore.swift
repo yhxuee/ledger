@@ -11,6 +11,7 @@ enum AppRoute: Equatable, Sendable {
 final class LedgerStore: ObservableObject {
     static let shared = LedgerStore()
     private var fxRefreshes: Set<UUID> = []
+    private var lastFinancialRefresh = Date.now
     @Published private(set) var state: LedgerState
     @Published private(set) var books: [LedgerBook]
     @Published private(set) var activeBookID: UUID
@@ -145,10 +146,11 @@ final class LedgerStore: ObservableObject {
     }
 
     @discardableResult
-    func addTransaction(type: LedgerTransactionType, accountID: UUID, destinationAccountID: UUID?, amount: Double, currency: CurrencyCode, categoryID: LedgerCategoryID, occurredAt: Date, note: String?, noteAttachmentID: String? = nil, purchaseSessionID: UUID? = nil, purchaseItemID: UUID? = nil, accountCurrency: CurrencyCode? = nil, accountAmount: Double? = nil, destinationAccountCurrency: CurrencyCode? = nil, destinationAmount: Double? = nil, taxSnapshot: TaxSnapshot? = nil) -> LedgerTransaction? {
+    func addTransaction(type: LedgerTransactionType, accountID: UUID, destinationAccountID: UUID?, amount: Double, currency: CurrencyCode, categoryID: LedgerCategoryID, occurredAt: Date, note: String?, noteAttachmentID: String? = nil, purchaseSessionID: UUID? = nil, purchaseItemID: UUID? = nil, accountCurrency: CurrencyCode? = nil, accountAmount: Double? = nil, destinationAccountCurrency: CurrencyCode? = nil, destinationAmount: Double? = nil, taxSnapshot: TaxSnapshot? = nil, linkedRecovery: Bool = false) -> LedgerTransaction? {
+        guard !categoryID.isSystemLinked || linkedRecovery else { return nil }
         guard amount.isFinite, amount > 0, CurrencyRates.reference(currency, in: state.settings.rates) != nil, let source = state.accounts.first(where: { $0.id == accountID && $0.deletedAt == nil }) else { return nil }
         let destination = destinationAccountID.flatMap { id in state.accounts.first(where: { $0.id == id && $0.deletedAt == nil }) }
-        guard type != .transfer || (destination != nil && destination?.id != source.id) else { return nil }
+        guard type != .transfer || (destination != nil && TransactionSemantics.validTransfer(source: source, destinationID: destinationAccountID, sourceCurrency: accountCurrency, destinationCurrency: destinationAccountCurrency)) else { return nil }
         let rates = state.settings.rates
         guard CurrencyRates.reference(source.currency, in: rates) != nil,
               destination.map({ CurrencyRates.reference($0.currency, in: rates) != nil }) ?? true else { return nil }
@@ -178,11 +180,28 @@ final class LedgerStore: ObservableObject {
         guard item.amount.isFinite, item.amount > 0, source.deletedAt == nil else { return }
         guard let sourcePocket = resolvedPocket(item.accountCurrency, for: source) else { return }
         let original = state.transactions[index]
+        guard item.type != .transfer || TransactionSemantics.validTransfer(source: source, destinationID: item.destinationAccountID, sourceCurrency: item.accountCurrency, destinationCurrency: item.destinationAccountCurrency) else { return }
+        guard original.groupMode == nil else { return }
+        guard original.parentTransactionID == nil || (item.type == original.type && item.categoryID == original.categoryID) else { return }
+        guard original.linkedTransactionKind != .installment || (source.type == .credit && item.currency == original.currency) else { return }
         let keepsFX = item.currency == original.currency && item.accountID == original.accountID &&
             item.destinationAccountID == original.destinationAccountID && item.type == original.type &&
             item.accountCurrency == original.accountCurrency && item.destinationAccountCurrency == original.destinationAccountCurrency
         let scale = original.amount > 0 ? item.amount / original.amount : 1
         var updated = item
+        updated.parentTransactionID = original.parentTransactionID
+        updated.linkedTransactionKind = original.linkedTransactionKind
+        updated.linkedTransactionIndex = original.linkedTransactionIndex
+        updated.groupMode = original.groupMode
+        updated.splitMetadata = original.splitMetadata
+        updated.installmentMetadata = original.installmentMetadata
+        if original.linkedTransactionKind == .splitSettlement || original.linkedTransactionKind == .reimbursement {
+            updated.applyTax(TaxCalculations.resolve(entered: item.amount, type: .income, rate: 0, mode: .finalAmount, exempt: true))
+        }
+        if original.linkedTransactionKind == .installment {
+            updated.taxRate = original.taxRate; updated.taxAmount = original.taxAmount
+            updated.taxBaseAmount = original.taxBaseAmount; updated.taxInputMode = original.taxInputMode; updated.isTaxExempt = original.isTaxExempt
+        }
         if updated.type == .transfer { updated.applyTax(nil) }
         updated.accountCurrency = source.usesCurrencyPockets ? sourcePocket : nil
         // A supplied account amount that differs from the stored one is a manual override and is
@@ -210,7 +229,7 @@ final class LedgerStore: ObservableObject {
             updated.destinationAmount = nil
             updated.destinationAccountCurrency = nil
         }
-        updated.exchangeRateAtTransaction = keepsFX ? original.exchangeRateAtTransaction : (CurrencyRates.reference(item.currency, in: state.settings.rates) ?? 1)
+        updated.exchangeRateAtTransaction = item.currency == original.currency ? original.exchangeRateAtTransaction : (CurrencyRates.reference(item.currency, in: state.settings.rates) ?? 1)
         updated.updatedAt = .now
         updated.version += 1
         updated.syncStatus = .pending
@@ -223,6 +242,11 @@ final class LedgerStore: ObservableObject {
         let now = Date.now
         undoState = nil
         undoTransactions = [state.transactions[index]]
+        guard item.linkedTransactionKind != .installment else { return }
+        for childIndex in state.transactions.indices where state.transactions[childIndex].parentTransactionID == item.id && state.transactions[childIndex].deletedAt == nil {
+            undoTransactions.append(state.transactions[childIndex])
+            markDeleted(at: childIndex, date: now)
+        }
         if let originalID = state.transactions[index].reversalOfTransactionID,
            let originalIndex = state.transactions.firstIndex(where: { $0.id == originalID }) {
             undoTransactions.append(state.transactions[originalIndex])
@@ -687,7 +711,7 @@ final class LedgerStore: ObservableObject {
         // Validate the entire purchase before adding any financial children.
         for itemIndex in sessions[sessionIndex].items.indices where sessions[sessionIndex].items[itemIndex].linkedTransactionID == nil {
             let item = sessions[sessionIndex].items[itemIndex]
-            guard let transaction = addTransaction(type: .expense, accountID: accountID, destinationAccountID: nil, amount: item.amount, currency: session.currency, categoryID: item.categoryID, occurredAt: item.completedAt ?? .now, note: item.note, purchaseSessionID: sessionID, purchaseItemID: item.id, accountCurrency: purchasePocket) else { throw PurchaseFinalizationError.invalidItem }
+            guard let transaction = addTransaction(type: .expense, accountID: accountID, destinationAccountID: nil, amount: item.amount, currency: session.currency, categoryID: item.categoryID, occurredAt: item.completedAt ?? .now, note: item.note, purchaseSessionID: sessionID, purchaseItemID: item.id, accountCurrency: purchasePocket, taxSnapshot: state.categories.first(where: { $0.id == item.categoryID }).flatMap { TaxCalculations.resolve(entered: item.amount, type: .expense, rate: state.settings.taxRate(for: $0), mode: .finalAmount, exempt: false) }) else { throw PurchaseFinalizationError.invalidItem }
             sessions[sessionIndex].items[itemIndex].linkedTransactionID = transaction.id
         }
         sessions[sessionIndex].receiptAttachmentID = receiptAttachmentID ?? session.receiptAttachmentID
@@ -917,5 +941,91 @@ enum PurchaseFinalizationError: LocalizedError {
     case missingSession, notReady, invalidItem, paymentAccountUnavailable, missingRate
     var errorDescription: String? {
         switch self { case .missingSession: "Purchase session was not found."; case .notReady: "Complete every purchase item before creating ledger transactions."; case .invalidItem: "Each purchase item needs a name, category and positive amount."; case .paymentAccountUnavailable: "Choose an active payment account before starting or completing this purchase."; case .missingRate: "Set a valid exchange rate for the purchase and payment account currencies first." }
+    }
+}
+
+
+extension LedgerStore {
+    /// Refresh time-dependent views without changing the stored schedule or posting flags.
+    func refreshDueInstallments(now: Date = .now) {
+        let previous = lastFinancialRefresh
+        lastFinancialRefresh = now
+        if state.transactions.contains(where: { $0.deletedAt == nil && $0.linkedTransactionKind == .installment && $0.occurredAt > previous && $0.occurredAt <= now }) {
+            objectWillChange.send()
+            OverviewWidgetRelay.updateSnapshot(store: self)
+        }
+    }
+
+    @discardableResult
+    func ensureCurrencyPocket(accountID: UUID, currency: CurrencyCode) -> Bool {
+        guard let index = state.accounts.firstIndex(where: { $0.id == accountID && $0.deletedAt == nil }),
+              state.accounts[index].usesCurrencyPockets,
+              CurrencyRates.reference(currency, in: state.settings.rates) != nil else { return false }
+        guard !state.accounts[index].pocketCurrencies.contains(currency) else { return true }
+        state.accounts[index].currencyPockets = state.accounts[index].normalizedPockets + [.init(currency: currency, openingBalance: 0)]
+        state.accounts[index].updatedAt = .now; state.accounts[index].version += 1; state.accounts[index].syncStatus = .pending
+        scheduleSave()
+        return true
+    }
+
+    @discardableResult
+    func configureLinked(_ id: UUID, mode: TransactionGroupMode, people: Int = 2, plan: InstallmentPlanMetadata? = nil) -> Bool {
+        guard let index = state.transactions.firstIndex(where: { $0.id == id }) else { return false }
+        let parent = state.transactions[index]
+        guard TransactionSemantics.eligible(parent) || (parent.groupMode == mode && parent.deletedAt == nil && !parent.isLockedByReversal) else { return false }
+        let children = TransactionSemantics.children(of: parent, in: state)
+        if mode == .split {
+            guard (2...50).contains(people), children.allSatisfy({ ($0.linkedTransactionIndex ?? 0) < people }) else { return false }
+            state.transactions[index].splitMetadata = .init(participantCount: people)
+        } else if mode == .installment {
+            guard state.accounts.first(where: { $0.id == parent.accountID && $0.deletedAt == nil })?.type == .credit,
+                  let plan, let generated = InstallmentSchedule.generate(parent: parent, plan: plan) else { return false }
+            // Plan editing explicitly replaces the persisted schedule as one operation.
+            for childIndex in state.transactions.indices where state.transactions[childIndex].parentTransactionID == id && state.transactions[childIndex].deletedAt == nil {
+                markDeleted(at: childIndex, date: .now)
+            }
+            state.transactions.append(contentsOf: generated)
+            state.transactions[index].installmentMetadata = plan
+        }
+        state.transactions[index].groupMode = mode
+        state.transactions[index].updatedAt = .now; state.transactions[index].version += 1; state.transactions[index].syncStatus = .pending
+        scheduleSave()
+        return true
+    }
+
+    func reimbursementDraft(for parent: LedgerTransaction) -> LedgerTransaction {
+        var draft = parent
+        draft.id = UUID(); draft.type = .income; draft.categoryID = .reimbursement
+        draft.amount = TransactionSemantics.remainingReimbursement(parent, in: state)
+        draft.accountAmount = nil; draft.destinationAccountID = nil; draft.destinationAmount = nil
+        draft.groupMode = nil; draft.splitMetadata = nil; draft.installmentMetadata = nil
+        draft.purchaseSessionID = nil; draft.purchaseItemID = nil
+        draft.parentTransactionID = parent.id; draft.linkedTransactionKind = .reimbursement; draft.linkedTransactionIndex = nil
+        draft.note = nil; draft.noteAttachmentID = nil; draft.occurredAt = .now
+        draft.exchangeRateAtTransaction = CurrencyRates.reference(draft.currency, in: state.settings.rates) ?? parent.exchangeRateAtTransaction
+        draft.applyTax(TaxCalculations.resolve(entered: draft.amount, type: .income, rate: 0, mode: .finalAmount, exempt: true))
+        return draft
+    }
+
+    @discardableResult
+    func addRecovery(parentID: UUID, kind: LinkedTransactionKind, slot: Int? = nil, accountID: UUID,
+                     amount: Double, currency: CurrencyCode, occurredAt: Date = .now, note: String? = nil,
+                     accountCurrency: CurrencyCode? = nil, accountAmount: Double? = nil, noteAttachmentID: String? = nil) -> Bool {
+        guard let parent = state.transactions.first(where: { $0.id == parentID && $0.deletedAt == nil }) else { return false }
+        if kind == .splitSettlement {
+            guard parent.groupMode == .split, let slot, TransactionSemantics.outstandingSlots(parent, in: state).contains(slot) else { return false }
+        } else {
+            guard kind == .reimbursement, parent.groupMode == .reimbursement else { return false }
+        }
+        guard let child = addTransaction(type: .income, accountID: accountID, destinationAccountID: nil,
+            amount: amount, currency: currency, categoryID: kind == .splitSettlement ? .settlement : .reimbursement,
+            occurredAt: occurredAt, note: note, noteAttachmentID: noteAttachmentID, accountCurrency: accountCurrency,
+            accountAmount: accountAmount, taxSnapshot: TaxCalculations.resolve(entered: amount, type: .income, rate: 0, mode: .finalAmount, exempt: true), linkedRecovery: true),
+            let index = state.transactions.firstIndex(where: { $0.id == child.id }) else { return false }
+        state.transactions[index].parentTransactionID = parentID
+        state.transactions[index].linkedTransactionKind = kind
+        state.transactions[index].linkedTransactionIndex = slot
+        scheduleSave()
+        return true
     }
 }
