@@ -17,9 +17,8 @@ struct DefaultExpenseAccountsView: View {
                     VStack(spacing: 0) {
                         ForEach(Array(expenseCategories.enumerated()), id: \.element.id) { index, category in
                             categoryRow(category)
-                                .padding(.vertical, 4)
                             if index < expenseCategories.count - 1 {
-                                Divider().padding(.vertical, 4)
+                                Divider()
                             }
                         }
                     }
@@ -30,9 +29,8 @@ struct DefaultExpenseAccountsView: View {
                         VStack(spacing: 0) {
                             ForEach(Array(incomeCategories.enumerated()), id: \.element.id) { index, category in
                                 categoryRow(category)
-                                    .padding(.vertical, 4)
                                 if index < incomeCategories.count - 1 {
-                                    Divider().padding(.vertical, 4)
+                                    Divider()
                                 }
                             }
                         }
@@ -47,7 +45,7 @@ struct DefaultExpenseAccountsView: View {
     }
 
     private func categoryRow(_ category: LedgerCategory) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .center, spacing: 10) {
             CategoryIcon(
                 category: category,
                 font: .system(size: 17, weight: .semibold)
@@ -66,6 +64,7 @@ struct DefaultExpenseAccountsView: View {
             .pickerStyle(.menu)
             .labelsHidden()
         }
+        .frame(minHeight: 50)
     }
 
     private func mappingBinding(_ categoryID: LedgerCategoryID) -> Binding<UUID?> {
@@ -650,13 +649,13 @@ struct LayoutSettingsView: View {
                                             .foregroundStyle(.tint)
                                     }
                                 }
-                                .padding(.vertical, 6)
+                                .frame(minHeight: 50)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
 
                             if layout != TransactionEditorLayout.allCases.last {
-                                Divider().padding(.vertical, 2)
+                                Divider()
                             }
                         }
                     }

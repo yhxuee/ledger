@@ -14,7 +14,6 @@ struct SettingsView: View {
     @State private var working = false
     @State private var statusMessage: String?
     @State private var confirmingReset = false
-    @State private var confirmingDisableE2EE = false
     @State private var confirmingPendingCloud = false
     @State private var cloudShare: CKShare?
     @State private var showingCloudSharing = false
@@ -77,14 +76,6 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This clears local ledgers, receipts, caches, and device preferences. It does not delete CloudKit ledgers owned by or shared with other people.")
-        }
-        .confirmationDialog("Turn Off End-to-End Encryption?", isPresented: $confirmingDisableE2EE, titleVisibility: .visible) {
-            Button("Turn Off", role: .destructive) {
-                disableE2EE()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Future CloudKit records and backups for this ledger will no longer use the ledger encryption key. Existing encrypted backup files remain encrypted.")
         }
         .confirmationDialog("Cloud Changes Pending", isPresented: $confirmingPendingCloud, titleVisibility: .visible) {
             Button("Continue Anyway") {
@@ -245,28 +236,14 @@ struct SettingsView: View {
 
             Divider()
 
-            HStack {
-                SettingsLabel("End-to-End Encryption", systemImage: "lock.shield")
-                Spacer()
-                if store.activeBook.effectiveStorageKind == .cloudParticipant {
-                    Text("Required by Owner")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Toggle("", isOn: e2eeBinding)
-                        .labelsHidden()
-                }
-            }
-
-            if store.activeBook.effectiveEncryptionState == .enabled {
-                LabeledContent("Encryption Key", value: (try? LedgerKeyStore.loadKey(for: store.activeBook.id)) != nil ? "Available" : "Missing")
-                LabeledContent("Authorized Device", value: "This Device")
-            }
-
             NavigationLink {
-                DeviceAuthorizationView()
+                EncryptionSecurityView()
             } label: {
-                SettingsLinkRow("Device Authorization", systemImage: "key.horizontal", detail: nil)
+                SettingsLinkRow(
+                    "Encryption & Devices",
+                    systemImage: "lock.shield",
+                    detail: encryptionStatusText
+                )
             }
             .foregroundStyle(.primary)
 
@@ -278,10 +255,6 @@ struct SettingsView: View {
                 SettingsLabel("Reset App Data", systemImage: "trash")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-
-            Text("Finsy cannot recover an encrypted ledger if every authorized copy of its encryption key is lost. Keep at least one authorized device or transfer the key when replacing devices.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -409,41 +382,21 @@ struct SettingsView: View {
         return String(format: "Finsy-%04d-%02d-%02d.fsy", values.year ?? 0, values.month ?? 0, values.day ?? 0)
     }
 
-    private var e2eeBinding: Binding<Bool> {
-        Binding(
-            get: { store.activeBook.effectiveEncryptionState == .enabled },
-            set: { enabled in
-                if enabled {
-                    Task { await enableE2EE() }
-                } else {
-                    confirmingDisableE2EE = true
-                }
-            }
-        )
-    }
-
-    private func enableE2EE() async {
-        guard await privacy.authorizeSensitiveChange(
-            reason: "Authenticate to enable End-to-End Encryption.",
-            protectionEnabled: preferences.value.biometricLockEnabled
-        ) else { return }
-
-        do {
-            let (key, fp) = try LedgerKeyStore.generateAndSaveKey(for: store.activeBook.id)
-            store.markActiveBookEncrypted(fingerprint: fp)
-            if store.activeBook.effectiveStorageKind != .local {
-                working = true; defer { working = false }
-                try await CloudLedgerService.shared.migrateToEncrypted(book: store.activeBook, key: key)
-            }
-            statusMessage = "End-to-End Encryption enabled for this ledger."
-        } catch {
-            store.presentedError = error.localizedDescription
+    private var encryptionStatusText: String {
+        let state = store.activeBook.effectiveEncryptionState
+        let hasKey = (try? LedgerKeyStore.loadKey(for: store.activeBook.id)) != nil
+        switch state {
+        case .enabled:
+            return hasKey ? "On" : "Authorization Required"
+        case .disabled:
+            return "Off"
+        case .authorizationRequired:
+            return "Authorization Required"
+        case .enabling, .disabling:
+            return "Updating…"
+        case .migrationFailed:
+            return "Attention"
         }
-    }
-
-    private func disableE2EE() {
-        store.markActiveBookUnencrypted()
-        statusMessage = "End-to-End Encryption disabled. Existing encrypted backups remain readable."
     }
 
     @State private var pendingBackupAction: (() -> Void)? = nil

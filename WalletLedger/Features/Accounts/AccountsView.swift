@@ -12,6 +12,15 @@ struct AccountsView: View {
     @State private var isReordering = false
     private var portfolio: (netWorth: Double, assets: Double, liabilities: Double) { LedgerCalculations.portfolioSummary(store.state) }
     private var primaryActionColor: Color { LedgerPalette.primaryAction(for: colorScheme) }
+    private var hasMarketDataKey: Bool {
+        (try? MarketDataKeychain.read())?.isEmpty == false
+    }
+    private var isProviderConfigurationStatus: Bool {
+        guard let status = stockRefresh.status?.lowercased() else { return false }
+        return status.contains("configure an alpha vantage")
+            || status.contains("key missing")
+            || status.contains("not configured")
+    }
 
     var body: some View {
         List {
@@ -20,7 +29,10 @@ struct AccountsView: View {
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
-                if store.accounts.contains(where: { $0.account.type == .stocks }), let status = stockRefresh.status {
+                if hasMarketDataKey,
+                   !isProviderConfigurationStatus,
+                   store.accounts.contains(where: { $0.account.type == .stocks }),
+                   let status = stockRefresh.status {
                     Text(status).font(.caption).foregroundStyle(.secondary)
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 4, trailing: 16))
                         .listRowSeparator(.hidden)
@@ -197,7 +209,11 @@ private struct AccountEditorView: View {
                 }
             }
         }
-        if let searchStatus { Text(searchStatus).font(.caption).foregroundStyle(.secondary) }
+        if let searchStatus,
+           searchStatus != MarketDataError.missingKey.localizedDescription,
+           !searchStatus.localizedCaseInsensitiveContains("configure an alpha vantage") {
+            Text(searchStatus).font(.caption).foregroundStyle(.secondary)
+        }
         LabeledContent("Cost Price") {
             SensitiveNumericField(placeholder: "0", value: stockNumber(\.averageCost), fractionDigits: 4, width: 130)
         }
@@ -257,6 +273,9 @@ private struct AccountEditorView: View {
             searchResults = results
             if results.isEmpty { searchStatus = "No matching symbols. Manual entry is available." }
         } catch is CancellationError { }
+        catch MarketDataError.missingKey {
+            // Missing configuration is silent in Account Editor; manual entry remains usable.
+        }
         catch { if !Task.isCancelled { searchStatus = error.localizedDescription } }
     }
 
