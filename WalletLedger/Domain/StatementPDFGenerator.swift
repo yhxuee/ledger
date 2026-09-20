@@ -233,14 +233,19 @@ enum StatementPDFGenerator {
         for transaction in candidateTransactions {
             // Check semantic tax effect
             guard let taxResult = TransactionSemantics.taxEffect(transaction, in: state, to: targetCurrency, now: now),
-                  taxResult.taxAmount > 0 || taxResult.taxBaseAmount > 0 else {
+                  abs(taxResult.amount) > 0.0001 || (transaction.isTaxExempt == true && transaction.amount > 0) else {
                 continue
             }
 
-            let catName = state.categories.first { $0.id == transaction.categoryID }?.name ?? "General"
+            let catName = state.categories.first { $0.id == taxResult.categoryID }?.name ?? "General"
             let accName = safeAccounts.first { $0.id == transaction.accountID }?.name ?? "Account"
             let note = transaction.note ?? ""
-            let rate = transaction.taxRate ?? 0
+            let rate = transaction.taxRate ?? (state.categories.first(where: { $0.id == taxResult.categoryID }).map { state.settings.taxRate(for: $0) } ?? 0)
+
+            let grossInTarget = LedgerCalculations.convert(transaction.amount, from: transaction.currency, to: targetCurrency, rates: state.settings.rates)
+            let baseInTxCurrency = transaction.taxBaseAmount ?? (transaction.amount - (transaction.taxAmount ?? 0))
+            let baseInTarget = LedgerCalculations.convert(baseInTxCurrency, from: transaction.currency, to: targetCurrency, rates: state.settings.rates)
+            let taxAmt = taxResult.amount
 
             var status = "Taxable"
             if transaction.isTaxExempt == true {
@@ -256,17 +261,17 @@ enum StatementPDFGenerator {
                 accountName: accName,
                 categoryName: catName,
                 note: note,
-                grossAmount: transaction.amount,
-                taxBase: taxResult.taxBaseAmount,
+                grossAmount: grossInTarget,
+                taxBase: baseInTarget,
                 rate: rate,
-                taxAmount: taxResult.taxAmount,
+                taxAmount: taxAmt,
                 status: status
             ))
 
             let current = categoryTotals[catName, default: (base: 0, tax: 0, count: 0)]
             categoryTotals[catName] = (
-                base: current.base + taxResult.taxBaseAmount,
-                tax: current.tax + taxResult.taxAmount,
+                base: current.base + baseInTarget,
+                tax: current.tax + taxAmt,
                 count: current.count + 1
             )
         }

@@ -99,7 +99,7 @@ struct LedgerView: View {
             if store.canDetachCombinedPaymentChild(childID: childID) {
                 let success = store.detachCombinedPaymentChild(childID: childID)
                 if success {
-                    HapticFeedback.notification(type: .success, enabled: preferences.value.hapticFeedbackEnabled)
+                    HapticFeedback.success(enabled: preferences.value.hapticFeedbackEnabled)
                 }
                 return success
             }

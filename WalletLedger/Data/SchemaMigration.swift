@@ -254,7 +254,7 @@ enum SchemaMigration {
                     newTransactions.append(contentsOf: generated)
                 }
 
-            case .installment, .combinedPayment:
+            case .combinedPayment:
                 break
             }
         }
