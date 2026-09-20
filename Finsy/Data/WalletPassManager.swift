@@ -155,8 +155,9 @@ final class WalletPassManager: ObservableObject {
 /// SwiftUI wrapper for PKAddPassesViewController
 struct AddPassSheetView: UIViewControllerRepresentable {
     let pass: PKPass
-    var onCompletion: (() -> Void)? = nil
+    var onCompletion: (@MainActor @Sendable () -> Void)? = nil
 
+    @MainActor
     func makeUIViewController(context: Context) -> PKAddPassesViewController {
         guard let controller = PKAddPassesViewController(pass: pass) else {
             return PKAddPassesViewController()
@@ -165,22 +166,25 @@ struct AddPassSheetView: UIViewControllerRepresentable {
         return controller
     }
 
+    @MainActor
     func updateUIViewController(_ uiViewController: PKAddPassesViewController, context: Context) {}
 
+    @MainActor
     func makeCoordinator() -> Coordinator {
-        Coordinator(self)
+        Coordinator(onCompletion: onCompletion)
     }
 
+    @MainActor
     final class Coordinator: NSObject, PKAddPassesViewControllerDelegate {
-        let parent: AddPassSheetView
+        let onCompletion: (@MainActor @Sendable () -> Void)?
 
-        init(_ parent: AddPassSheetView) {
-            self.parent = parent
+        init(onCompletion: (@MainActor @Sendable () -> Void)?) {
+            self.onCompletion = onCompletion
         }
 
         func addPassesViewControllerDidFinish(_ controller: PKAddPassesViewController) {
-            controller.dismiss(animated: true) {
-                self.parent.onCompletion?()
+            controller.dismiss(animated: true) { [onCompletion] in
+                onCompletion?()
             }
         }
     }

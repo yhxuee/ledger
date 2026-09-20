@@ -5,7 +5,6 @@ import Foundation
 final class RecentTransactionActivityCoordinator {
     static let shared = RecentTransactionActivityCoordinator()
 
-    private var currentActivity: Activity<RecentTransactionActivityAttributes>?
     private var autoEndTask: Task<Void, Never>?
     private var observers: [Any] = []
 
@@ -104,12 +103,11 @@ final class RecentTransactionActivityCoordinator {
         )
 
         do {
-            let activity = try Activity.request(
+            _ = try Activity.request(
                 attributes: attributes,
                 content: ActivityContent(state: state, staleDate: expiresAt),
                 pushType: nil
             )
-            currentActivity = activity
 
             autoEndTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(10.5))
@@ -124,9 +122,8 @@ final class RecentTransactionActivityCoordinator {
     func endCurrentActivity() async {
         autoEndTask?.cancel()
         autoEndTask = nil
-        if let activity = currentActivity {
+        for activity in Activity<RecentTransactionActivityAttributes>.activities {
             await activity.end(nil, dismissalPolicy: .immediate)
-            currentActivity = nil
         }
     }
 }
