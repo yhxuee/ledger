@@ -147,10 +147,11 @@ struct StatementConfigurationSheet: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .tint(primaryActionColor)
                     .disabled(selectedAccountIDs.isEmpty || isGenerating)
                     .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 }
             }
             .navigationTitle(type.rawValue)
@@ -185,9 +186,13 @@ struct StatementConfigurationSheet: View {
     private func generateStatement() {
         isGenerating = true
         let accounts = activeAccounts.filter { selectedAccountIDs.contains($0.id) }
-
         let isAllSelected = allSelected
-        Task {
+        let state = store.state
+        let selectedMonth = self.selectedMonth
+        let themeColorHex = preferences.value.statementThemeColorHex
+        let type = self.type
+
+        Task.detached(priority: .userInitiated) {
             do {
                 let url: URL
                 switch type {
@@ -196,26 +201,26 @@ struct StatementConfigurationSheet: View {
                         monthDate: selectedMonth,
                         accounts: accounts,
                         allAccountsSelected: isAllSelected,
-                        themeColorHex: preferences.value.statementThemeColorHex,
-                        in: store.state
+                        themeColorHex: themeColorHex,
+                        in: state
                     )
                 case .tax:
                     url = try StatementPDFGenerator.generateTaxStatement(
                         monthDate: selectedMonth,
                         accounts: accounts,
                         allAccountsSelected: isAllSelected,
-                        themeColorHex: preferences.value.statementThemeColorHex,
-                        in: store.state
+                        themeColorHex: themeColorHex,
+                        in: state
                     )
                 }
                 await MainActor.run {
-                    isGenerating = false
-                    shareItem = ShareSheetItem(url: url)
+                    self.isGenerating = false
+                    self.shareItem = ShareSheetItem(url: url)
                 }
             } catch {
                 await MainActor.run {
-                    isGenerating = false
-                    errorMessage = error.localizedDescription
+                    self.isGenerating = false
+                    self.errorMessage = error.localizedDescription
                 }
             }
         }

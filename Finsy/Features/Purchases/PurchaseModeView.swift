@@ -190,9 +190,10 @@ struct PurchaseSessionEditorView: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                 }
+                let itemsByCategory = Dictionary(grouping: session.orderedItems, by: \.categoryID)
                 ForEach(session.orderedSections) { section in
                     Section {
-                        ForEach(items(in: section.categoryID)) { item in
+                        ForEach(itemsByCategory[section.categoryID] ?? []) { item in
                             inlineRow(item)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 11)
@@ -234,7 +235,7 @@ struct PurchaseSessionEditorView: View {
                 }
                 if session.orderedSections.isEmpty {
                     Section {
-                        Button { addItem(categoryID: store.state.categories.first?.id ?? .other) } label: {
+                        Button { addItem(categoryID: availableCategories.first?.id ?? .other) } label: {
                             Label("Add Item", systemImage: "plus.circle.fill")
                                 .font(.subheadline.weight(.medium))
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -342,7 +343,7 @@ struct PurchaseSessionEditorView: View {
                 .accessibilityLabel("Item name")
                 .frame(maxWidth: .infinity, alignment: .leading)
             Menu {
-                ForEach(store.state.categories) { value in
+                ForEach(availableCategories) { value in
                     Button { setCategory(itemID: item.id, categoryID: value.id) } label: {
                         Label(value.name, systemImage: value.symbol)
                     }
@@ -358,6 +359,9 @@ struct PurchaseSessionEditorView: View {
             SensitiveNumericField(placeholder: "0.00", value: itemBinding(item, \.amount), fractionDigits: 2, width: 82)
                 .accessibilityLabel("Amount in \(session.currency.rawValue)")
         }
+    }
+    private var availableCategories: [LedgerCategory] {
+        store.state.categories.filter { PurchaseRules.validItemCategory($0.id, in: store.state) }
     }
     private func itemBinding<Value>(_ item: PurchaseItem, _ key: WritableKeyPath<PurchaseItem, Value>) -> Binding<Value> {
         Binding(get: { (session.items.first { $0.id == item.id } ?? item)[keyPath: key] }, set: { value in
@@ -515,9 +519,10 @@ struct ActivePurchaseView: View {
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                     }
+                    let itemsByCategory = Dictionary(grouping: session.orderedItems, by: \.categoryID)
                     ForEach(session.orderedSections) { section in
                         Section {
-                            ForEach(session.orderedItems.filter { $0.categoryID == section.categoryID }) { item in
+                            ForEach(itemsByCategory[section.categoryID] ?? []) { item in
                                 Button { toggle(item, in: session) } label: {
                                     HStack(spacing: 12) {
                                         Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")

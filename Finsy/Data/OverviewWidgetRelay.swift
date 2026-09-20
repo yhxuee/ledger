@@ -27,8 +27,10 @@ enum OverviewWidgetRelay {
             return false
         }()
 
+        let index = store.index
+
         // 1. Weekly activity
-        let weeklySummary = LedgerCalculations.analytics(state, range: .week, type: .expense, accountID: nil)
+        let weeklySummary = LedgerCalculations.analytics(state, range: .week, type: .expense, accountID: nil, index: index)
         let calendar = Calendar.current
         let startOfToday = calendar.startOfDay(for: .now)
         let weekday = calendar.component(.weekday, from: startOfToday)
@@ -40,7 +42,7 @@ enum OverviewWidgetRelay {
         }
 
         // 2. Budget remain
-        let usage = LedgerCalculations.budgetUsage(state)
+        let usage = LedgerCalculations.budgetUsage(state, index: index)
         let hasBudget = usage.budget > 0
         let remaining = usage.budget - usage.spent
         let budgetData = OverviewWidgetBudgetData(
@@ -54,7 +56,7 @@ enum OverviewWidgetRelay {
         // 3. Today expense
         let todayStart = calendar.startOfDay(for: .now)
         let todayEnd = calendar.date(byAdding: .day, value: 1, to: todayStart)?.addingTimeInterval(-1) ?? .now
-        let todaySummary = LedgerCalculations.analytics(state, range: .week, type: .expense, accountID: nil, customRange: todayStart...todayEnd)
+        let todaySummary = LedgerCalculations.analytics(state, range: .week, type: .expense, accountID: nil, customRange: todayStart...todayEnd, index: index)
         let expenseCats = state.categories.filter { $0.kind == .expense }
         let todaySegments = expenseCats.compactMap { cat -> OverviewWidgetCategorySegment? in
             let val = todaySummary.categoryTotals[cat.id, default: 0]
@@ -70,7 +72,7 @@ enum OverviewWidgetRelay {
         }
 
         // 5. 6M Trends
-        let sixMonthsSummary = LedgerCalculations.analytics(state, range: .sixMonths, type: .expense, accountID: nil)
+        let sixMonthsSummary = LedgerCalculations.analytics(state, range: .sixMonths, type: .expense, accountID: nil, index: index)
         let sixMonthsBuckets = sixMonthsSummary.buckets.map { bucket in
             OverviewWidgetMonthlyBucket(id: bucket.id, label: bucket.label, amount: bucket.value)
         }

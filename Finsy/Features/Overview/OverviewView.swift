@@ -20,7 +20,7 @@ struct OverviewView: View {
 
     // Metric summaries
     private var weeklySummary: AnalyticsSummary {
-        LedgerCalculations.analytics(store.state, range: .week, type: .expense, accountID: selectedAccountID)
+        LedgerCalculations.analytics(store.state, range: .week, type: .expense, accountID: selectedAccountID, index: store.index)
     }
 
     private var todayRange: ClosedRange<Date> {
@@ -30,11 +30,11 @@ struct OverviewView: View {
     }
 
     private var todaySummary: AnalyticsSummary {
-        LedgerCalculations.analytics(store.state, range: .week, type: .expense, accountID: selectedAccountID, customRange: todayRange)
+        LedgerCalculations.analytics(store.state, range: .week, type: .expense, accountID: selectedAccountID, customRange: todayRange, index: store.index)
     }
 
     private var sixMonthsSummary: AnalyticsSummary {
-        LedgerCalculations.analytics(store.state, range: .sixMonths, type: .expense, accountID: selectedAccountID)
+        LedgerCalculations.analytics(store.state, range: .sixMonths, type: .expense, accountID: selectedAccountID, index: store.index)
     }
 
     private func categorySegments(from summary: AnalyticsSummary) -> [CategorySegmentData] {
@@ -495,13 +495,13 @@ struct OverviewMetricDetailSheet: View {
         case .todayExpensePie:
             let start = Calendar.current.startOfDay(for: .now)
             let end = Calendar.current.date(byAdding: .day, value: 1, to: start)?.addingTimeInterval(-1) ?? .now
-            return LedgerCalculations.analytics(store.state, range: .week, type: .expense, accountID: selectedAccountID, customRange: start...end)
+            return LedgerCalculations.analytics(store.state, range: .week, type: .expense, accountID: selectedAccountID, customRange: start...end, index: store.index)
         case .weekExpensePie, .weeklyActivity:
-            return LedgerCalculations.analytics(store.state, range: .week, type: .expense, accountID: selectedAccountID)
+            return LedgerCalculations.analytics(store.state, range: .week, type: .expense, accountID: selectedAccountID, index: store.index)
         case .sixMonthTrend:
-            return LedgerCalculations.analytics(store.state, range: .sixMonths, type: .expense, accountID: selectedAccountID)
+            return LedgerCalculations.analytics(store.state, range: .sixMonths, type: .expense, accountID: selectedAccountID, index: store.index)
         case .budget:
-            return LedgerCalculations.analytics(store.state, range: .month, type: .expense, accountID: selectedAccountID)
+            return LedgerCalculations.analytics(store.state, range: .month, type: .expense, accountID: selectedAccountID, index: store.index)
         }
     }
 

@@ -34,16 +34,21 @@ extension StatementPDFGenerator {
             accountIDs.contains($0.accountID)
         }.sorted { $0.occurredAt < $1.occurredAt }
 
+        let index = LedgerIndex(state: state)
+        let accountsByID = Dictionary(uniqueKeysWithValues: safeAccounts.map { ($0.id, $0) })
+        let categoriesByID = Dictionary(uniqueKeysWithValues: state.categories.map { ($0.id, $0) })
+
         for transaction in candidateTransactions {
-            guard let taxResult = TransactionSemantics.taxEffect(transaction, in: state, to: targetCurrency, now: now),
+            guard let taxResult = TransactionSemantics.taxEffect(transaction, in: state, to: targetCurrency, now: now, index: index),
                   abs(taxResult.amount) > 0.0001 || (transaction.isTaxExempt == true && transaction.amount > 0) else {
                 continue
             }
 
-            let catName = state.categories.first { $0.id == taxResult.categoryID }?.name ?? "General"
-            let accName = safeAccounts.first { $0.id == transaction.accountID }?.name ?? "Account"
+            let cat = categoriesByID[taxResult.categoryID]
+            let catName = cat?.name ?? "General"
+            let accName = accountsByID[transaction.accountID]?.name ?? "Account"
             let note = transaction.note ?? ""
-            let rate = transaction.taxRate ?? (state.categories.first(where: { $0.id == taxResult.categoryID }).map { state.settings.taxRate(for: $0) } ?? 0)
+            let rate = transaction.taxRate ?? (cat.map { state.settings.taxRate(for: $0) } ?? 0)
 
             let grossInTarget = LedgerCalculations.convert(transaction.amount, from: transaction.currency, to: targetCurrency, rates: state.settings.rates)
             let baseInTxCurrency = transaction.taxBaseAmount ?? (transaction.amount - (transaction.taxAmount ?? 0))

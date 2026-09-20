@@ -73,20 +73,27 @@ extension StatementPDFGenerator {
             TransactionSemantics.posts($0)
         }.sorted { $0.occurredAt < $1.occurredAt }
 
+        let index = LedgerIndex(state: state)
+        let allTransactionsByID = Dictionary(uniqueKeysWithValues: state.transactions.map { ($0.id, $0) })
+
         let postings = StatementPostingResolver.resolvePostings(
             transactions: allTransactions,
             selectedAccountIDs: accountIDs,
             baseCurrency: baseCurrency,
-            in: state
+            in: state,
+            index: index,
+            allTransactionsByID: allTransactionsByID
         )
+
+        let postingsByAccount = Dictionary(grouping: postings, by: \.accountID)
 
         // Calculate Account Summaries in Base Currency
         var summaries: [AccountMonthlySummary] = []
         for account in accounts {
-            let openingNative = calculateBalance(account: account, upTo: startOfMonth, in: state)
+            let openingNative = calculateBalance(account: account, upTo: startOfMonth, in: state, index: index)
             let openingBase = LedgerCalculations.convert(openingNative, from: account.currency, to: baseCurrency, rates: state.settings.rates)
 
-            let accPostings = postings.filter { $0.accountID == account.id }
+            let accPostings = postingsByAccount[account.id] ?? []
             let inflow = accPostings.filter { $0.direction == .credit }.reduce(0.0) { $0 + $1.baseAmount }
             let outflow = accPostings.filter { $0.direction == .debit }.reduce(0.0) { $0 + $1.baseAmount }
             let closing = openingBase + inflow - outflow
@@ -235,12 +242,19 @@ extension StatementPDFGenerator {
             TransactionSemantics.posts($0)
         }.sorted { $0.occurredAt < $1.occurredAt }
 
+        let index = LedgerIndex(state: state)
+        let allTransactionsByID = Dictionary(uniqueKeysWithValues: state.transactions.map { ($0.id, $0) })
+
         let allPostings = StatementPostingResolver.resolvePostings(
             transactions: allTransactions,
             selectedAccountIDs: accountIDs,
             baseCurrency: baseCurrency,
-            in: state
+            in: state,
+            index: index,
+            allTransactionsByID: allTransactionsByID
         )
+
+        let postingsByPocket = Dictionary(grouping: allPostings, by: \.pocketCurrency)
 
         let pockets = account.normalizedPockets
         let accountsText = "Account: \(account.name)"
@@ -291,9 +305,9 @@ extension StatementPDFGenerator {
             // Group by Currency Pocket (Primary currency first)
             for (pIdx, pocket) in pockets.enumerated() {
                 let pocketCurrency = pocket.currency
-                let pocketPostings = allPostings.filter { $0.accountID == account.id && $0.pocketCurrency == pocketCurrency }
+                let pocketPostings = postingsByPocket[pocketCurrency] ?? []
 
-                let opening = calculatePocketBalance(pocket: pocketCurrency, account: account, upTo: startOfMonth, in: state)
+                let opening = calculatePocketBalance(pocket: pocketCurrency, account: account, upTo: startOfMonth, in: state, index: index)
                 let inflow = pocketPostings.filter { $0.direction == .credit }.reduce(0.0) { $0 + $1.nativeAmount }
                 let outflow = pocketPostings.filter { $0.direction == .debit }.reduce(0.0) { $0 + $1.nativeAmount }
                 let closing = opening + inflow - outflow

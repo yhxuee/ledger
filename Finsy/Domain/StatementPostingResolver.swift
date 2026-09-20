@@ -4,7 +4,9 @@ enum StatementPostingResolver {
     static func resolveUserFacingDescription(
         transaction t: LedgerTransaction,
         isDestinationSide: Bool,
-        state: LedgerState
+        state: LedgerState,
+        index: LedgerIndex? = nil,
+        allTransactionsByID: [UUID: LedgerTransaction]? = nil
     ) -> String {
         // 1. Check if note is non-empty and not an internal system note
         if let note = t.note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty {
@@ -16,8 +18,8 @@ enum StatementPostingResolver {
 
         // 2. Semantic description
         if t.type == .transfer {
-            if let destID = t.destinationAccountID, let destAcc = state.accounts.first(where: { $0.id == destID }) {
-                if isDestinationSide, let srcAcc = state.accounts.first(where: { $0.id == t.accountID }) {
+            if let destID = t.destinationAccountID, let destAcc = index?.account(destID) ?? state.accounts.first(where: { $0.id == destID }) {
+                if isDestinationSide, let srcAcc = index?.account(t.accountID) ?? state.accounts.first(where: { $0.id == t.accountID }) {
                     return "Transfer from \(srcAcc.name)"
                 } else {
                     return "Transfer to \(destAcc.name)"
@@ -29,11 +31,11 @@ enum StatementPostingResolver {
         if let kind = t.linkedTransactionKind {
             switch kind {
             case .installment:
-                if let index = t.linkedTransactionIndex {
+                if let itemIndex = t.linkedTransactionIndex {
                     let total = t.parentTransactionID.flatMap { pID in
-                        state.transactions.first(where: { $0.id == pID })?.installmentMetadata?.count
+                        (allTransactionsByID?[pID] ?? index?.transaction(pID) ?? state.transactions.first(where: { $0.id == pID }))?.installmentMetadata?.count
                     } ?? 0
-                    return total > 0 ? "Installment \(index) / \(total)" : "Installment \(index)"
+                    return total > 0 ? "Installment \(itemIndex) / \(total)" : "Installment \(itemIndex)"
                 }
                 return "Installment"
             case .splitSelfExpense:
@@ -47,19 +49,19 @@ enum StatementPostingResolver {
             case .refundOriginal:
                 return "Refunded Purchase"
             case .refundIncome:
-                if let pID = t.parentTransactionID, let parent = state.transactions.first(where: { $0.id == pID }) {
-                    let catName = state.categories.first(where: { $0.id == parent.categoryID })?.name ?? "Purchase"
+                if let pID = t.parentTransactionID, let parent = allTransactionsByID?[pID] ?? index?.transaction(pID) ?? state.transactions.first(where: { $0.id == pID }) {
+                    let catName = index?.category(parent.categoryID)?.name ?? state.categories.first(where: { $0.id == parent.categoryID })?.name ?? "Purchase"
                     let pNote = parent.note?.trimmingCharacters(in: .whitespacesAndNewlines)
                     return "Refund · \((pNote != nil && !pNote!.isEmpty) ? pNote! : catName)"
                 }
                 return "Refund"
             case .combinedPaymentItem:
-                return state.categories.first(where: { $0.id == t.categoryID })?.name ?? "General"
+                return index?.category(t.categoryID)?.name ?? state.categories.first(where: { $0.id == t.categoryID })?.name ?? "General"
             case .combinedPaymentRefund:
                 return "Combined Payment Refund"
             case .combinedPaymentRefundSupport:
-                if let pID = t.parentTransactionID, let parent = state.transactions.first(where: { $0.id == pID }) {
-                    let catName = state.categories.first(where: { $0.id == parent.categoryID })?.name ?? "General"
+                if let pID = t.parentTransactionID, let parent = allTransactionsByID?[pID] ?? index?.transaction(pID) ?? state.transactions.first(where: { $0.id == pID }) {
+                    let catName = index?.category(parent.categoryID)?.name ?? state.categories.first(where: { $0.id == parent.categoryID })?.name ?? "General"
                     return "Refund · \(catName)"
                 }
                 return "Refund"
@@ -67,8 +69,8 @@ enum StatementPostingResolver {
         }
 
         if t.isReversal {
-            if let origID = t.reversalOfTransactionID, let orig = state.transactions.first(where: { $0.id == origID }) {
-                let catName = state.categories.first(where: { $0.id == orig.categoryID })?.name ?? "Purchase"
+            if let origID = t.reversalOfTransactionID, let orig = allTransactionsByID?[origID] ?? index?.transaction(origID) ?? state.transactions.first(where: { $0.id == origID }) {
+                let catName = index?.category(orig.categoryID)?.name ?? state.categories.first(where: { $0.id == orig.categoryID })?.name ?? "Purchase"
                 let oNote = orig.note?.trimmingCharacters(in: .whitespacesAndNewlines)
                 return "Refund · \((oNote != nil && !oNote!.isEmpty) ? oNote! : catName)"
             }
@@ -76,14 +78,16 @@ enum StatementPostingResolver {
         }
 
         // 3. Fallback to Category Name
-        return state.categories.first(where: { $0.id == t.categoryID })?.name ?? "General"
+        return index?.category(t.categoryID)?.name ?? state.categories.first(where: { $0.id == t.categoryID })?.name ?? "General"
     }
 
     static func resolvePostings(
         transactions: [LedgerTransaction],
         selectedAccountIDs: Set<UUID>,
         baseCurrency: CurrencyCode,
-        in state: LedgerState
+        in state: LedgerState,
+        index: LedgerIndex? = nil,
+        allTransactionsByID: [UUID: LedgerTransaction]? = nil
     ) -> [MonthlyStatementPosting] {
         var postings: [MonthlyStatementPosting] = []
 
@@ -92,7 +96,7 @@ enum StatementPostingResolver {
 
             // 1. Source Account Posting (Debit for Expense / Transfer, Credit for Income)
             if selectedAccountIDs.contains(t.accountID),
-               let sourceAccount = state.accounts.first(where: { $0.id == t.accountID }) {
+               let sourceAccount = index?.account(t.accountID) ?? state.accounts.first(where: { $0.id == t.accountID }) {
                 let origCurrency = t.currency
                 let origAmount: Double
                 switch t.type {
@@ -123,7 +127,7 @@ enum StatementPostingResolver {
                 }
 
                 let direction: StatementPostingDirection = (t.type == .income) ? .credit : .debit
-                let userDesc = resolveUserFacingDescription(transaction: t, isDestinationSide: false, state: state)
+                let userDesc = resolveUserFacingDescription(transaction: t, isDestinationSide: false, state: state, index: index, allTransactionsByID: allTransactionsByID)
 
                 postings.append(MonthlyStatementPosting(
                     transactionID: t.id,
@@ -147,7 +151,7 @@ enum StatementPostingResolver {
             if t.type == .transfer,
                let destID = t.destinationAccountID,
                selectedAccountIDs.contains(destID),
-               let destAccount = state.accounts.first(where: { $0.id == destID }) {
+               let destAccount = index?.account(destID) ?? state.accounts.first(where: { $0.id == destID }) {
                 let destPocket = LedgerCalculations.destinationPocket(t, for: destAccount)
                 let nativePosting = LedgerCalculations.destinationPosting(t, for: destAccount, in: state)
                 let origCurrency = destPocket
@@ -171,7 +175,7 @@ enum StatementPostingResolver {
                     effectiveFX = nativePosting > 0.0001 ? baseAmount / nativePosting : 1.0
                 }
 
-                let userDesc = resolveUserFacingDescription(transaction: t, isDestinationSide: true, state: state)
+                let userDesc = resolveUserFacingDescription(transaction: t, isDestinationSide: true, state: state, index: index, allTransactionsByID: allTransactionsByID)
 
                 postings.append(MonthlyStatementPosting(
                     transactionID: t.id,

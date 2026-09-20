@@ -31,19 +31,19 @@ enum LedgerCalculations {
         return value
     }
 
-    static func transactionEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, type: LedgerTransactionType, now: Date = .now) -> Double? {
+    static func transactionEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, type: LedgerTransactionType, now: Date = .now, index: LedgerIndex? = nil) -> Double? {
         switch type {
         case .expense:
-            return TransactionSemantics.expenseEffect(transaction, in: state, to: target, now: now)
+            return TransactionSemantics.expenseEffect(transaction, in: state, to: target, now: now, index: index)
         case .income:
-            return TransactionSemantics.incomeEffect(transaction, in: state, to: target, now: now)
+            return TransactionSemantics.incomeEffect(transaction, in: state, to: target, now: now, index: index)
         case .transfer:
             return nil
         }
     }
 
-    static func expenseEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, now: Date = .now) -> Double? {
-        TransactionSemantics.expenseEffect(transaction, in: state, to: target, now: now)
+    static func expenseEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, now: Date = .now, index: LedgerIndex? = nil) -> Double? {
+        TransactionSemantics.expenseEffect(transaction, in: state, to: target, now: now, index: index)
     }
 
     /// Pocket a source posting lands in. Single-currency accounts always use their primary currency.
@@ -125,9 +125,9 @@ enum LedgerCalculations {
     }
 
     /// Account-side expense effect, expressed in the account's primary currency.
-    static func accountExpenseEffect(_ transaction: LedgerTransaction, for account: LedgerAccount, in state: LedgerState, now: Date = .now) -> Double? {
+    static func accountExpenseEffect(_ transaction: LedgerTransaction, for account: LedgerAccount, in state: LedgerState, now: Date = .now, index: LedgerIndex? = nil) -> Double? {
         guard transaction.accountID == account.id else { return nil }
-        return TransactionSemantics.expenseEffect(transaction, in: state, to: account.currency, now: now)
+        return TransactionSemantics.expenseEffect(transaction, in: state, to: account.currency, now: now, index: index)
     }
 
     static func accountViews(_ state: LedgerState, index: LedgerIndex? = nil) -> [AccountViewModel] {
@@ -157,35 +157,44 @@ enum LedgerCalculations {
             }
     }
 
-    static func budgetUsage(_ state: LedgerState, now: Date = .now) -> (budget: Double, spent: Double, ratio: Double) {
-        let detail = budgetBreakdown(state, now: now)
+    static func budgetUsage(_ state: LedgerState, now: Date = .now, index: LedgerIndex? = nil) -> (budget: Double, spent: Double, ratio: Double) {
+        let detail = budgetBreakdown(state, now: now, index: index)
         return (detail.budget, detail.spent, detail.ratio)
     }
 
-    static func budgetBreakdown(_ state: LedgerState, now: Date = .now) -> BudgetBreakdown {
+    static func budgetBreakdown(_ state: LedgerState, now: Date = .now, index: LedgerIndex? = nil) -> BudgetBreakdown {
         let target = state.settings.baseCurrency
         let plan = state.settings.budgetPlan
         let calendar = Calendar.current
-        let monthly = activeTransactions(state).filter { calendar.isDate($0.occurredAt, equalTo: now, toGranularity: .month) }
-        let accountMap = Dictionary(uniqueKeysWithValues: activeAccounts(state).map { ($0.id, $0) })
+        let monthly = (index?.transactions ?? activeTransactions(state)).filter { calendar.isDate($0.occurredAt, equalTo: now, toGranularity: .month) }
+        let accountMap = Dictionary(uniqueKeysWithValues: (index?.activeAccounts ?? activeAccounts(state)).map { ($0.id, $0) })
         let lines: [BudgetBreakdownLine]
         switch plan.mode {
         case .category:
             let categoryMap = Dictionary(uniqueKeysWithValues: state.categories.map { ($0.id, $0) })
-            lines = plan.categoryAllocations.filter { $0.value > 0 }.map { categoryID, allocation in
-                let spent = monthly.reduce(0) { partial, transaction in
-                    guard transaction.categoryID == categoryID, let value = expenseEffect(transaction, in: state, to: target, now: now) else { return partial }
-                    return partial + value
-                }
+            let activeAllocations = plan.categoryAllocations.filter { $0.value > 0 }
+            var spentByCategory: [LedgerCategoryID: Double] = [:]
+            for transaction in monthly {
+                guard activeAllocations[transaction.categoryID] != nil,
+                      let value = expenseEffect(transaction, in: state, to: target, now: now, index: index) else { continue }
+                spentByCategory[transaction.categoryID, default: 0] += value
+            }
+            lines = activeAllocations.map { categoryID, allocation in
+                let spent = spentByCategory[categoryID, default: 0]
                 return .init(id: "category:\(categoryID.rawValue)", title: categoryMap[categoryID]?.name ?? categoryID.rawValue, currency: target, budget: allocation, spent: spent)
             }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         case .account:
-            lines = plan.accountAllocations.compactMap { accountID, allocation in
-                guard allocation > 0, let account = accountMap[accountID] else { return nil }
-                let spent = monthly.reduce(0) { partial, transaction in
-                    guard transaction.accountID == accountID, let value = accountExpenseEffect(transaction, for: account, in: state, now: now) else { return partial }
-                    return partial + value
-                }
+            let activeAllocations = plan.accountAllocations.filter { $0.value > 0 && accountMap[$0.key] != nil }
+            var spentByAccount: [UUID: Double] = [:]
+            for transaction in monthly {
+                guard let account = accountMap[transaction.accountID],
+                      activeAllocations[transaction.accountID] != nil,
+                      let value = accountExpenseEffect(transaction, for: account, in: state, now: now, index: index) else { continue }
+                spentByAccount[transaction.accountID, default: 0] += value
+            }
+            lines = activeAllocations.compactMap { accountID, allocation in
+                guard let account = accountMap[accountID] else { return nil }
+                let spent = spentByAccount[accountID, default: 0]
                 return .init(id: "account:\(accountID.uuidString)", title: account.name, currency: account.currency, budget: allocation, spent: spent)
             }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         }
@@ -194,7 +203,7 @@ enum LedgerCalculations {
         return .init(currency: target, budget: budget, spent: spent, lines: lines)
     }
 
-    static func budgetUsage(_ state: LedgerState, account: LedgerAccount, now: Date = .now) -> (budget: Double, spent: Double, ratio: Double) {
+    static func budgetUsage(_ state: LedgerState, account: LedgerAccount, now: Date = .now, index: LedgerIndex? = nil) -> (budget: Double, spent: Double, ratio: Double) {
         let plan = state.settings.budgetPlan
         let budget: Double
         let includedCategories: Set<LedgerCategoryID>?
@@ -208,8 +217,9 @@ enum LedgerCalculations {
         }
         guard budget > 0 else { return (0, 0, 0) }
         let calendar = Calendar.current
-        let spent = activeTransactions(state).reduce(0) { partial, transaction in
-            guard transaction.accountID == account.id, (includedCategories == nil || includedCategories!.contains(transaction.categoryID)), calendar.isDate(transaction.occurredAt, equalTo: now, toGranularity: .month), let value = accountExpenseEffect(transaction, for: account, in: state, now: now) else { return partial }
+        let effectiveTransactions = index?.transactions ?? activeTransactions(state)
+        let spent = effectiveTransactions.reduce(0) { partial, transaction in
+            guard transaction.accountID == account.id, (includedCategories == nil || includedCategories!.contains(transaction.categoryID)), calendar.isDate(transaction.occurredAt, equalTo: now, toGranularity: .month), let value = accountExpenseEffect(transaction, for: account, in: state, now: now, index: index) else { return partial }
             return partial + value
         }
         return (budget, spent, spent / budget)
@@ -219,7 +229,7 @@ enum LedgerCalculations {
         activeTransactions(state).filter { accountID == nil || $0.accountID == accountID || $0.destinationAccountID == accountID }.sorted { $0.occurredAt > $1.occurredAt }
     }
 
-    static func analytics(_ state: LedgerState, range: AnalyticsRange, type: LedgerTransactionType = .expense, categories: Set<LedgerCategoryID> = [], accountID: UUID? = nil, accountIDs: Set<UUID> = [], customRange: ClosedRange<Date>? = nil, now: Date = .now) -> AnalyticsSummary {
+    static func analytics(_ state: LedgerState, range: AnalyticsRange, type: LedgerTransactionType = .expense, categories: Set<LedgerCategoryID> = [], accountID: UUID? = nil, accountIDs: Set<UUID> = [], customRange: ClosedRange<Date>? = nil, now: Date = .now, index: LedgerIndex? = nil) -> AnalyticsSummary {
         let calendar = Calendar.current
         let target = state.settings.baseCurrency
         let startOfToday = calendar.startOfDay(for: now)
@@ -284,9 +294,10 @@ enum LedgerCalculations {
 
         let relevantCategories = state.categories.filter { $0.kind == (type == .income ? .income : .expense) && !$0.id.isSystemLinked }
         var totals = Dictionary(uniqueKeysWithValues: relevantCategories.map { ($0.id, 0.0) })
-        for transaction in activeTransactions(state) where transaction.occurredAt >= start && transaction.occurredAt < end && (accountID == nil || transaction.accountID == accountID) && (accountIDs.isEmpty || accountIDs.contains(transaction.accountID)) {
+        let effectiveTransactions = index?.transactions ?? activeTransactions(state)
+        for transaction in effectiveTransactions where transaction.occurredAt >= start && transaction.occurredAt < end && (accountID == nil || transaction.accountID == accountID) && (accountIDs.isEmpty || accountIDs.contains(transaction.accountID)) {
             guard categories.isEmpty || categories.contains(transaction.categoryID) else { continue }
-            guard let value = transactionEffect(transaction, in: state, to: target, type: type, now: now) else { continue }
+            guard let value = transactionEffect(transaction, in: state, to: target, type: type, now: now, index: index) else { continue }
             let key: String
             switch bucketMode {
             case .day: key = dayKey(transaction.occurredAt)

@@ -45,13 +45,6 @@ extension LedgerStore {
         scheduleSave()
     }
 
-    private func persistPurchaseChanges() throws {
-        guard persistenceEnabled else { return }
-        saveTask?.cancel()
-        try Self.writeLibrary(librarySnapshot())
-        scheduleSave()
-    }
-
     @discardableResult
     func startPurchaseSession(_ sessionID: UUID, activityStarter: any PurchaseActivityStarting = PurchaseLiveActivityController.shared) async throws -> PurchaseActivityOutcome {
         guard var session = purchaseSessions.first(where: { $0.id == sessionID }) else { throw PurchaseFinalizationError.missingSession }
@@ -60,13 +53,21 @@ extension LedgerStore {
         try PurchaseRules.validateItems(session, in: state)
         // Local-first: the purchase becomes active and is durably persisted before any
         // App Group / ActivityKit work runs. Those steps can never fail the start.
+        let previousState = state
         session.status = .active
         session.startedAt = .now
         session.completedAt = nil
         for index in session.items.indices { session.items[index].isCompleted = false; session.items[index].completedAt = nil }
         session.updatedAt = .now
         savePurchaseSession(session)
-        try persistPurchaseChanges()
+        do {
+            try await persistDurableAsync()
+        } catch {
+            mutateState(.full) { state in
+                state = previousState
+            }
+            throw error
+        }
         purchaseSyncWarning = nil
         suppressedPurchaseSyncWarning = nil
         guard let persistedSession = purchaseSessions.first(where: { $0.id == sessionID }) else { throw PurchaseFinalizationError.missingSession }
@@ -134,7 +135,7 @@ extension LedgerStore {
         return purchaseSessions.first(where: { $0.id == sessionID }) ?? session
     }
 
-    func finalizePurchaseSession(_ sessionID: UUID, receiptAttachmentID: String?) throws {
+    func finalizePurchaseSession(_ sessionID: UUID, receiptAttachmentID: String?) async throws {
         guard var sessions = state.purchaseSessions, let sessionIndex = sessions.firstIndex(where: { $0.id == sessionID }) else { throw PurchaseFinalizationError.missingSession }
         let session = sessions[sessionIndex]
         if session.status == .completed { return }
@@ -145,24 +146,65 @@ extension LedgerStore {
         guard let paymentAccount = state.accounts.first(where: { $0.id == accountID && $0.deletedAt == nil }) else { throw PurchaseFinalizationError.paymentAccountUnavailable }
         // Post each child to the pocket that already holds the purchase currency, else the primary pocket.
         let purchasePocket = paymentAccount.defaultPocket(for: session.currency)
-        // Validate the entire purchase before adding any financial children.
-        for itemIndex in sessions[sessionIndex].items.indices where sessions[sessionIndex].items[itemIndex].linkedTransactionID == nil {
-            let item = sessions[sessionIndex].items[itemIndex]
-            guard let transaction = addTransaction(type: .expense, accountID: accountID, destinationAccountID: nil, amount: item.amount, currency: session.currency, categoryID: item.categoryID, occurredAt: item.completedAt ?? .now, note: item.note, purchaseSessionID: sessionID, purchaseItemID: item.id, accountCurrency: purchasePocket, taxSnapshot: state.categories.first(where: { $0.id == item.categoryID }).flatMap { TaxCalculations.resolve(entered: item.amount, type: .expense, rate: state.settings.taxRate(for: $0), mode: .finalAmount, exempt: false) }) else { throw PurchaseFinalizationError.invalidItem }
-            sessions[sessionIndex].items[itemIndex].linkedTransactionID = transaction.id
+
+        // Validate the entire purchase and build all missing transactions in memory first without mutating state.
+        var newTransactions: [LedgerTransaction] = []
+        var itemTransactionPairs: [(itemIndex: Int, transaction: LedgerTransaction)] = []
+        for itemIndex in session.items.indices where session.items[itemIndex].linkedTransactionID == nil {
+            let item = session.items[itemIndex]
+            let taxSnapshot = state.categories.first(where: { $0.id == item.categoryID }).flatMap {
+                TaxCalculations.resolve(entered: item.amount, type: .expense, rate: state.settings.taxRate(for: $0), mode: .finalAmount, exempt: false)
+            }
+            let transaction = try buildTransaction(
+                type: .expense,
+                accountID: accountID,
+                destinationAccountID: nil,
+                amount: item.amount,
+                currency: session.currency,
+                categoryID: item.categoryID,
+                occurredAt: item.completedAt ?? .now,
+                note: item.note,
+                purchaseSessionID: sessionID,
+                purchaseItemID: item.id,
+                accountCurrency: purchasePocket,
+                taxSnapshot: taxSnapshot,
+                in: state
+            )
+            newTransactions.append(transaction)
+            itemTransactionPairs.append((itemIndex, transaction))
         }
-        sessions[sessionIndex].receiptAttachmentID = receiptAttachmentID ?? session.receiptAttachmentID
-        sessions[sessionIndex].status = .completed
-        sessions[sessionIndex].completedAt = .now
-        sessions[sessionIndex].updatedAt = .now
-        let finished = sessions[sessionIndex]
-        mutateState { state in
-            state.purchaseSessions = sessions
+
+        let previousState = state
+        var finishedSession: PurchaseSession?
+        mutateState(.financial) { state in
+            state.transactions.append(contentsOf: newTransactions)
+            if var currentSessions = state.purchaseSessions, let idx = currentSessions.firstIndex(where: { $0.id == sessionID }) {
+                for pair in itemTransactionPairs {
+                    currentSessions[idx].items[pair.itemIndex].linkedTransactionID = pair.transaction.id
+                }
+                currentSessions[idx].receiptAttachmentID = receiptAttachmentID ?? currentSessions[idx].receiptAttachmentID
+                currentSessions[idx].status = .completed
+                currentSessions[idx].completedAt = .now
+                currentSessions[idx].updatedAt = .now
+                finishedSession = currentSessions[idx]
+                state.purchaseSessions = currentSessions
+            }
         }
-        try persistPurchaseChanges()
-        Task { [weak self] in
-            guard let self else { return }
-            await self.publish(session: finished, requestActivity: false)
+
+        do {
+            try await persistDurableAsync()
+        } catch {
+            mutateState(.full) { state in
+                state = previousState
+            }
+            throw error
+        }
+
+        if let finished = finishedSession {
+            Task { [weak self] in
+                guard let self else { return }
+                await self.publish(session: finished, requestActivity: false)
+            }
         }
     }
 
@@ -187,8 +229,7 @@ extension LedgerStore {
         mutateState(.purchaseOnly) { state in
             state.purchaseSessions = sessions
         }
-        do { try persistPurchaseChanges() }
-        catch { presentedError = "Purchase sync failed: \(error.localizedDescription)" }
+        scheduleSave()
         return true
     }
 

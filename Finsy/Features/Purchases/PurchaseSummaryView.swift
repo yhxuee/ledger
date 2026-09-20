@@ -20,8 +20,9 @@ struct PurchaseSummaryView: View {
             List {
                 if let session {
                     Section {
+                        let orderedItems = session.orderedItems
                         VStack(spacing: 10) {
-                            ForEach(session.orderedItems) { item in
+                            ForEach(Array(orderedItems.enumerated()), id: \.element.id) { index, item in
                                 HStack {
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(item.note.isEmpty ? "Item" : item.note)
@@ -34,7 +35,7 @@ struct PurchaseSummaryView: View {
                                     SensitiveMoneyText(amount: item.amount, currency: session.currency, maxIntegerDigits: 4)
                                         .font(.subheadline.bold())
                                 }
-                                if item.id != session.orderedItems.last?.id {
+                                if index < orderedItems.count - 1 {
                                     Divider()
                                 }
                             }
@@ -92,10 +93,8 @@ struct PurchaseSummaryView: View {
                                         .frame(maxWidth: .infinity)
                                 }
                                 .buttonStyle(.bordered)
+                                .controlSize(.large)
                             }
-                            .padding(16)
-                            .frame(maxWidth: .infinity)
-                            .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                             .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
@@ -112,9 +111,9 @@ struct PurchaseSummaryView: View {
                                     .fontWeight(.semibold)
                             }
                             .glassPrimaryButton()
+                            .controlSize(.large)
                             .disabled(saving)
-                            .padding(.vertical, 4)
-                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                         }
@@ -186,16 +185,19 @@ struct PurchaseSummaryView: View {
     private func categoryName(_ id: LedgerCategoryID) -> String { store.state.categories.first(where: { $0.id == id })?.name ?? id.rawValue }
     @MainActor private func finalize() async {
         guard !saving else { return }; saving = true; defer { saving = false }
+        var newlyCreatedAttachmentID: String?
         do {
-            let attachmentID: String?
             if let receiptImage {
-                attachmentID = try await AttachmentStore.shared.saveReceipt(receiptImage)
-            } else {
-                attachmentID = nil
+                newlyCreatedAttachmentID = try await AttachmentStore.shared.saveReceipt(receiptImage)
             }
-            try store.finalizePurchaseSession(sessionID, receiptAttachmentID: attachmentID)
+            try await store.finalizePurchaseSession(sessionID, receiptAttachmentID: newlyCreatedAttachmentID)
             dismiss()
-        } catch { store.presentedError = error.localizedDescription }
+        } catch {
+            if let id = newlyCreatedAttachmentID {
+                try? await AttachmentStore.shared.delete(identifier: id)
+            }
+            store.presentedError = error.localizedDescription
+        }
     }
 }
 

@@ -14,37 +14,61 @@ extension LedgerStore {
         return account.pocketCurrencies.contains(requested) ? requested : nil
     }
 
-    @discardableResult
-    func addTransaction(type: LedgerTransactionType, accountID: UUID, destinationAccountID: UUID?, amount: Double, currency: CurrencyCode, categoryID: LedgerCategoryID, occurredAt: Date, note: String?, noteAttachmentID: String? = nil, purchaseSessionID: UUID? = nil, purchaseItemID: UUID? = nil, recurringRuleID: UUID? = nil, accountCurrency: CurrencyCode? = nil, accountAmount: Double? = nil, destinationAccountCurrency: CurrencyCode? = nil, destinationAmount: Double? = nil, taxSnapshot: TaxSnapshot? = nil, couponSnapshot: CouponTransactionSnapshot? = nil, linkedRecovery: Bool = false) -> LedgerTransaction? {
-        guard !categoryID.isSystemLinked || linkedRecovery else { return nil }
-        guard amount.isFinite, amount > 0, CurrencyRates.reference(currency, in: state.settings.rates) != nil, let source = state.accounts.first(where: { $0.id == accountID && $0.deletedAt == nil }) else { return nil }
-        let destination = destinationAccountID.flatMap { id in state.accounts.first(where: { $0.id == id && $0.deletedAt == nil }) }
-        guard type != .transfer || (destination != nil && TransactionSemantics.validTransfer(source: source, destinationID: destinationAccountID, sourceCurrency: accountCurrency, destinationCurrency: destinationAccountCurrency)) else { return nil }
-        let rates = state.settings.rates
+    func buildTransaction(
+        type: LedgerTransactionType,
+        accountID: UUID,
+        destinationAccountID: UUID?,
+        amount: Double,
+        currency: CurrencyCode,
+        categoryID: LedgerCategoryID,
+        occurredAt: Date,
+        note: String?,
+        noteAttachmentID: String? = nil,
+        purchaseSessionID: UUID? = nil,
+        purchaseItemID: UUID? = nil,
+        recurringRuleID: UUID? = nil,
+        accountCurrency: CurrencyCode? = nil,
+        accountAmount: Double? = nil,
+        destinationAccountCurrency: CurrencyCode? = nil,
+        destinationAmount: Double? = nil,
+        taxSnapshot: TaxSnapshot? = nil,
+        couponSnapshot: CouponTransactionSnapshot? = nil,
+        linkedRecovery: Bool = false,
+        in snapshot: LedgerState
+    ) throws -> LedgerTransaction {
+        guard !categoryID.isSystemLinked || linkedRecovery else { throw PurchaseFinalizationError.invalidItem }
+        guard amount.isFinite, amount > 0, CurrencyRates.reference(currency, in: snapshot.settings.rates) != nil, let source = snapshot.accounts.first(where: { $0.id == accountID && $0.deletedAt == nil }) else { throw PurchaseFinalizationError.invalidItem }
+        let destination = destinationAccountID.flatMap { id in snapshot.accounts.first(where: { $0.id == id && $0.deletedAt == nil }) }
+        guard type != .transfer || (destination != nil && TransactionSemantics.validTransfer(source: source, destinationID: destinationAccountID, sourceCurrency: accountCurrency, destinationCurrency: destinationAccountCurrency)) else { throw PurchaseFinalizationError.invalidItem }
+        let rates = snapshot.settings.rates
         guard CurrencyRates.reference(source.currency, in: rates) != nil,
-              destination.map({ CurrencyRates.reference($0.currency, in: rates) != nil }) ?? true else { return nil }
-        guard let sourcePocket = resolvedPocket(accountCurrency, for: source) else { return nil }
-        // `accountAmount` is authoritative: it is the actual amount posted to the pocket and may
-        // differ from the FX estimate (bank spread, fees, settlement rate).
+              destination.map({ CurrencyRates.reference($0.currency, in: rates) != nil }) ?? true else { throw PurchaseFinalizationError.missingRate }
+        guard let sourcePocket = resolvedPocket(accountCurrency, for: source) else { throw PurchaseFinalizationError.invalidItem }
         let resolvedAccountAmount = accountAmount ?? LedgerCalculations.convert(amount, from: currency, to: sourcePocket, rates: rates)
-        guard resolvedAccountAmount.isFinite else { return nil }
+        guard resolvedAccountAmount.isFinite else { throw PurchaseFinalizationError.invalidItem }
         var resolvedDestinationPocket: CurrencyCode?
         var resolvedDestinationAmount: Double?
         if type == .transfer, let destination {
-            guard let destinationPocket = resolvedPocket(destinationAccountCurrency, for: destination) else { return nil }
+            guard let destinationPocket = resolvedPocket(destinationAccountCurrency, for: destination) else { throw PurchaseFinalizationError.invalidItem }
             resolvedDestinationPocket = destination.usesCurrencyPockets ? destinationPocket : nil
             let value = destinationAmount ?? LedgerCalculations.convert(amount, from: currency, to: destinationPocket, rates: rates)
-            guard value.isFinite else { return nil }
+            guard value.isFinite else { throw PurchaseFinalizationError.invalidItem }
             resolvedDestinationAmount = value
         }
-        var item = LedgerTransaction(id: UUID(), userID: state.settings.userID, type: type, accountID: source.id, destinationAccountID: type == .transfer ? destination?.id : nil, amount: amount, currency: currency, accountAmount: resolvedAccountAmount, destinationAmount: resolvedDestinationAmount, accountCurrency: source.usesCurrencyPockets ? sourcePocket : nil, destinationAccountCurrency: resolvedDestinationPocket, categoryID: type == .transfer ? .other : categoryID, occurredAt: occurredAt, note: note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty, noteAttachmentID: noteAttachmentID, exchangeRateAtTransaction: CurrencyRates.reference(currency, in: rates) ?? 1, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, recurringRuleID: recurringRuleID, couponSnapshot: couponSnapshot, createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending)
+        var item = LedgerTransaction(id: UUID(), userID: snapshot.settings.userID, type: type, accountID: source.id, destinationAccountID: type == .transfer ? destination?.id : nil, amount: amount, currency: currency, accountAmount: resolvedAccountAmount, destinationAmount: resolvedDestinationAmount, accountCurrency: source.usesCurrencyPockets ? sourcePocket : nil, destinationAccountCurrency: resolvedDestinationPocket, categoryID: type == .transfer ? .other : categoryID, occurredAt: occurredAt, note: note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty, noteAttachmentID: noteAttachmentID, exchangeRateAtTransaction: CurrencyRates.reference(currency, in: rates) ?? 1, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, recurringRuleID: recurringRuleID, couponSnapshot: couponSnapshot, createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending)
         item.applyTax(taxSnapshot)
+        return item
+    }
+
+    @discardableResult
+    func addTransaction(type: LedgerTransactionType, accountID: UUID, destinationAccountID: UUID?, amount: Double, currency: CurrencyCode, categoryID: LedgerCategoryID, occurredAt: Date, note: String?, noteAttachmentID: String? = nil, purchaseSessionID: UUID? = nil, purchaseItemID: UUID? = nil, recurringRuleID: UUID? = nil, accountCurrency: CurrencyCode? = nil, accountAmount: Double? = nil, destinationAccountCurrency: CurrencyCode? = nil, destinationAmount: Double? = nil, taxSnapshot: TaxSnapshot? = nil, couponSnapshot: CouponTransactionSnapshot? = nil, linkedRecovery: Bool = false) -> LedgerTransaction? {
+        guard let item = try? buildTransaction(type: type, accountID: accountID, destinationAccountID: destinationAccountID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: noteAttachmentID, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, recurringRuleID: recurringRuleID, accountCurrency: accountCurrency, accountAmount: accountAmount, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: destinationAmount, taxSnapshot: taxSnapshot, couponSnapshot: couponSnapshot, linkedRecovery: linkedRecovery, in: state) else { return nil }
         mutateState { state in
             state.transactions.insert(item, at: 0)
 
             // Mark coupon as used if applied
             if let snapshot = couponSnapshot,
-               let accIdx = state.accounts.firstIndex(where: { $0.id == source.id }),
+               let accIdx = state.accounts.firstIndex(where: { $0.id == item.accountID }),
                var coupons = state.accounts[accIdx].coupons,
                let cIdx = coupons.firstIndex(where: { $0.id == snapshot.couponID }) {
                 coupons[cIdx].usedAt = occurredAt

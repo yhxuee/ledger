@@ -34,7 +34,8 @@ struct AnalyticsView: View {
             type: type,
             categories: cats,
             accountIDs: selectedAccounts,
-            customRange: hasCustomRange ? rangeStart...rangeEnd : nil
+            customRange: hasCustomRange ? rangeStart...rangeEnd : nil,
+            index: store.index
         )
     }
 

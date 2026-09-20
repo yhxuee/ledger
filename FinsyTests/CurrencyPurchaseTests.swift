@@ -127,7 +127,7 @@ final class CurrencyPurchaseTests: XCTestCase {
         XCTAssertFalse(decoded.state.purchaseSessions?.first?.items.contains { $0.id == removed.id } ?? true)
     }
 
-    func testFinalizationUsesSessionCurrencyAndOneAccountNotItemDefaults() throws {
+    func testFinalizationUsesSessionCurrencyAndOneAccountNotItemDefaults() async throws {
         var state = SeedData.make()
         state.transactions = []
         let payment = try XCTUnwrap(state.accounts.first { $0.currency == .USD })
@@ -140,8 +140,8 @@ final class CurrencyPurchaseTests: XCTestCase {
         }
         state.purchaseSessions = [session]
         let store = LedgerStore(stateForTesting: state)
-        try store.finalizePurchaseSession(session.id, receiptAttachmentID: nil)
-        try store.finalizePurchaseSession(session.id, receiptAttachmentID: nil)
+        try await store.finalizePurchaseSession(session.id, receiptAttachmentID: nil)
+        try await store.finalizePurchaseSession(session.id, receiptAttachmentID: nil)
         XCTAssertEqual(store.state.transactions.count, 3)
         XCTAssertTrue(store.state.transactions.allSatisfy { $0.currency == .USDT && $0.accountID == payment.id })
         XCTAssertEqual(store.state.transactions.reduce(0) { $0 + $1.amount }, 100)
@@ -215,8 +215,12 @@ final class CurrencyPurchaseTests: XCTestCase {
         session.status = .awaitingSummary
         for i in session.items.indices { session.items[i].isCompleted = true }
         store.savePurchaseSession(session)
-        XCTAssertThrowsError(try store.finalizePurchaseSession(session.id, receiptAttachmentID: nil))
-        XCTAssertTrue(store.state.transactions.isEmpty)
+        do {
+            try await store.finalizePurchaseSession(session.id, receiptAttachmentID: nil)
+            XCTFail("Finalization must reject a deleted payment account.")
+        } catch {
+            XCTAssertTrue(store.state.transactions.isEmpty)
+        }
         XCTAssertEqual(store.purchaseSessions.first?.accountID, state.accounts[0].id)
     }
 

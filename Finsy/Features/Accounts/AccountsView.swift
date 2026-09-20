@@ -11,7 +11,7 @@ struct AccountsView: View {
     @State private var deleting: LedgerAccount?
     @State private var isReordering = false
     @State private var statementConfigType: StatementType?
-    private var portfolio: (netWorth: Double, assets: Double, liabilities: Double) { LedgerCalculations.portfolioSummary(store.state) }
+    private var portfolio: (netWorth: Double, assets: Double, liabilities: Double) { LedgerCalculations.portfolioSummary(store.state, index: store.index, accountViews: store.accounts) }
     private var primaryActionColor: Color { LedgerPalette.primaryAction(for: colorScheme) }
     private var hasMarketDataKey: Bool {
         (try? MarketDataKeychain.read())?.isEmpty == false

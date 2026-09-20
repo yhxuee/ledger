@@ -3,12 +3,12 @@ import UIKit
 extension StatementPDFGenerator {
     // MARK: - Calculation Helpers
 
-    static func calculateBalance(account: LedgerAccount, upTo cutoff: Date, in state: LedgerState) -> Double {
-        ThreeMonthFinancialEngine.calculateBalance(account: account, upTo: cutoff, in: state, includeCutoff: false)
+    static func calculateBalance(account: LedgerAccount, upTo cutoff: Date, in state: LedgerState, index: LedgerIndex? = nil) -> Double {
+        ThreeMonthFinancialEngine.calculateBalance(account: account, upTo: cutoff, in: state, includeCutoff: false, index: index)
     }
 
-    static func calculatePocketBalance(pocket: CurrencyCode, account: LedgerAccount, upTo cutoff: Date, in state: LedgerState) -> Double {
-        ThreeMonthFinancialEngine.calculatePocketBalance(pocket: pocket, account: account, upTo: cutoff, in: state, includeCutoff: false)
+    static func calculatePocketBalance(pocket: CurrencyCode, account: LedgerAccount, upTo cutoff: Date, in state: LedgerState, index: LedgerIndex? = nil) -> Double {
+        ThreeMonthFinancialEngine.calculatePocketBalance(pocket: pocket, account: account, upTo: cutoff, in: state, includeCutoff: false, index: index)
     }
 
     // MARK: - Drawing Components

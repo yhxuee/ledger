@@ -77,22 +77,39 @@ extension LedgerStore {
     }
 
 
+    func persistDurableAsync() async throws {
+        guard persistenceEnabled else { return }
+        commitActiveBook()
+        saveTask?.cancel()
+        saveRevision &+= 1
+        let revision = saveRevision
+        let snapshot = librarySnapshot()
+        try await LedgerPersistence.shared.save(snapshot, revision: revision)
+        OverviewWidgetRelay.updateSnapshot(store: self)
+        if let active = snapshot.books.first(where: { $0.id == snapshot.activeBookID }), active.effectiveStorageKind != .local {
+            Task {
+                do { try await CloudLedgerService.shared.synchronize(book: active); self.lastSyncError = nil }
+                catch { self.lastSyncError = error.localizedDescription }
+            }
+        }
+    }
+
     func scheduleSave() {
         guard persistenceEnabled else { return }
         commitActiveBook()
         saveTask?.cancel()
-        let snapshot = librarySnapshot()
         saveRevision &+= 1
         let revision = saveRevision
         saveTask = Task {
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
+            let snapshot = self.librarySnapshot()
             OverviewWidgetRelay.updateSnapshot(store: self)
             do { try await LedgerPersistence.shared.save(snapshot, revision: revision) }
-            catch { presentedError = "Local save failed: \(error.localizedDescription)" }
+            catch { self.presentedError = "Local save failed: \(error.localizedDescription)" }
             if let active = snapshot.books.first(where: { $0.id == snapshot.activeBookID }), active.effectiveStorageKind != .local {
-                do { try await CloudLedgerService.shared.synchronize(book: active); lastSyncError = nil }
-                catch { lastSyncError = error.localizedDescription }
+                do { try await CloudLedgerService.shared.synchronize(book: active); self.lastSyncError = nil }
+                catch { self.lastSyncError = error.localizedDescription }
             }
         }
     }

@@ -247,7 +247,7 @@ final class LedgerCalculationsTests: XCTestCase {
         XCTAssertEqual(store.recurringRules.map(\.id), [rule.id])
     }
 
-    func testPurchaseFinalizationCreatesOnlyChildTransactionsAndIsIdempotent() throws {
+    func testPurchaseFinalizationCreatesOnlyChildTransactionsAndIsIdempotent() async throws {
         var state = DemoDataFactory.makeWithSingleAccount()
         let accountID = state.accounts[0].id
         let sessionID = UUID()
@@ -257,8 +257,8 @@ final class LedgerCalculationsTests: XCTestCase {
         ]
         state.purchaseSessions = [.init(id: sessionID, ledgerBookID: UUID(), name: "Groceries", status: .awaitingSummary, sections: [], items: items, createdAt: .now, startedAt: .now, completedAt: .now, receiptAttachmentID: nil, currency: .HKD, accountID: accountID)]
         let store = LedgerStore(stateForTesting: state)
-        try store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)
-        try store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)
+        try await store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)
+        try await store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)
         XCTAssertEqual(store.state.transactions.count, 2)
         XCTAssertTrue(store.state.transactions.allSatisfy { $0.purchaseSessionID == sessionID })
         XCTAssertEqual(LedgerCalculations.analytics(store.state, range: .week).total, 50, accuracy: 0.001)
@@ -455,6 +455,110 @@ final class LedgerCalculationsTests: XCTestCase {
         session.items.removeAll()
         session.normalizeSections()
         XCTAssertTrue(session.orderedSections.isEmpty, "Session after deleting all items has empty orderedSections (restores global Add Item)")
+    }
+
+    func testPurchaseRulesRejectInvalidCategories() {
+        let state = SeedData.make()
+        // Normal expense category is valid
+        XCTAssertTrue(PurchaseRules.validItemCategory(.food, in: state))
+        XCTAssertTrue(PurchaseRules.validItemCategory(.shopping, in: state))
+
+        // System linked category is invalid
+        XCTAssertTrue(LedgerCategoryID.transfer.isSystemLinked)
+        XCTAssertFalse(PurchaseRules.validItemCategory(.transfer, in: state))
+        XCTAssertFalse(PurchaseRules.validItemCategory(.reimbursement, in: state))
+
+        // Income category is invalid for purchase items
+        let incomeCat = state.categories.first { $0.kind == .income }
+        if let incomeCat {
+            XCTAssertFalse(PurchaseRules.validItemCategory(incomeCat.id, in: state))
+        }
+
+        // Test that validateItems throws when an item uses an invalid category
+        var session = PurchaseSession(id: UUID(), ledgerBookID: UUID(), name: "Invalid Cat Test", status: .draft, sections: [], items: [
+            PurchaseItem(id: UUID(), categoryID: .transfer, note: "Invalid", amount: 10, displayOrder: 0, isCompleted: false, completedAt: nil, linkedTransactionID: nil)
+        ], createdAt: .now, startedAt: nil, completedAt: nil, receiptAttachmentID: nil)
+        XCTAssertThrowsError(try PurchaseRules.validateItems(session, in: state)) { error in
+            guard case PurchaseFinalizationError.invalidItemCategory = error else {
+                XCTFail("Expected invalidItemCategory error, got \(error)")
+                return
+            }
+        }
+    }
+
+    func testAtomicFinalizationRollbackOnInvalidItem() async throws {
+        var state = DemoDataFactory.makeWithSingleAccount()
+        let accountID = state.accounts[0].id
+        let sessionID = UUID()
+        // First item is valid, second item has invalid (system linked) category
+        let items = [
+            PurchaseItem(id: UUID(), categoryID: .food, note: "Valid Item", amount: 30, displayOrder: 0, isCompleted: true, completedAt: .now, resolvedAccountID: accountID, linkedTransactionID: nil),
+            PurchaseItem(id: UUID(), categoryID: .transfer, note: "Invalid Item", amount: 20, displayOrder: 1, isCompleted: true, completedAt: .now, resolvedAccountID: accountID, linkedTransactionID: nil)
+        ]
+        state.purchaseSessions = [.init(id: sessionID, ledgerBookID: UUID(), name: "Rollback Test", status: .awaitingSummary, sections: [], items: items, createdAt: .now, startedAt: .now, completedAt: .now, receiptAttachmentID: nil, currency: .HKD, accountID: accountID)]
+        let initialTxCount = state.transactions.count
+        let store = LedgerStore(stateForTesting: state)
+
+        do {
+            try await store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)
+            XCTFail("Finalization must throw on invalid item category")
+        } catch {
+            // Must have zero partial transactions committed
+            XCTAssertEqual(store.state.transactions.count, initialTxCount, "No transactions should be created if any item fails")
+            XCTAssertEqual(store.purchaseSessions.first?.status, .awaitingSummary, "Session status must remain awaitingSummary on failure")
+        }
+    }
+
+    func testStatementPostingResolverIndexParity() {
+        let state = SeedData.make()
+        let accountIDs = Set(state.accounts.map(\.id))
+        let baseCurrency = state.settings.baseCurrency
+        let transactions = state.transactions
+
+        let withoutIndex = StatementPostingResolver.resolvePostings(
+            transactions: transactions,
+            selectedAccountIDs: accountIDs,
+            baseCurrency: baseCurrency,
+            in: state
+        )
+
+        let index = LedgerIndex(state: state)
+        let allTxByID = Dictionary(uniqueKeysWithValues: state.transactions.map { ($0.id, $0) })
+        let withIndex = StatementPostingResolver.resolvePostings(
+            transactions: transactions,
+            selectedAccountIDs: accountIDs,
+            baseCurrency: baseCurrency,
+            in: state,
+            index: index,
+            allTransactionsByID: allTxByID
+        )
+
+        XCTAssertEqual(withoutIndex.count, withIndex.count)
+        for (p1, p2) in zip(withoutIndex, withIndex) {
+            XCTAssertEqual(p1.transactionID, p2.transactionID)
+            XCTAssertEqual(p1.accountID, p2.accountID)
+            XCTAssertEqual(p1.baseAmount, p2.baseAmount, accuracy: 0.0001)
+            XCTAssertEqual(p1.userDescription, p2.userDescription)
+            XCTAssertEqual(p1.direction, p2.direction)
+            XCTAssertEqual(p1.nativeAmount, p2.nativeAmount, accuracy: 0.0001)
+        }
+    }
+
+    func testBudgetBreakdownSinglePassParity() {
+        let state = SeedData.make()
+        let index = LedgerIndex(state: state)
+
+        let breakdownWithoutIndex = LedgerCalculations.budgetBreakdown(state)
+        let breakdownWithIndex = LedgerCalculations.budgetBreakdown(state, index: index)
+
+        XCTAssertEqual(breakdownWithoutIndex.budget, breakdownWithIndex.budget, accuracy: 0.001)
+        XCTAssertEqual(breakdownWithoutIndex.spent, breakdownWithIndex.spent, accuracy: 0.001)
+        XCTAssertEqual(breakdownWithoutIndex.lines.count, breakdownWithIndex.lines.count)
+        for (l1, l2) in zip(breakdownWithoutIndex.lines, breakdownWithIndex.lines) {
+            XCTAssertEqual(l1.id, l2.id)
+            XCTAssertEqual(l1.budget, l2.budget, accuracy: 0.001)
+            XCTAssertEqual(l1.spent, l2.spent, accuracy: 0.001)
+        }
     }
 
     private func makeTransaction(type: LedgerTransactionType, source: LedgerAccount, destination: LedgerAccount? = nil, amount: Double) -> LedgerTransaction {
