@@ -7,7 +7,7 @@ enum AppRoute: Equatable, Sendable {
     case purchase(UUID)
 }
 
-enum PurchaseFinalizationError: LocalizedError {
+enum PurchaseFinalizationError: LocalizedError, Equatable, Sendable {
     case missingSession, notReady, invalidItem, paymentAccountUnavailable, missingRate, inconsistentPurchaseData
     var errorDescription: String? {
         switch self {

@@ -265,6 +265,13 @@ struct SettingsView: View {
         }
     }
 
+    private var lastBackupText: String {
+        guard let date = store.state.settings.lastBackupAt else {
+            return "Last Backup · Never"
+        }
+        return "Last Backup · \(date.formatted(date: .abbreviated, time: .shortened))"
+    }
+
     private var shareAndBackupSection: some View {
         SettingsGlassSection("Share & Backup") {
             Button {
@@ -281,10 +288,24 @@ struct SettingsView: View {
             Button {
                 prepareICloudBackup()
             } label: {
-                SettingsLabel("Back Up Now", systemImage: "icloud.and.arrow.up")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 12) {
+                    Image(systemName: "icloud.and.arrow.up")
+                        .frame(width: 22)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Back Up Now")
+                            .foregroundStyle(.primary)
+
+                        Text(lastBackupText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .foregroundStyle(.primary)
             .disabled(working)
 
             Divider()
@@ -323,8 +344,6 @@ struct SettingsView: View {
             Toggle(isOn: remindersBinding) {
                 Text("Backup Reminders")
             }
-
-            LabeledContent("Last Backup", value: store.state.settings.lastBackupAt?.formatted(date: .abbreviated, time: .shortened) ?? "Never")
         }
     }
 

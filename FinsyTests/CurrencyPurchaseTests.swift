@@ -57,7 +57,7 @@ final class CurrencyPurchaseTests: XCTestCase {
     }
 
     func testSnapshotsAndNonfinancialEditsKeepHistoricalStablecoinRates() throws {
-        let store = LedgerStore(stateForTesting: SeedData.makeEmpty())
+        let store = LedgerStore(stateForTesting: DemoDataFactory.makeWithSingleAccount())
         let account = try XCTUnwrap(store.accounts.first).id
         var originals: [LedgerTransaction] = []
         for coin in CurrencyCode.usdStablecoins + [.USD] {
@@ -92,7 +92,7 @@ final class CurrencyPurchaseTests: XCTestCase {
     }
 
     func testPurchaseBackupAndCloudRoundTripWithUnifiedPayment() throws {
-        var state = SeedData.makeEmpty()
+        var state = DemoDataFactory.makeWithSingleAccount()
         var session = makeSession(accountID: state.accounts[0].id, currency: .USDC)
         session.normalizeSections()
         state.purchaseSessions = [session]
@@ -111,7 +111,7 @@ final class CurrencyPurchaseTests: XCTestCase {
     }
 
     func testCloudHeaderExcludesDeletedDraftItemsFromOldCachedRecords() throws {
-        var state = SeedData.makeEmpty()
+        var state = DemoDataFactory.makeWithSingleAccount()
         var session = makeSession(accountID: state.accounts[0].id)
         session.normalizeSections()
         state.purchaseSessions = [session]
@@ -225,7 +225,7 @@ final class CurrencyPurchaseTests: XCTestCase {
     }
 
     func testStartPurchaseSucceedsAndWarnsWhenSharedStorageIsUnavailable() async throws {
-        var state = SeedData.makeEmpty()
+        var state = DemoDataFactory.makeWithSingleAccount()
         let session = makeSession(accountID: state.accounts[0].id)
         state.purchaseSessions = [session]
         let store = LedgerStore(stateForTesting: state)
@@ -241,7 +241,7 @@ final class CurrencyPurchaseTests: XCTestCase {
     }
 
     func testItemCompletionIsLocalFirstAndSurvivesBridgeFailure() async throws {
-        var state = SeedData.makeEmpty()
+        var state = DemoDataFactory.makeWithSingleAccount()
         var session = makeSession(accountID: state.accounts[0].id)
         session.status = .active
         state.purchaseSessions = [session]
@@ -266,7 +266,7 @@ final class CurrencyPurchaseTests: XCTestCase {
     }
 
     func testBridgeNoticeIsShownOnceAndStaysDismissedUntilTheBridgeChanges() async throws {
-        var state = SeedData.makeEmpty()
+        var state = DemoDataFactory.makeWithSingleAccount()
         var session = makeSession(accountID: state.accounts[0].id)
         session.status = .active
         state.purchaseSessions = [session]
@@ -295,7 +295,7 @@ final class CurrencyPurchaseTests: XCTestCase {
     }
 
     func testOnlyTheFinalItemLeavesTheActiveState() throws {
-        var state = SeedData.makeEmpty()
+        var state = DemoDataFactory.makeWithSingleAccount()
         var session = makeSession(accountID: state.accounts[0].id)
         session.status = .active
         state.purchaseSessions = [session]
@@ -321,7 +321,7 @@ final class CurrencyPurchaseTests: XCTestCase {
     }
 
     func testBridgeFailureNeverAltersFinalItemTransitions() async throws {
-        var state = SeedData.makeEmpty()
+        var state = DemoDataFactory.makeWithSingleAccount()
         var session = makeSession(accountID: state.accounts[0].id)
         session.status = .active
         state.purchaseSessions = [session]
@@ -428,7 +428,7 @@ final class CurrencyPurchaseTests: XCTestCase {
     }
 
     func testOldDevelopmentPurchaseDecodesAndMigratesWithinSchemaTwo() throws {
-        var state = SeedData.makeEmpty()
+        var state = DemoDataFactory.makeWithSingleAccount()
         var session = makeSession(accountID: state.accounts[0].id)
         for i in session.items.indices { session.items[i].resolvedAccountID = state.accounts[0].id }
         let encoded = try JSONEncoder().encode(session)
@@ -468,7 +468,7 @@ final class CurrencyPurchaseTests: XCTestCase {
     func testReconcileMergesLockScreenCompletionsWithoutLosingOrder() throws {
         try XCTSkipUnless(PurchaseSharedStateStore.availability().isAvailable, "App Group container is unavailable in this environment")
         defer { try? PurchaseSharedStateStore.resetLocalSnapshots() }
-        var state = SeedData.makeEmpty()
+        var state = DemoDataFactory.makeWithSingleAccount()
         var session = makeSession(accountID: state.accounts[0].id)
         session.status = .active
         session.updatedAt = Date(timeIntervalSince1970: 1000)
@@ -496,7 +496,7 @@ final class CurrencyPurchaseTests: XCTestCase {
     func testOlderSharedSnapshotCannotOverwriteNewerLocalSession() throws {
         try XCTSkipUnless(PurchaseSharedStateStore.availability().isAvailable, "App Group container is unavailable in this environment")
         defer { try? PurchaseSharedStateStore.resetLocalSnapshots() }
-        var state = SeedData.makeEmpty()
+        var state = DemoDataFactory.makeWithSingleAccount()
         var session = makeSession(accountID: state.accounts[0].id)
         session.status = .active
         session.updatedAt = Date(timeIntervalSince1970: 1000)
@@ -526,6 +526,186 @@ final class CurrencyPurchaseTests: XCTestCase {
         XCTAssertEqual(PurchaseSharedStateStore.supportsInteractiveCompletion, PurchaseSharedStateStore.availability().isAvailable)
         XCTAssertNil(PurchaseSharedContainerState.available.warning)
         XCTAssertNotNil(PurchaseSharedContainerState.containerUnavailable.warning)
+    }
+
+    func testFinalizePurchaseWithValidLinkedItemSucceeds() async throws {
+        var state = DemoDataFactory.makeWithSingleAccount()
+        let accountID = state.accounts[0].id
+        var session = makeSession(accountID: accountID, currency: .HKD)
+        session.status = .awaitingSummary
+        for i in session.items.indices {
+            session.items[i].isCompleted = true
+            session.items[i].completedAt = .now
+        }
+
+        let item0 = session.items[0]
+        let txA = LedgerTransaction(
+            id: UUID(), userID: SeedData.localUserID, type: .expense, accountID: accountID,
+            destinationAccountID: nil, amount: item0.amount, currency: .HKD, accountAmount: item0.amount,
+            destinationAmount: nil, categoryID: item0.categoryID, occurredAt: .now, note: item0.note,
+            exchangeRateAtTransaction: 1.0, purchaseSessionID: session.id, purchaseItemID: item0.id,
+            createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending
+        )
+        state.transactions = [txA]
+        session.items[0].linkedTransactionID = txA.id
+        state.purchaseSessions = [session]
+
+        let store = LedgerStore(stateForTesting: state)
+        try await store.finalizePurchaseSession(session.id, receiptAttachmentID: nil)
+
+        let completedSession = try XCTUnwrap(store.purchaseSessions.first)
+        XCTAssertEqual(completedSession.status, .completed)
+        XCTAssertEqual(completedSession.items[0].linkedTransactionID, txA.id)
+        XCTAssertEqual(store.state.transactions.count, 3)
+        XCTAssertEqual(store.state.transactions.filter { $0.id == txA.id }.count, 1)
+    }
+
+    func testFinalizePurchaseWithDuplicateTransactionForLinkedItemThrows() async throws {
+        var state = DemoDataFactory.makeWithSingleAccount()
+        let accountID = state.accounts[0].id
+        var session = makeSession(accountID: accountID, currency: .HKD)
+        session.status = .awaitingSummary
+        for i in session.items.indices {
+            session.items[i].isCompleted = true
+            session.items[i].completedAt = .now
+        }
+
+        let item0 = session.items[0]
+        let txA = LedgerTransaction(
+            id: UUID(), userID: SeedData.localUserID, type: .expense, accountID: accountID,
+            destinationAccountID: nil, amount: item0.amount, currency: .HKD, accountAmount: item0.amount,
+            destinationAmount: nil, categoryID: item0.categoryID, occurredAt: .now, note: item0.note,
+            exchangeRateAtTransaction: 1.0, purchaseSessionID: session.id, purchaseItemID: item0.id,
+            createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending
+        )
+        let txB = LedgerTransaction(
+            id: UUID(), userID: SeedData.localUserID, type: .expense, accountID: accountID,
+            destinationAccountID: nil, amount: item0.amount, currency: .HKD, accountAmount: item0.amount,
+            destinationAmount: nil, categoryID: item0.categoryID, occurredAt: .now, note: "Duplicate",
+            exchangeRateAtTransaction: 1.0, purchaseSessionID: session.id, purchaseItemID: item0.id,
+            createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending
+        )
+        state.transactions = [txA, txB]
+        session.items[0].linkedTransactionID = txA.id
+        state.purchaseSessions = [session]
+
+        let store = LedgerStore(stateForTesting: state)
+        let initialTxCount = store.state.transactions.count
+
+        do {
+            try await store.finalizePurchaseSession(session.id, receiptAttachmentID: nil)
+            XCTFail("Must throw inconsistentPurchaseData when duplicate matching transaction exists for linked item")
+        } catch let error as PurchaseFinalizationError {
+            XCTAssertEqual(error, .inconsistentPurchaseData)
+        }
+        XCTAssertEqual(store.state.transactions.count, initialTxCount)
+        XCTAssertEqual(store.purchaseSessions.first?.status, .awaitingSummary)
+    }
+
+    func testFinalizePurchaseAdoptsSingleUnlinkedTransaction() async throws {
+        var state = DemoDataFactory.makeWithSingleAccount()
+        let accountID = state.accounts[0].id
+        var session = makeSession(accountID: accountID, currency: .HKD)
+        session.status = .awaitingSummary
+        for i in session.items.indices {
+            session.items[i].isCompleted = true
+            session.items[i].completedAt = .now
+        }
+
+        let item0 = session.items[0]
+        let txA = LedgerTransaction(
+            id: UUID(), userID: SeedData.localUserID, type: .expense, accountID: accountID,
+            destinationAccountID: nil, amount: item0.amount, currency: .HKD, accountAmount: item0.amount,
+            destinationAmount: nil, categoryID: item0.categoryID, occurredAt: .now, note: item0.note,
+            exchangeRateAtTransaction: 1.0, purchaseSessionID: session.id, purchaseItemID: item0.id,
+            createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending
+        )
+        state.transactions = [txA]
+        session.items[0].linkedTransactionID = nil
+        state.purchaseSessions = [session]
+
+        let store = LedgerStore(stateForTesting: state)
+        try await store.finalizePurchaseSession(session.id, receiptAttachmentID: nil)
+
+        let completedSession = try XCTUnwrap(store.purchaseSessions.first)
+        XCTAssertEqual(completedSession.status, .completed)
+        XCTAssertEqual(completedSession.items[0].linkedTransactionID, txA.id)
+        XCTAssertEqual(store.state.transactions.count, 3)
+    }
+
+    func testFinalizePurchaseWithMultipleTransactionsForUnlinkedItemThrows() async throws {
+        var state = DemoDataFactory.makeWithSingleAccount()
+        let accountID = state.accounts[0].id
+        var session = makeSession(accountID: accountID, currency: .HKD)
+        session.status = .awaitingSummary
+        for i in session.items.indices {
+            session.items[i].isCompleted = true
+            session.items[i].completedAt = .now
+        }
+
+        let item0 = session.items[0]
+        let txA = LedgerTransaction(
+            id: UUID(), userID: SeedData.localUserID, type: .expense, accountID: accountID,
+            destinationAccountID: nil, amount: item0.amount, currency: .HKD, accountAmount: item0.amount,
+            destinationAmount: nil, categoryID: item0.categoryID, occurredAt: .now, note: item0.note,
+            exchangeRateAtTransaction: 1.0, purchaseSessionID: session.id, purchaseItemID: item0.id,
+            createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending
+        )
+        let txB = LedgerTransaction(
+            id: UUID(), userID: SeedData.localUserID, type: .expense, accountID: accountID,
+            destinationAccountID: nil, amount: item0.amount, currency: .HKD, accountAmount: item0.amount,
+            destinationAmount: nil, categoryID: item0.categoryID, occurredAt: .now, note: "Duplicate Unlinked",
+            exchangeRateAtTransaction: 1.0, purchaseSessionID: session.id, purchaseItemID: item0.id,
+            createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending
+        )
+        state.transactions = [txA, txB]
+        session.items[0].linkedTransactionID = nil
+        state.purchaseSessions = [session]
+
+        let store = LedgerStore(stateForTesting: state)
+        let initialTxCount = store.state.transactions.count
+
+        do {
+            try await store.finalizePurchaseSession(session.id, receiptAttachmentID: nil)
+            XCTFail("Must throw inconsistentPurchaseData when multiple matching transactions exist for unlinked item")
+        } catch let error as PurchaseFinalizationError {
+            XCTAssertEqual(error, .inconsistentPurchaseData)
+        }
+        XCTAssertEqual(store.state.transactions.count, initialTxCount)
+        XCTAssertEqual(store.purchaseSessions.first?.status, .awaitingSummary)
+    }
+
+    func testFinalizePurchaseWithOrphanedSessionTransactionThrows() async throws {
+        var state = DemoDataFactory.makeWithSingleAccount()
+        let accountID = state.accounts[0].id
+        var session = makeSession(accountID: accountID, currency: .HKD)
+        session.status = .awaitingSummary
+        for i in session.items.indices {
+            session.items[i].isCompleted = true
+            session.items[i].completedAt = .now
+        }
+
+        let orphanTx = LedgerTransaction(
+            id: UUID(), userID: SeedData.localUserID, type: .expense, accountID: accountID,
+            destinationAccountID: nil, amount: 50, currency: .HKD, accountAmount: 50,
+            destinationAmount: nil, categoryID: .other, occurredAt: .now, note: "Removed item",
+            exchangeRateAtTransaction: 1.0, purchaseSessionID: session.id, purchaseItemID: UUID(),
+            createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending
+        )
+        state.transactions = [orphanTx]
+        state.purchaseSessions = [session]
+
+        let store = LedgerStore(stateForTesting: state)
+        let initialTxCount = store.state.transactions.count
+
+        do {
+            try await store.finalizePurchaseSession(session.id, receiptAttachmentID: nil)
+            XCTFail("Must throw inconsistentPurchaseData when transaction references an item no longer in session")
+        } catch let error as PurchaseFinalizationError {
+            XCTAssertEqual(error, .inconsistentPurchaseData)
+        }
+        XCTAssertEqual(store.state.transactions.count, initialTxCount)
+        XCTAssertEqual(store.purchaseSessions.first?.status, .awaitingSummary)
     }
 
     private func makeSession(accountID: UUID, currency: CurrencyCode = .USD) -> PurchaseSession {

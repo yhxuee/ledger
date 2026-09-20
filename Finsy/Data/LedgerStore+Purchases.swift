@@ -162,27 +162,35 @@ extension LedgerStore {
         }
         let existingByItemID = Dictionary(grouping: existingSessionTransactions, by: { $0.purchaseItemID! })
 
+        let currentItemIDs = Set(session.items.map(\.id))
+
+        guard existingSessionTransactions.allSatisfy({
+            guard let itemID = $0.purchaseItemID else { return false }
+            return currentItemIDs.contains(itemID)
+        }) else {
+            throw PurchaseFinalizationError.inconsistentPurchaseData
+        }
+
         var newTransactions: [LedgerTransaction] = []
         var itemTransactionMappings: [(itemIndex: Int, transactionID: UUID)] = []
 
         for (itemIndex, item) in session.items.enumerated() {
+            let matches = existingByItemID[item.id] ?? []
+
             if let linkedID = item.linkedTransactionID {
-                // Case A: Item already has a linkedTransactionID
-                guard let existing = activeByID[linkedID],
-                      existing.purchaseSessionID == sessionID,
-                      existing.purchaseItemID == item.id else {
+                guard matches.count == 1,
+                      matches[0].id == linkedID,
+                      let linked = activeByID[linkedID],
+                      linked.purchaseSessionID == sessionID,
+                      linked.purchaseItemID == item.id
+                else {
                     throw PurchaseFinalizationError.inconsistentPurchaseData
                 }
+
                 itemTransactionMappings.append((itemIndex, linkedID))
             } else {
-                // Case B: Item does not have a linkedTransactionID
-                let matches = existingByItemID[item.id] ?? []
-                if matches.count == 1 {
-                    // Single match: adopt existing transaction
-                    let matchID = matches[0].id
-                    itemTransactionMappings.append((itemIndex, matchID))
-                } else if matches.isEmpty {
-                    // Zero matches: build new transaction
+                switch matches.count {
+                case 0:
                     let taxSnapshot = state.categories.first(where: { $0.id == item.categoryID }).flatMap {
                         TaxCalculations.resolve(entered: item.amount, type: .expense, rate: state.settings.taxRate(for: $0), mode: .finalAmount, exempt: false)
                     }
@@ -203,8 +211,10 @@ extension LedgerStore {
                     )
                     newTransactions.append(transaction)
                     itemTransactionMappings.append((itemIndex, transaction.id))
-                } else {
-                    // Multiple matches: inconsistent state
+                case 1:
+                    let matchID = matches[0].id
+                    itemTransactionMappings.append((itemIndex, matchID))
+                default:
                     throw PurchaseFinalizationError.inconsistentPurchaseData
                 }
             }

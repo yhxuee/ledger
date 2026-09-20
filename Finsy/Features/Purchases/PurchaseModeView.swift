@@ -197,12 +197,19 @@ struct PurchaseSessionEditorView: View {
                             inlineRow(item)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 11)
-                                .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .ledgerGlass(interactive: false, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
                                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                                .swipeActions {
-                                    Button("Delete", role: .destructive) { deleteItem(item.id) }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        if focusedItem == item.id {
+                                            focusedItem = nil
+                                        }
+                                        deleteItem(item.id)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
                                 }
                         }
                         .onMove { offsets, destination in moveItems(categoryID: section.categoryID, offsets: offsets, destination: destination) }
