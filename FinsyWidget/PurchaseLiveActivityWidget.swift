@@ -8,6 +8,7 @@ struct FinsyWidgetBundle: WidgetBundle {
     var body: some Widget {
         OverviewMetricWidget()
         PurchaseLiveActivityWidget()
+        RecentTransactionLiveActivityWidget()
     }
 }
 

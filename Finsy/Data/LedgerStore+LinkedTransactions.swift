@@ -271,12 +271,18 @@ extension LedgerStore {
         guard canCombine(first, second) else { return nil }
         guard let idx1 = state.transactions.firstIndex(where: { $0.id == first.id }),
               let idx2 = state.transactions.firstIndex(where: { $0.id == second.id }) else { return nil }
-        undoState = state
         let now = Date.now
         let parentCurrency = first.currency == second.currency ? first.currency : state.settings.baseCurrency
         let amount1 = LedgerCalculations.convert(first.recognizedExpenseAmount, from: first.currency, to: parentCurrency, rates: state.settings.rates)
         let amount2 = LedgerCalculations.convert(second.recognizedExpenseAmount, from: second.currency, to: parentCurrency, rates: state.settings.rates)
         let parentID = UUID()
+
+        activeUndoOperation = LedgerUndoOperation(
+            message: "Combined Payment created",
+            transactionSnapshots: [first.id: first, second.id: second],
+            createdTransactionIDs: [parentID],
+            expectedTransactionVersions: [first.id: first.version + 1, second.id: second.version + 1]
+        )
 
         var parent = LedgerTransaction(
             id: parentID,
@@ -338,8 +344,14 @@ extension LedgerStore {
         guard canAddToCombinedPayment(item: item, parent: parent) else { return false }
         guard let parentIdx = state.transactions.firstIndex(where: { $0.id == parent.id }),
               let itemIdx = state.transactions.firstIndex(where: { $0.id == item.id }) else { return false }
-        undoState = state
         let now = Date.now
+        var txSnapshots: [UUID: LedgerTransaction] = [item.id: state.transactions[itemIdx], parent.id: state.transactions[parentIdx]]
+        var expectedTxVersions: [UUID: Int] = [item.id: state.transactions[itemIdx].version + 1, parent.id: state.transactions[parentIdx].version + 1]
+        activeUndoOperation = LedgerUndoOperation(
+            message: "Payment added to Combined Payment",
+            transactionSnapshots: txSnapshots,
+            expectedTransactionVersions: expectedTxVersions
+        )
 
         mutateState { state in
             state.transactions[itemIdx].parentTransactionID = parent.id
@@ -381,7 +393,13 @@ extension LedgerStore {
         guard let parentID = state.transactions[childIndex].parentTransactionID,
               let parentIndex = state.transactions.firstIndex(where: { $0.id == parentID }) else { return false }
 
-        undoState = state
+        let affected = state.transactions.filter {
+            $0.id == parentID || $0.parentTransactionID == parentID || $0.id == childID
+        }
+        var snapshots: [UUID: LedgerTransaction] = [:]
+        for item in affected {
+            snapshots[item.id] = item
+        }
 
         mutateState { state in
             // Detach child: restore to standalone transaction
@@ -424,6 +442,18 @@ extension LedgerStore {
             }
         }
 
+        var expectedVersions: [UUID: Int] = [:]
+        for item in affected {
+            if let current = state.transactions.first(where: { $0.id == item.id }) {
+                expectedVersions[item.id] = current.version
+            }
+        }
+        activeUndoOperation = LedgerUndoOperation(
+            message: "Detached payment",
+            transactionSnapshots: snapshots,
+            expectedTransactionVersions: expectedVersions
+        )
+        undoMessage = "Detached payment"
         scheduleSave()
         return true
     }
@@ -431,7 +461,13 @@ extension LedgerStore {
     func ungroupCombinedPayment(_ parent: LedgerTransaction) {
         guard parent.groupMode == .combinedPayment, parent.deletedAt == nil, !TransactionSemantics.combinedPaymentHasActiveRefund(parent, in: state) else { return }
         guard let parentIndex = state.transactions.firstIndex(where: { $0.id == parent.id }) else { return }
-        undoState = state
+        let affected = state.transactions.filter {
+            $0.id == parent.id || $0.parentTransactionID == parent.id
+        }
+        var snapshots: [UUID: LedgerTransaction] = [:]
+        for item in affected {
+            snapshots[item.id] = item
+        }
         let now = Date.now
         mutateState { state in
             markDeleted(in: &state, at: parentIndex, date: now)
@@ -450,6 +486,18 @@ extension LedgerStore {
                 }
             }
         }
+        var expectedVersions: [UUID: Int] = [:]
+        for item in affected {
+            if let current = state.transactions.first(where: { $0.id == item.id }) {
+                expectedVersions[item.id] = current.version
+            }
+        }
+        activeUndoOperation = LedgerUndoOperation(
+            message: "Ungrouped Combined Payment",
+            transactionSnapshots: snapshots,
+            expectedTransactionVersions: expectedVersions
+        )
+        undoMessage = "Ungrouped Combined Payment"
         scheduleSave()
     }
 
@@ -462,8 +510,6 @@ extension LedgerStore {
             $0.parentTransactionID == parent.id && $0.linkedTransactionKind == .combinedPaymentItem && $0.deletedAt == nil
         }
         guard !children.isEmpty else { return false }
-
-        undoState = state
 
         let totalRefundAmount = children.reduce(0.0) { sum, child in
             sum + LedgerCalculations.convert(child.recognizedExpenseAmount, from: child.currency, to: parent.currency, rates: state.settings.rates)
@@ -532,6 +578,13 @@ extension LedgerStore {
             supportReversals.append(support)
         }
 
+        var snapshots: [UUID: LedgerTransaction] = [:]
+        snapshots[parent.id] = parent
+        var createdIDs: Set<UUID> = [visibleRefund.id]
+        for s in supportReversals {
+            createdIDs.insert(s.id)
+        }
+
         mutateState { state in
             state.transactions[parentIndex].linkedStatus = .completed
             state.transactions[parentIndex].completedAt = now
@@ -542,6 +595,13 @@ extension LedgerStore {
             state.transactions.insert(visibleRefund, at: 0)
             state.transactions.append(contentsOf: supportReversals)
         }
+        let updatedParentVersion = state.transactions[parentIndex].version
+        activeUndoOperation = LedgerUndoOperation(
+            message: "Combined Payment refunded",
+            transactionSnapshots: snapshots,
+            createdTransactionIDs: createdIDs,
+            expectedTransactionVersions: [parent.id: updatedParentVersion]
+        )
         undoMessage = "Combined Payment refunded"
         scheduleSave()
         return true

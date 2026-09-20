@@ -182,6 +182,8 @@ struct AppPreferences: Codable, Hashable, Sendable {
     var monthlyStatementReminderHour: Int = 20
     var monthlyStatementReminderMinute: Int = 0
     var statementThemeColorHex: String = "3A78C2"
+    var walletAccountPassSource: WalletAccountPassSource = .allAccounts
+    var walletPassLocations: [WalletRelevantLocation] = []
 
     enum CodingKeys: String, CodingKey {
         case splitActionOnRightSwipe, reimbursementActionOnRightSwipe
@@ -189,6 +191,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
         case cashFlowForecastEnabled, forecastYellowThreshold, forecastRedThreshold
         case recordingReminderSlots, monthlyStatementReminderEnabled, monthlyStatementReminderHour, monthlyStatementReminderMinute
         case statementThemeColorHex
+        case walletAccountPassSource, walletPassLocations
     }
 
     init(schemaVersion: Int = 1, languageCode: String = "en", biometricLockEnabled: Bool = false,
@@ -206,7 +209,9 @@ struct AppPreferences: Codable, Hashable, Sendable {
          monthlyStatementReminderEnabled: Bool = false,
          monthlyStatementReminderHour: Int = 20,
          monthlyStatementReminderMinute: Int = 0,
-         statementThemeColorHex: String = "3A78C2") {
+         statementThemeColorHex: String = "3A78C2",
+         walletAccountPassSource: WalletAccountPassSource = .allAccounts,
+         walletPassLocations: [WalletRelevantLocation] = []) {
         self.schemaVersion = schemaVersion
         self.languageCode = languageCode
         self.biometricLockEnabled = biometricLockEnabled
@@ -226,6 +231,8 @@ struct AppPreferences: Codable, Hashable, Sendable {
         self.monthlyStatementReminderHour = monthlyStatementReminderHour
         self.monthlyStatementReminderMinute = monthlyStatementReminderMinute
         self.statementThemeColorHex = statementThemeColorHex
+        self.walletAccountPassSource = walletAccountPassSource
+        self.walletPassLocations = Array(walletPassLocations.prefix(10))
     }
 
     init(from decoder: Decoder) throws {
@@ -261,6 +268,8 @@ struct AppPreferences: Codable, Hashable, Sendable {
         monthlyStatementReminderHour = try values.decodeIfPresent(Int.self, forKey: .monthlyStatementReminderHour) ?? 20
         monthlyStatementReminderMinute = try values.decodeIfPresent(Int.self, forKey: .monthlyStatementReminderMinute) ?? 0
         statementThemeColorHex = try values.decodeIfPresent(String.self, forKey: .statementThemeColorHex) ?? "3A78C2"
+        walletAccountPassSource = try values.decodeIfPresent(WalletAccountPassSource.self, forKey: .walletAccountPassSource) ?? .allAccounts
+        walletPassLocations = Array((try values.decodeIfPresent([WalletRelevantLocation].self, forKey: .walletPassLocations) ?? []).prefix(10))
     }
 
     mutating func setOverviewMetric(at index: Int, to newKind: OverviewMetricKind) {

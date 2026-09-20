@@ -5,6 +5,8 @@ import CloudKit
 enum AppRoute: Equatable, Sendable {
     case addTransaction
     case purchase(UUID)
+    case account(UUID)
+    case overview
 }
 
 enum PurchaseFinalizationError: LocalizedError, Equatable, Sendable {
@@ -33,7 +35,9 @@ final class LedgerStore: ObservableObject {
     var fxRefreshes: Set<UUID> = []
     var lastFinancialRefresh = Date.now
     private var activeMutationImpact: StateMutationImpact?
-    var persistenceFailureHook: (@MainActor () throws -> Void)?
+    #if DEBUG
+    var persistenceTestHook: (@MainActor @Sendable () async throws -> Void)?
+    #endif
 
     @Published private(set) var state: LedgerState {
         didSet {
@@ -82,7 +86,7 @@ final class LedgerStore: ObservableObject {
     @Published var requestedAnalyticsCustomRange: ClosedRange<Date>? = nil
     var saveTask: Task<Void, Never>?
     var undoTransactions: [LedgerTransaction] = []
-    var undoState: LedgerState?
+    var activeUndoOperation: LedgerUndoOperation?
     var currencyCatalogUpdatedAt: Date?
     /// A dismissed bridge notice stays dismissed for the current purchase.
     var suppressedPurchaseSyncWarning: String?

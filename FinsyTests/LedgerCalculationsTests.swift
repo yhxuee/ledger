@@ -619,7 +619,7 @@ final class LedgerCalculationsTests: XCTestCase {
 
         // Trigger failure in persistDurableAsync
         struct DummyPersistenceError: Error {}
-        store.persistenceFailureHook = {
+        store.persistenceTestHook = {
             throw DummyPersistenceError()
         }
 

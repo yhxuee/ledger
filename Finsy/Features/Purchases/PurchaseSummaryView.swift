@@ -1,3 +1,4 @@
+import PassKit
 import SwiftUI
 import UIKit
 
@@ -14,6 +15,10 @@ struct PurchaseSummaryView: View {
     @State private var showingCamera = false
     @State private var saving = false
     @State private var storedReceiptImage: UIImage?
+    @State private var generatingPass = false
+    @State private var passToPresent: PKPass?
+    @State private var showingAddPassSheet = false
+    @State private var passErrorMessage: String?
     private var session: PurchaseSession? { store.purchaseSessions.first(where: { $0.id == sessionID }) }
     var body: some View {
         NavigationStack {
@@ -140,6 +145,29 @@ struct PurchaseSummaryView: View {
                             Text("Receipt").font(.subheadline.weight(.semibold))
                         }
                     }
+
+                    if readOnly {
+                        Section {
+                            Button {
+                                Task { await addReceiptToWallet() }
+                            } label: {
+                                HStack {
+                                    Label("Add Receipt to Apple Wallet", systemImage: "wallet.pass")
+                                    if generatingPass {
+                                        Spacer()
+                                        ProgressView()
+                                    }
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                            .disabled(generatingPass)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                        }
+                    }
                 }
             }
             .listStyle(.plain)
@@ -165,6 +193,21 @@ struct PurchaseSummaryView: View {
             }
         }
         .sheet(isPresented: $showingCamera) { CameraPicker(image: $receiptImage) }
+        .sheet(isPresented: $showingAddPassSheet) {
+            if let pass = passToPresent {
+                AddPassSheetView(pass: pass) {
+                    passToPresent = nil
+                }
+            }
+        }
+        .alert("Apple Wallet", isPresented: Binding(
+            get: { passErrorMessage != nil },
+            set: { if !$0 { passErrorMessage = nil } }
+        )) {
+            Button("OK") { passErrorMessage = nil }
+        } message: {
+            Text(passErrorMessage ?? "")
+        }
         .task(id: sessionID) {
             // Final controlled reconciliation before reviewing/finalizing, so an item that was
             // checked on the Lock Screen is never omitted from the created transactions.
@@ -173,6 +216,25 @@ struct PurchaseSummaryView: View {
         .task(id: session?.receiptAttachmentID) {
             guard let identifier = session?.receiptAttachmentID else { return }
             storedReceiptImage = await AttachmentStore.shared.loadReceipt(identifier: identifier)
+        }
+    }
+
+    private func addReceiptToWallet() async {
+        guard let session else { return }
+        guard WalletPassManager.shared.isPassLibraryAvailable else {
+            passErrorMessage = WalletPassError.libraryUnavailable.localizedDescription
+            return
+        }
+        generatingPass = true
+        defer { generatingPass = false }
+
+        let snapshot = WalletPassManager.shared.buildPurchaseReceiptSnapshot(session: session, store: store)
+        do {
+            let pass = try await WalletPassManager.shared.issuer.issuePurchaseReceiptPass(snapshot: snapshot)
+            passToPresent = pass
+            showingAddPassSheet = true
+        } catch {
+            passErrorMessage = error.localizedDescription
         }
     }
     private var baseCurrencyEquivalent: Double? {

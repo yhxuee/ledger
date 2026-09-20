@@ -74,10 +74,15 @@ extension LedgerStore {
     }
 
     /// Background expiration must not strand changes in the normal debounced save task.
-    @discardableResult func flushMarketData() -> Bool {
+    @discardableResult func flushMarketData() async -> Bool {
         guard persistenceEnabled else { return true }
-        do { try Self.writeLibrary(librarySnapshot()); return true }
-        catch { presentedError = "Local save failed: \(error.localizedDescription)"; return false }
+        do {
+            try await persistDurableAsync()
+            return true
+        } catch {
+            presentedError = "Local save failed: \(error.localizedDescription)"
+            return false
+        }
     }
 
     @discardableResult
@@ -106,6 +111,14 @@ extension LedgerStore {
         if url.host == "purchase", let rawID = url.pathComponents.dropFirst().first, let id = UUID(uuidString: rawID), purchaseSessions.contains(where: { $0.id == id }) {
             routedPurchaseID = id
             activeRoute = .purchase(id)
+            return
+        }
+        if url.host == "account", let rawID = url.pathComponents.dropFirst().first, let id = UUID(uuidString: rawID), state.accounts.contains(where: { $0.id == id && $0.deletedAt == nil }) {
+            activeRoute = .account(id)
+            return
+        }
+        if url.host == "overview" || url.host == "accounts" {
+            activeRoute = .overview
             return
         }
     }

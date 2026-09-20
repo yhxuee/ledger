@@ -109,7 +109,21 @@ extension LedgerStore {
     }
 
     func deleteAccount(_ account: LedgerAccount) {
-        undoState = state
+        guard let accIndex = state.accounts.firstIndex(where: { $0.id == account.id }) else { return }
+        let preAccount = state.accounts[accIndex]
+        var txSnapshots: [UUID: LedgerTransaction] = [:]
+        var expectedTxVersions: [UUID: Int] = [:]
+        for tx in state.transactions where (tx.accountID == account.id || tx.destinationAccountID == account.id) && tx.deletedAt == nil {
+            txSnapshots[tx.id] = tx
+            expectedTxVersions[tx.id] = tx.version + 1
+        }
+        activeUndoOperation = LedgerUndoOperation(
+            message: "Account deleted",
+            transactionSnapshots: txSnapshots,
+            accountSnapshots: [account.id: preAccount],
+            expectedTransactionVersions: expectedTxVersions,
+            expectedAccountVersions: [account.id: preAccount.version + 1]
+        )
         let deletedAt = Date.now
         var stoppedSessions: [PurchaseSession] = []
 
@@ -157,7 +171,11 @@ extension LedgerStore {
         guard let index = state.accounts.firstIndex(where: { $0.id == id && $0.deletedAt == nil }) else { return }
         var account = state.accounts[index]
         guard !account.effectiveIsFrozen else { return }
-        undoState = state
+        activeUndoOperation = LedgerUndoOperation(
+            message: "Account frozen",
+            accountSnapshots: [id: account],
+            expectedAccountVersions: [id: account.version + 1]
+        )
         let now = Date.now
         account.isFrozen = true
         account.updatedAt = now
@@ -180,7 +198,11 @@ extension LedgerStore {
         guard let index = state.accounts.firstIndex(where: { $0.id == id && $0.deletedAt == nil }) else { return }
         var account = state.accounts[index]
         guard account.effectiveIsFrozen else { return }
-        undoState = state
+        activeUndoOperation = LedgerUndoOperation(
+            message: "Account unfrozen",
+            accountSnapshots: [id: account],
+            expectedAccountVersions: [id: account.version + 1]
+        )
         let now = Date.now
         account.isFrozen = false
         account.updatedAt = now

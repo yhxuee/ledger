@@ -94,6 +94,20 @@ struct RootView: View {
             .alert("Finsy", isPresented: Binding(get: { store.presentedError != nil }, set: { if !$0 { store.presentedError = nil } })) { Button("OK") { store.presentedError = nil } } message: { Text(store.presentedError ?? "") }
             .overlay(alignment: .bottom) { bottomOverlays }
             .onChange(of: store.activeBookID) { _, _ in selectedAccountID = nil }
+            .onChange(of: store.activeRoute) { _, route in
+                switch route {
+                case .account(let id):
+                    selectedAccountID = id
+                    section = .overview
+                    store.activeRoute = nil
+                case .overview:
+                    selectedAccountID = nil
+                    section = .overview
+                    store.activeRoute = nil
+                default:
+                    break
+                }
+            }
             .task {
                 evaluateLaunchForecast()
             }

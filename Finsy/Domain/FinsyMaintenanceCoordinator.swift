@@ -24,6 +24,8 @@ final class FinsyMaintenanceCoordinator {
         defer { isPerformingMaintenance = false }
 
         await privacy.unlockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
+        RecentTransactionActivityCoordinator.shared.registerObservers(store: store)
+        RecentTransactionActivityCoordinator.shared.reconcilePendingActions(store: store)
         OverviewWidgetRelay.updateSnapshot(store: store, preferences: preferences.value)
         _ = try? await store.refreshCurrencyCatalogIfNeeded()
         _ = try? await store.refreshExchangeRatesIfNeeded()
@@ -39,6 +41,7 @@ final class FinsyMaintenanceCoordinator {
         preferences: AppPreferencesStore,
         privacy: PrivacyController
     ) {
+        RecentTransactionActivityCoordinator.shared.reconcilePendingActions(store: store)
         store.reconcileSharedActivePurchases()
         store.processDueRecurring()
         store.refreshDueInstallments()

@@ -33,7 +33,7 @@ extension LedgerStore {
         currencyCatalog = CurrencyDescriptor.bundled
         currencyCatalogUpdatedAt = nil
         undoTransactions = []
-        undoState = nil
+        activeUndoOperation = nil
         undoMessage = nil
         scheduleSave()
     }

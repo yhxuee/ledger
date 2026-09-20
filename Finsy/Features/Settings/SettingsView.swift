@@ -232,6 +232,15 @@ struct SettingsView: View {
                 SettingsLinkRow("Alpha Vantage API Key", systemImage: "key", detail: nil)
             }
             .foregroundStyle(.primary)
+
+            Divider()
+
+            NavigationLink {
+                WalletSettingsView()
+            } label: {
+                SettingsLinkRow("Apple Wallet", systemImage: "wallet.pass", detail: nil)
+            }
+            .foregroundStyle(.primary)
         }
     }
 

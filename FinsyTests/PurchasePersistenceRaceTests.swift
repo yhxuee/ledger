@@ -1,0 +1,160 @@
+import XCTest
+@testable import Finsy
+
+@MainActor
+final class PurchasePersistenceRaceTests: XCTestCase {
+    struct SimulatedPersistenceError: Error, Equatable {}
+
+    func testRollbackPreservesUnrelatedMutationsDuringPersistence() async throws {
+        let store = LedgerStore(stateForTesting: DemoDataFactory.make())
+        guard let account = store.state.accounts.first(where: { $0.deletedAt == nil }) else {
+            XCTFail("Missing test account")
+            return
+        }
+
+        // Create and start a purchase session
+        let sessionID = UUID()
+        let itemID = UUID()
+        let item = PurchaseItem(id: itemID, name: "Headphones", amount: 150.0, categoryID: .shopping, status: .completed)
+        let session = PurchaseSession(
+            id: sessionID,
+            storeName: "Audio Store",
+            paymentAccountID: account.id,
+            currency: account.currency,
+            items: [item],
+            status: .active,
+            startedAt: .now
+        )
+        store.mutateState { $0.purchaseSessions = [session] }
+
+        // Gate continuation for deterministic async race testing (no Task.sleep)
+        final class SuspensionGate: @unchecked Sendable {
+            var continuation: CheckedContinuation<Void, Error>?
+        }
+        let gate = SuspensionGate()
+
+        store.persistenceTestHook = {
+            try await withCheckedContinuation { (cont: CheckedContinuation<Void, Error>) in
+                gate.continuation = cont
+            }
+        }
+
+        // Unrelated transaction to be added while finalization is suspended
+        let unrelatedTx = LedgerTransaction(
+            id: UUID(),
+            userID: store.state.settings.userID,
+            type: .expense,
+            accountID: account.id,
+            destinationAccountID: nil,
+            amount: 25.0,
+            currency: account.currency,
+            accountAmount: 25.0,
+            destinationAmount: nil,
+            categoryID: .food,
+            occurredAt: .now,
+            note: "Mid-flight coffee",
+            exchangeRateAtTransaction: 1.0,
+            createdAt: .now,
+            updatedAt: .now,
+            version: 1,
+            syncStatus: .pending
+        )
+
+        let finalizeTask = Task { @MainActor in
+            try await store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)
+        }
+
+        // Wait cooperatively until hook is reached
+        while gate.continuation == nil {
+            await Task.yield()
+        }
+
+        // While suspended, perform an unrelated mutation on the ledger
+        store.mutateState { $0.transactions.append(unrelatedTx) }
+        XCTAssertTrue(store.state.transactions.contains(where: { $0.id == unrelatedTx.id }))
+
+        // Now resume the hook with error to trigger rollback
+        gate.continuation?.resume(throwing: SimulatedPersistenceError())
+
+        do {
+            try await finalizeTask.value
+            XCTFail("Finalize should fail due to persistence error")
+        } catch is SimulatedPersistenceError {
+            // Expected
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        // Rollback must have removed purchase transaction, but kept unrelated transaction!
+        XCTAssertTrue(store.state.transactions.contains(where: { $0.id == unrelatedTx.id }), "Unrelated transaction must survive rollback")
+        XCTAssertFalse(store.state.transactions.contains(where: { $0.purchaseSessionID == sessionID }), "Purchase transaction must be rolled back")
+    }
+
+    func testRollbackAbortsIfSessionMutatedConcurrentlyWithNewerFingerprint() async throws {
+        let store = LedgerStore(stateForTesting: DemoDataFactory.make())
+        guard let account = store.state.accounts.first(where: { $0.deletedAt == nil }) else {
+            XCTFail("Missing test account")
+            return
+        }
+
+        let sessionID = UUID()
+        let item1 = PurchaseItem(id: UUID(), name: "Book", amount: 20.0, categoryID: .shopping, status: .completed)
+        let session = PurchaseSession(
+            id: sessionID,
+            storeName: "Bookstore",
+            paymentAccountID: account.id,
+            currency: account.currency,
+            items: [item1],
+            status: .active,
+            startedAt: .now
+        )
+        store.mutateState { $0.purchaseSessions = [session] }
+
+        final class SuspensionGate: @unchecked Sendable {
+            var continuation: CheckedContinuation<Void, Error>?
+        }
+        let gate = SuspensionGate()
+
+        store.persistenceTestHook = {
+            try await withCheckedContinuation { (cont: CheckedContinuation<Void, Error>) in
+                gate.continuation = cont
+            }
+        }
+
+        let finalizeTask = Task { @MainActor in
+            try await store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)
+        }
+
+        while gate.continuation == nil {
+            await Task.yield()
+        }
+
+        // While finalize is suspended, a concurrent mutation adds a second item to the session
+        let item2 = PurchaseItem(id: UUID(), name: "Bookmark", amount: 5.0, categoryID: .shopping, status: .draft)
+        store.mutateState { state in
+            if var sessions = state.purchaseSessions, let idx = sessions.firstIndex(where: { $0.id == sessionID }) {
+                sessions[idx].items.append(item2)
+                sessions[idx].updatedAt = Date.now.addingTimeInterval(5)
+                state.purchaseSessions = sessions
+            }
+        }
+
+        // Resume with persistence failure
+        gate.continuation?.resume(throwing: SimulatedPersistenceError())
+
+        do {
+            try await finalizeTask.value
+            XCTFail("Finalize should throw")
+        } catch is SimulatedPersistenceError {
+            // Expected
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        // Because fingerprint changed during suspension (items count changed),
+        // the rollback must NOT overwrite the newer session state!
+        let currentSession = store.purchaseSessions.first(where: { $0.id == sessionID })
+        XCTAssertNotNil(currentSession)
+        XCTAssertEqual(currentSession?.items.count, 2, "Newer session mutation must not be overwritten by stale rollback")
+    }
+}

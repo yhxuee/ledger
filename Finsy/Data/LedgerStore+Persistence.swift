@@ -18,7 +18,7 @@ extension LedgerStore {
         activeBookID = book.id
         mutateState { state in state = book.state }
         undoTransactions = []
-        undoState = nil
+        activeUndoOperation = nil
         undoMessage = nil
         processDueRecurring()
         scheduleSave()
@@ -33,7 +33,7 @@ extension LedgerStore {
         activeBookID = book.id
         mutateState { state in state = book.state }
         undoTransactions = []
-        undoState = nil
+        activeUndoOperation = nil
         undoMessage = nil
         scheduleSave()
     }
@@ -84,7 +84,9 @@ extension LedgerStore {
         saveRevision &+= 1
         let revision = saveRevision
         let snapshot = librarySnapshot()
-        try persistenceFailureHook?()
+        #if DEBUG
+        try await persistenceTestHook?()
+        #endif
         try await LedgerPersistence.shared.save(snapshot, revision: revision)
         OverviewWidgetRelay.updateSnapshot(store: self)
         if let active = snapshot.books.first(where: { $0.id == snapshot.activeBookID }), active.effectiveStorageKind != .local {

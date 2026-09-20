@@ -197,7 +197,7 @@ enum MarketRefreshBackground {
                     let store = LedgerStore.shared
                     await StockQuoteRefreshService.shared.refreshIfDue(store: store)
                     _ = try? await store.refreshExchangeRatesIfNeeded()
-                    let saved = store.flushMarketData()
+                    let saved = await store.flushMarketData()
                     schedule(store: store)
                     refresh.setTaskCompleted(success: saved && !Task.isCancelled)
                 }

@@ -45,6 +45,23 @@ extension LedgerStore {
         scheduleSave()
     }
 
+struct PurchasePersistenceFingerprint: Equatable, Sendable {
+    let id: UUID
+    let status: PurchaseSessionStatus
+    let updatedAt: Date?
+    let linkedTransactionIDs: Set<UUID>
+}
+
+extension LedgerStore {
+    func persistenceFingerprint(for session: PurchaseSession) -> PurchasePersistenceFingerprint {
+        PurchasePersistenceFingerprint(
+            id: session.id,
+            status: session.status,
+            updatedAt: session.updatedAt,
+            linkedTransactionIDs: Set(session.items.compactMap(\.linkedTransactionID))
+        )
+    }
+
     @discardableResult
     func startPurchaseSession(_ sessionID: UUID, activityStarter: any PurchaseActivityStarting = PurchaseLiveActivityController.shared) async throws -> PurchaseActivityOutcome {
         guard var session = purchaseSessions.first(where: { $0.id == sessionID }) else { throw PurchaseFinalizationError.missingSession }
@@ -60,6 +77,7 @@ extension LedgerStore {
         for index in session.items.indices { session.items[index].isCompleted = false; session.items[index].completedAt = nil }
         session.updatedAt = .now
         savePurchaseSession(session)
+        let expectedFingerprint = persistenceFingerprint(for: session)
         do {
             try await persistDurableAsync()
         } catch {
@@ -67,7 +85,7 @@ extension LedgerStore {
                 guard var sessions = state.purchaseSessions,
                       let i = sessions.firstIndex(where: { $0.id == sessionID })
                 else { return }
-                guard sessions[i].status == .active else { return }
+                guard persistenceFingerprint(for: sessions[i]) == expectedFingerprint else { return }
                 sessions[i] = previousSession
                 state.purchaseSessions = sessions
             }
@@ -246,13 +264,16 @@ extension LedgerStore {
             }
         }
 
+        guard let finished = finishedSession else { return }
+        let expectedFingerprint = persistenceFingerprint(for: finished)
+
         do {
             try await persistDurableAsync()
         } catch {
             mutateState(.financial) { state in
                 state.transactions.removeAll { createdTransactionIDs.contains($0.id) }
                 if var currentSessions = state.purchaseSessions, let idx = currentSessions.firstIndex(where: { $0.id == sessionID }) {
-                    if currentSessions[idx].status == .completed {
+                    if persistenceFingerprint(for: currentSessions[idx]) == expectedFingerprint {
                         currentSessions[idx] = previousSession
                         state.purchaseSessions = currentSessions
                     }

@@ -15,7 +15,10 @@ extension LedgerStore {
 
     func deleteRecurringRule(_ rule: RecurringRule) {
         guard (state.recurringRules ?? []).contains(where: { $0.id == rule.id }) else { return }
-        undoState = state
+        activeUndoOperation = LedgerUndoOperation(
+            message: "Recurring transaction deleted",
+            recurringRuleSnapshots: [rule.id: rule]
+        )
         mutateState { state in
             guard var rules = state.recurringRules, let index = rules.firstIndex(where: { $0.id == rule.id }) else { return }
             rules[index].deletedAt = .now
