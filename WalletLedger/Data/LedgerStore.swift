@@ -1452,7 +1452,7 @@ extension LedgerStore {
         state.transactions[idx2].version += 1
         state.transactions[idx2].syncStatus = .pending
 
-        let parent = LedgerTransaction(
+        var parent = LedgerTransaction(
             id: parentID,
             userID: state.settings.userID,
             type: .expense,
@@ -1461,20 +1461,23 @@ extension LedgerStore {
             amount: amount1 + amount2,
             currency: parentCurrency,
             accountAmount: 0,
+            destinationAmount: nil,
+            accountCurrency: nil,
+            destinationAccountCurrency: nil,
             categoryID: first.categoryID,
             occurredAt: max(first.occurredAt, second.occurredAt),
             note: nil,
             exchangeRateAtTransaction: CurrencyRates.reference(parentCurrency, in: state.settings.rates) ?? 1,
-            groupMode: .combinedPayment,
-            isTaxExempt: true,
-            taxAmount: 0,
-            taxBaseAmount: 0,
             createdAt: now,
             updatedAt: now,
             deletedAt: nil,
             version: 1,
             syncStatus: .pending
         )
+        parent.groupMode = .combinedPayment
+        parent.isTaxExempt = true
+        parent.taxAmount = 0
+        parent.taxBaseAmount = 0
         state.transactions.insert(parent, at: 0)
         undoMessage = "Combined Payment created"
         scheduleSave()
@@ -1561,60 +1564,67 @@ extension LedgerStore {
         let totalRefundAmount = children.reduce(0.0) { sum, child in
             sum + LedgerCalculations.convert(child.recognizedExpenseAmount, from: child.currency, to: parent.currency, rates: state.settings.rates)
         }
-        let visibleRefund = LedgerTransaction(
+        var visibleRefund = LedgerTransaction(
             id: UUID(),
             userID: state.settings.userID,
             type: .income,
             accountID: parent.accountID,
+            destinationAccountID: nil,
             amount: totalRefundAmount,
             currency: parent.currency,
             accountAmount: 0,
+            destinationAmount: nil,
+            accountCurrency: nil,
+            destinationAccountCurrency: nil,
             categoryID: parent.categoryID,
             occurredAt: now,
             note: "Combined Payment Refund",
             exchangeRateAtTransaction: parent.exchangeRateAtTransaction,
-            parentTransactionID: parent.id,
-            linkedTransactionKind: .combinedPaymentRefund,
-            linkedStatus: .completed,
-            completedAt: now,
-            isTaxExempt: true,
             createdAt: now,
             updatedAt: now,
             deletedAt: nil,
             version: 1,
             syncStatus: .pending
         )
+        visibleRefund.parentTransactionID = parent.id
+        visibleRefund.linkedTransactionKind = .combinedPaymentRefund
+        visibleRefund.linkedStatus = .completed
+        visibleRefund.completedAt = now
+        visibleRefund.isTaxExempt = true
 
         var supportReversals: [LedgerTransaction] = []
         for child in children {
-            let support = LedgerTransaction(
+            var support = LedgerTransaction(
                 id: UUID(),
                 userID: state.settings.userID,
                 type: .income,
                 accountID: child.accountID,
+                destinationAccountID: nil,
                 amount: child.recognizedExpenseAmount,
                 currency: child.currency,
                 accountAmount: child.accountAmount ?? child.recognizedExpenseAmount,
+                destinationAmount: nil,
                 accountCurrency: child.accountCurrency,
+                destinationAccountCurrency: nil,
                 categoryID: child.categoryID,
                 occurredAt: now,
                 note: "Refund support for \(child.note ?? "payment")",
                 exchangeRateAtTransaction: child.exchangeRateAtTransaction,
-                taxAmount: child.taxAmount,
-                taxRate: child.taxRate,
-                taxBaseAmount: child.taxBaseAmount,
-                taxInputMode: child.taxInputMode,
-                isTaxExempt: child.isTaxExempt,
-                parentTransactionID: parent.id,
-                linkedTransactionKind: .combinedPaymentRefundSupport,
-                linkedStatus: .completed,
-                completedAt: now,
                 createdAt: now,
                 updatedAt: now,
                 deletedAt: nil,
                 version: 1,
                 syncStatus: .pending
             )
+            support.parentTransactionID = parent.id
+            support.linkedTransactionKind = .combinedPaymentRefundSupport
+            support.linkedStatus = .completed
+            support.completedAt = now
+            support.taxAmount = child.taxAmount
+            support.taxRate = child.taxRate
+            support.taxBaseAmount = child.taxBaseAmount
+            support.taxInputMode = child.taxInputMode
+            support.isTaxExempt = child.isTaxExempt
             supportReversals.append(support)
         }
 
