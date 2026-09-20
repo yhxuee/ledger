@@ -421,15 +421,33 @@ struct SettingsLinkRow: View {
 }
 
 struct SettingsGlassSection<Content: View>: View {
-    let title: String
+    let title: String?
+    let footer: String?
     let content: Content
-    init(_ title: String, @ViewBuilder content: () -> Content) { self.title = title; self.content = content() }
+
+    init(_ title: String? = nil, footer: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.footer = footer
+        self.content = content()
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
-            Text(title.uppercased()).font(.caption.weight(.semibold)).foregroundStyle(.secondary).tracking(0.7)
+            if let title, !title.isEmpty {
+                Text(title.uppercased())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .tracking(0.7)
+            }
             content
+            if let footer, !footer.isEmpty {
+                Text(footer)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading).padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
         .ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }

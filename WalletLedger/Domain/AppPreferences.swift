@@ -68,6 +68,13 @@ enum AccountCardLayout: String, Codable, CaseIterable, Identifiable, Sendable {
 typealias OverviewCardLayout = AccountCardLayout
 typealias CardArtworkLayoutContext = AccountCardLayout
 
+enum OverviewMetricLayout: String, Codable, CaseIterable, Identifiable, Sendable {
+    case horizontalGrid
+    case portraitSideColumn
+
+    var id: String { rawValue }
+}
+
 enum OverviewMetricKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case weeklyActivity
     case budget

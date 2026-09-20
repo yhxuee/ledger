@@ -23,6 +23,8 @@ struct TaxRateEditorView: View {
             ratesSection("Expense Categories", kind: .expense)
             ratesSection("Income Categories", kind: .income)
         }
+        .scrollContentBackground(.hidden)
+        .background(LedgerBackground())
         .navigationTitle("Tax Rates")
         .navigationBarTitleDisplayMode(.inline)
     }

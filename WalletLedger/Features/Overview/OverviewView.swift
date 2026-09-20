@@ -87,11 +87,6 @@ struct OverviewView: View {
         }
     }
 
-enum OverviewMetricLayout: Sendable {
-    case horizontalGrid
-    case portraitSideColumn
-}
-
 struct VerticalOverviewHeroLayout: Layout {
     var spacing: CGFloat = 12
     var cardFraction: CGFloat = 0.47
@@ -176,77 +171,81 @@ struct VerticalOverviewHeroLayout: Layout {
         switch kind {
         case .weeklyActivity:
             Button { activeDetailMetric = .weeklyActivity } label: {
-                MetricCard("Weekly Activity", compact: isSideColumn) {
-                    MiniActivityChart(buckets: weeklySummary.buckets, height: isSideColumn ? 32 : 45)
+                MetricCard("Weekly Activity", compact: isSideColumn, layout: layout) {
+                    MiniActivityChart(buckets: weeklySummary.buckets, height: isSideColumn ? nil : 45)
+                        .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : 45)
                     SensitiveMoneyText(amount: weeklySummary.total, currency: store.state.settings.baseCurrency, compact: true)
                         .font((isSideColumn ? Font.subheadline : .headline).bold())
                         .minimumScaleFactor(0.7)
                         .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, minHeight: isSideColumn ? nil : 146, maxHeight: isSideColumn ? .infinity : nil)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil)
 
         case .budget:
             Button { showingBudgetDetail = true } label: {
-                MetricCard("Budget / Remain", compact: isSideColumn) {
+                MetricCard("Budget / Remain", compact: isSideColumn, layout: layout) {
                     SensitiveMoneyText(amount: usage.budget - usage.spent, currency: usageCurrency, maxIntegerDigits: 6)
-                        .font((isSideColumn ? Font.title3 : .title2).bold())
+                        .font((isSideColumn ? Font.headline : .title2).bold())
                         .minimumScaleFactor(0.65)
                         .lineLimit(1)
+                    if isSideColumn {
+                        Spacer(minLength: 2)
+                    }
                     ProgressView(value: privacy.isLocked ? 0 : min(max(usage.ratio, 0), 1))
                         .tint(usage.ratio > 1 ? .red : LedgerPalette.coral)
+                    if isSideColumn {
+                        Spacer(minLength: 2)
+                    }
                     SensitiveValueText("\(Int(usage.ratio * 100))% of monthly budget used", maskLength: 8)
                         .font(isSideColumn ? .caption2 : .caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, minHeight: isSideColumn ? nil : 146, maxHeight: isSideColumn ? .infinity : nil)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil)
 
         case .todayExpensePie:
             Button { activeDetailMetric = .todayExpensePie } label: {
-                MetricCard("Today Expense", compact: isSideColumn) {
-                    MiniPieChart(segments: categorySegments(from: todaySummary), height: isSideColumn ? 32 : 45)
+                MetricCard("Today Expense", compact: isSideColumn, layout: layout) {
+                    MiniPieChart(segments: categorySegments(from: todaySummary), height: isSideColumn ? nil : 45)
+                        .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : 45)
                     SensitiveMoneyText(amount: todaySummary.total, currency: store.state.settings.baseCurrency, compact: true)
                         .font((isSideColumn ? Font.subheadline : .headline).bold())
                         .minimumScaleFactor(0.7)
                         .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, minHeight: isSideColumn ? nil : 146, maxHeight: isSideColumn ? .infinity : nil)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil)
 
         case .weekExpensePie:
             Button { activeDetailMetric = .weekExpensePie } label: {
-                MetricCard("This Week Expense", compact: isSideColumn) {
-                    MiniPieChart(segments: categorySegments(from: weeklySummary), height: isSideColumn ? 32 : 45)
+                MetricCard("This Week Expense", compact: isSideColumn, layout: layout) {
+                    MiniPieChart(segments: categorySegments(from: weeklySummary), height: isSideColumn ? nil : 45)
+                        .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : 45)
                     SensitiveMoneyText(amount: weeklySummary.total, currency: store.state.settings.baseCurrency, compact: true)
                         .font((isSideColumn ? Font.subheadline : .headline).bold())
                         .minimumScaleFactor(0.7)
                         .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, minHeight: isSideColumn ? nil : 146, maxHeight: isSideColumn ? .infinity : nil)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil)
 
         case .sixMonthTrend:
             Button { activeDetailMetric = .sixMonthTrend } label: {
-                MetricCard("6M Trends", compact: isSideColumn) {
+                MetricCard("6M Trends", compact: isSideColumn, layout: layout) {
                     SixMonthTrendChart(buckets: sixMonthsSummary.buckets)
                         .chartXAxis(.hidden)
-                        .frame(height: isSideColumn ? 32 : 45)
+                        .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : 45)
                     SensitiveMoneyText(amount: sixMonthsSummary.total, currency: store.state.settings.baseCurrency, compact: true)
                         .font((isSideColumn ? Font.subheadline : .headline).bold())
                         .minimumScaleFactor(0.7)
                         .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, minHeight: isSideColumn ? nil : 146, maxHeight: isSideColumn ? .infinity : nil)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil)
@@ -305,21 +304,35 @@ struct CategorySegmentData: Identifiable {
 
 private struct MiniPieChart: View {
     let segments: [CategorySegmentData]
-    var height: CGFloat = 45
+    var height: CGFloat? = 45
 
     var body: some View {
+        if let height {
+            chartBody(diameter: height)
+                .frame(height: height)
+        } else {
+            GeometryReader { proxy in
+                let diameter = max(24, min(proxy.size.width, proxy.size.height))
+                chartBody(diameter: diameter)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chartBody(diameter: CGFloat) -> some View {
         if segments.isEmpty {
             Image(systemName: "chart.pie")
-                .font(.system(size: max(16, height * 0.58)))
+                .font(.system(size: max(16, diameter * 0.58)))
                 .foregroundStyle(.secondary)
-                .frame(height: height)
+                .frame(width: diameter, height: diameter)
         } else {
             Chart(segments) { segment in
                 SectorMark(angle: .value("Spent", segment.value), innerRadius: .ratio(0.55), angularInset: 1.0)
                     .foregroundStyle(Color(hex: segment.category.colorHex))
             }
             .chartLegend(.hidden)
-            .frame(height: height)
+            .frame(width: diameter, height: diameter)
         }
     }
 }
@@ -348,11 +361,24 @@ private struct SixMonthTrendChart: View {
 private struct MiniActivityChart: View {
     @EnvironmentObject private var privacy: PrivacyController
     let buckets: [AnalyticsBucket]
-    var height: CGFloat = 45
+    var height: CGFloat? = 45
 
     var body: some View {
         let maximum = max(buckets.map(\.value).max() ?? 1, 1)
-        let barMax = max(4, height - 14)
+        if let height {
+            let barMax = max(4, height - 14)
+            bars(maximum: maximum, barMax: barMax)
+                .frame(height: height)
+        } else {
+            GeometryReader { proxy in
+                let barMax = max(8, proxy.size.height - 16)
+                bars(maximum: maximum, barMax: barMax)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            }
+        }
+    }
+
+    private func bars(maximum: Double, barMax: CGFloat) -> some View {
         HStack(alignment: .bottom, spacing: 4) {
             ForEach(buckets) { bucket in
                 VStack(spacing: 2) {
@@ -365,7 +391,7 @@ private struct MiniActivityChart: View {
                         .foregroundStyle(.secondary)
                 }
             }
-        }.frame(height: height)
+        }
     }
 }
 

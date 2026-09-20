@@ -25,7 +25,10 @@ struct DefaultExpenseAccountsView: View {
                 }
             }
         }
-        .navigationTitle("Default Accounts").navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden)
+        .background(LedgerBackground())
+        .navigationTitle("Default Accounts")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func categoryRow(_ category: LedgerCategory) -> some View {
@@ -86,7 +89,10 @@ struct ExchangeRateEditorView: View {
                 }
             }
         }
-        .navigationTitle("Exchange Rates").navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden)
+        .background(LedgerBackground())
+        .navigationTitle("Exchange Rates")
+        .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "Currency code or name").scrollDismissesKeyboard(.interactively)
         .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { focusedRate = nil } } }
         .alert("Exchange Rates", isPresented: Binding(get: { statusMessage != nil }, set: { if !$0 { statusMessage = nil } })) { Button("OK") { statusMessage = nil } } message: { Text(statusMessage ?? "") }
@@ -138,7 +144,11 @@ struct BudgetEditorView: View {
                 }
             }
         }
-        .navigationTitle("Budget").navigationBarTitleDisplayMode(.inline).scrollDismissesKeyboard(.interactively)
+        .scrollContentBackground(.hidden)
+        .background(LedgerBackground())
+        .navigationTitle("Budget")
+        .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
         .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { focused = false } } }
     }
     private var modeBinding: Binding<BudgetMode> { Binding(get: { store.state.settings.budgetPlan.mode }, set: { mode in store.updateSettings { $0.budgetPlan.mode = mode; $0.budgetPlan.updatedAt = .now } }) }
@@ -160,7 +170,11 @@ struct SwipeActionsEditorView: View {
                     }
                 }
             } footer: { Text("Leading means swiping right. Trailing means swiping left.") }
-        }.navigationTitle("Swipe Actions").navigationBarTitleDisplayMode(.inline)
+        }
+        .scrollContentBackground(.hidden)
+        .background(LedgerBackground())
+        .navigationTitle("Swipe Actions")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -198,7 +212,10 @@ struct RecurringTransactionsView: View {
                 if store.recurringRules.isEmpty { ContentUnavailableView("No Recurring Transactions", systemImage: "calendar.badge.clock") }
             }
         }
-        .navigationTitle("Recurring").navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden)
+        .background(LedgerBackground())
+        .navigationTitle("Recurring")
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingNew) { RecurringRuleEditorView(rule: nil) }
         .sheet(item: $editing) { RecurringRuleEditorView(rule: $0) }
         .sheet(isPresented: $showingCalendarImport) { CalendarEventPickerView { draft in DispatchQueue.main.async { importedDraft = draft } } }
@@ -320,57 +337,83 @@ struct LayoutSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferencesStore
 
     var body: some View {
-        Form {
-            Section("Overview Card Layout") {
-                Picker("Overview Card Layout", selection: Binding(
-                    get: { preferences.value.overviewCardLayout },
-                    set: { val in preferences.update { $0.overviewCardLayout = val } }
-                )) {
-                    ForEach(AccountCardLayout.allCases) { layout in
-                        Text(layout.title).tag(layout)
+        ScrollView {
+            VStack(spacing: 16) {
+                SettingsGlassSection("Overview Card Layout") {
+                    Picker("Overview Card Layout", selection: Binding(
+                        get: { preferences.value.overviewCardLayout },
+                        set: { val in preferences.update { $0.overviewCardLayout = val } }
+                    )) {
+                        ForEach(AccountCardLayout.allCases) { layout in
+                            Text(layout.title).tag(layout)
+                        }
                     }
-                }
-                .pickerStyle(.segmented)
-            }
-
-            Section("Transaction Editor Layout") {
-                Picker("Transaction Editor Layout", selection: Binding(
-                    get: { preferences.value.transactionLayout },
-                    set: { val in preferences.update { $0.transactionLayout = val } }
-                )) {
-                    ForEach(TransactionEditorLayout.allCases) { layout in
-                        Text(layout.title).tag(layout)
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            }
-
-            Section {
-                Picker("First Card", selection: Binding(
-                    get: { preferences.value.overviewMetrics.first ?? .sixMonthTrend },
-                    set: { val in preferences.update { $0.setOverviewMetric(at: 0, to: val) } }
-                )) {
-                    ForEach(OverviewMetricKind.allCases) { kind in
-                        Text(kind.title).tag(kind)
-                    }
+                    .pickerStyle(.segmented)
                 }
 
-                Picker("Second Card", selection: Binding(
-                    get: { preferences.value.overviewMetrics.count > 1 ? preferences.value.overviewMetrics[1] : .weekExpensePie },
-                    set: { val in preferences.update { $0.setOverviewMetric(at: 1, to: val) } }
-                )) {
-                    ForEach(OverviewMetricKind.allCases) { kind in
-                        Text(kind.title).tag(kind)
+                SettingsGlassSection("Transaction Editor Layout") {
+                    VStack(spacing: 0) {
+                        ForEach(TransactionEditorLayout.allCases) { layout in
+                            Button {
+                                preferences.update { $0.transactionLayout = layout }
+                            } label: {
+                                HStack {
+                                    Text(layout.title)
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if preferences.value.transactionLayout == layout {
+                                        Image(systemName: "checkmark")
+                                            .font(.body.weight(.semibold))
+                                            .foregroundStyle(.tint)
+                                    }
+                                }
+                                .padding(.vertical, 6)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+
+                            if layout != TransactionEditorLayout.allCases.last {
+                                Divider().padding(.vertical, 2)
+                            }
+                        }
                     }
                 }
-            } header: {
-                Text("Overview Metrics")
-            } footer: {
-                Text("Overview displays exactly two metric cards. Selecting a duplicate metric automatically swaps the existing card.")
+
+                SettingsGlassSection("Overview Metrics", footer: "Overview displays exactly two metric cards. Selecting a duplicate metric automatically swaps the existing card.") {
+                    LabeledContent {
+                        Picker("First Card", selection: Binding(
+                            get: { preferences.value.overviewMetrics.first ?? .sixMonthTrend },
+                            set: { val in preferences.update { $0.setOverviewMetric(at: 0, to: val) } }
+                        )) {
+                            ForEach(OverviewMetricKind.allCases) { kind in
+                                Text(kind.title).tag(kind)
+                            }
+                        }
+                    } label: {
+                        Text("First Card")
+                    }
+
+                    Divider()
+
+                    LabeledContent {
+                        Picker("Second Card", selection: Binding(
+                            get: { preferences.value.overviewMetrics.count > 1 ? preferences.value.overviewMetrics[1] : .weekExpensePie },
+                            set: { val in preferences.update { $0.setOverviewMetric(at: 1, to: val) } }
+                        )) {
+                            ForEach(OverviewMetricKind.allCases) { kind in
+                                Text(kind.title).tag(kind)
+                            }
+                        }
+                    } label: {
+                        Text("Second Card")
+                    }
+                }
             }
+            .padding()
         }
+        .background(LedgerBackground())
         .navigationTitle("Layout")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -378,37 +421,45 @@ struct AccountCardStyleSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferencesStore
 
     var body: some View {
-        List {
-            Section {
-                ForEach(AccountCardMaterialStyle.allCases) { style in
-                    Button {
-                        preferences.update { $0.accountCardMaterialStyle = style }
-                    } label: {
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(style.title)
-                                    .font(.body.weight(.medium))
-                                    .foregroundStyle(.primary)
-                                Text(style.subtitle)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+        ScrollView {
+            VStack(spacing: 16) {
+                SettingsGlassSection("Card Surface Style", footer: "Choose how account cards are finished. Auto selects Glass for transparent cards and Metal for standard and opaque cards.") {
+                    VStack(spacing: 0) {
+                        ForEach(AccountCardMaterialStyle.allCases) { style in
+                            Button {
+                                preferences.update { $0.accountCardMaterialStyle = style }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(style.title)
+                                            .font(.body.weight(.medium))
+                                            .foregroundStyle(.primary)
+                                        Text(style.subtitle)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if preferences.value.accountCardMaterialStyle == style {
+                                        Image(systemName: "checkmark")
+                                            .font(.body.weight(.semibold))
+                                            .foregroundStyle(.tint)
+                                    }
+                                }
+                                .padding(.vertical, 6)
+                                .contentShape(Rectangle())
                             }
-                            Spacer()
-                            if preferences.value.accountCardMaterialStyle == style {
-                                Image(systemName: "checkmark")
-                                    .font(.body.weight(.semibold))
-                                    .foregroundStyle(.tint)
+                            .buttonStyle(.plain)
+
+                            if style != AccountCardMaterialStyle.allCases.last {
+                                Divider().padding(.vertical, 2)
                             }
                         }
                     }
-                    .buttonStyle(.plain)
                 }
-            } header: {
-                Text("Card Surface Style")
-            } footer: {
-                Text("Choose how account cards are finished. Auto selects Glass for transparent cards and Metal for standard and opaque cards.")
             }
+            .padding()
         }
+        .background(LedgerBackground())
         .navigationTitle("Style")
         .navigationBarTitleDisplayMode(.inline)
     }

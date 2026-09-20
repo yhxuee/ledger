@@ -114,19 +114,34 @@ struct LedgerBackground: View {
 struct MetricCard<Content: View>: View {
     let title: String
     var compact: Bool = false
+    var layout: OverviewMetricLayout? = nil
     let content: Content
-    init(_ title: String, compact: Bool = false, @ViewBuilder content: () -> Content) {
+
+    init(_ title: String, compact: Bool = false, layout: OverviewMetricLayout? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
         self.compact = compact
+        self.layout = layout
         self.content = content()
     }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: compact ? 6 : 10) {
-            Text(title.uppercased()).font((compact ? Font.caption2 : .caption).weight(.semibold)).foregroundStyle(.secondary).tracking(0.7)
+        let isSideColumn = (layout == .portraitSideColumn || compact)
+        VStack(alignment: .leading, spacing: isSideColumn ? 6 : 10) {
+            Text(title.uppercased())
+                .font((isSideColumn ? Font.caption2 : .caption).weight(.semibold))
+                .foregroundStyle(.secondary)
+                .tracking(0.7)
             content
         }
-        .frame(maxWidth: .infinity, maxHeight: compact ? .infinity : nil, alignment: .leading)
-        .padding(compact ? 12 : 18)
-        .ledgerGlass(in: RoundedRectangle(cornerRadius: compact ? 20 : 24, style: .continuous))
+        .frame(maxWidth: .infinity, maxHeight: isSideColumn ? .infinity : nil, alignment: .topLeading)
+        .padding(isSideColumn ? 12 : 18)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: isSideColumn ? nil : 146,
+            maxHeight: isSideColumn ? .infinity : 146,
+            alignment: .topLeading
+        )
+        .ledgerGlass(in: RoundedRectangle(cornerRadius: isSideColumn ? 20 : 24, style: .continuous))
     }
 }
+
