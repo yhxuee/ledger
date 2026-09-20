@@ -77,7 +77,7 @@ extension LedgerStore {
     }
 
 
-    private func scheduleSave() {
+    func scheduleSave() {
         guard persistenceEnabled else { return }
         commitActiveBook()
         saveTask?.cancel()
@@ -97,13 +97,13 @@ extension LedgerStore {
         }
     }
 
-    private func commitActiveBook() {
+    func commitActiveBook() {
         guard let index = books.firstIndex(where: { $0.id == activeBookID }) else { return }
         books[index].state = state
         books[index].updatedAt = .now
     }
 
-    private func librarySnapshot() -> LedgerLibrary {
+    func librarySnapshot() -> LedgerLibrary {
         var snapshotBooks = books
         if let index = snapshotBooks.firstIndex(where: { $0.id == activeBookID }) {
             snapshotBooks[index].state = state
@@ -112,9 +112,9 @@ extension LedgerStore {
         return LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion, activeBookID: activeBookID, books: snapshotBooks)
     }
 
-    nonisolated private static var storageFolder: URL { LocalLedgerRepository.storageFolder }
+    nonisolated static var storageFolder: URL { LocalLedgerRepository.storageFolder }
 
-    private static func loadLibrary() throws -> LedgerLibrary? {
+    static func loadLibrary() throws -> LedgerLibrary? {
         guard var library = try localRepository.loadLibrary() else { return nil }
         guard !library.books.isEmpty else { throw BackupError.invalidFormat }
         SchemaMigration.normalize(&library)
@@ -122,7 +122,7 @@ extension LedgerStore {
         return library
     }
 
-    private static func loadLegacyState() throws -> LedgerState? {
+    static func loadLegacyState() throws -> LedgerState? {
         let url = storageFolder.appending(path: "ledger.json")
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let data = try Data(contentsOf: url)
@@ -136,7 +136,7 @@ extension LedgerStore {
         return state
     }
 
-    nonisolated private static func writeLibrary(_ library: LedgerLibrary) throws {
+    nonisolated static func writeLibrary(_ library: LedgerLibrary) throws {
         try localRepository.saveLibrary(library)
     }
 

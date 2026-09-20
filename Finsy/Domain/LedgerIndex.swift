@@ -2,23 +2,23 @@ import Foundation
 
 /// Pure derived, in-memory index for rapid financial state lookups.
 /// Never persisted or serialized; always rebuilt from LedgerState.
-public struct LedgerIndex: Sendable {
-    public let activeTransactions: [LedgerTransaction]
-    public let sortedActiveTransactions: [LedgerTransaction]
+struct LedgerIndex: Sendable {
+    let activeTransactions: [LedgerTransaction]
+    let sortedActiveTransactions: [LedgerTransaction]
 
-    public let activeAccounts: [LedgerAccount]
+    let activeAccounts: [LedgerAccount]
 
-    public let accountsByID: [UUID: LedgerAccount]
-    public let categoriesByID: [LedgerCategoryID: LedgerCategory]
-    public let transactionsByID: [UUID: LedgerTransaction]
+    let accountsByID: [UUID: LedgerAccount]
+    let categoriesByID: [LedgerCategoryID: LedgerCategory]
+    let transactionsByID: [UUID: LedgerTransaction]
 
-    public let transactionsByAccountID: [UUID: [LedgerTransaction]]
-    public let childrenByParentID: [UUID: [LedgerTransaction]]
+    let transactionsByAccountID: [UUID: [LedgerTransaction]]
+    let childrenByParentID: [UUID: [LedgerTransaction]]
 
-    public let purchaseSessionsByID: [UUID: PurchaseSession]
-    public let purchaseTransactionsBySessionID: [UUID: [LedgerTransaction]]
+    let purchaseSessionsByID: [UUID: PurchaseSession]
+    let purchaseTransactionsBySessionID: [UUID: [LedgerTransaction]]
 
-    public init(state: LedgerState) {
+    init(state: LedgerState) {
         var activeAccounts: [LedgerAccount] = []
         var accountsByID: [UUID: LedgerAccount] = [:]
         activeAccounts.reserveCapacity(state.accounts.count)
@@ -98,15 +98,15 @@ public struct LedgerIndex: Sendable {
         self.purchaseTransactionsBySessionID = purchaseTransactionsBySessionID
     }
 
-    public func transactions(for accountID: UUID) -> [LedgerTransaction] {
+    func transactions(for accountID: UUID) -> [LedgerTransaction] {
         transactionsByAccountID[accountID] ?? []
     }
 
-    public func children(of parentID: UUID) -> [LedgerTransaction] {
+    func children(of parentID: UUID) -> [LedgerTransaction] {
         childrenByParentID[parentID] ?? []
     }
 
-    public var activeTransactionsSorted: [LedgerTransaction] {
+    var activeTransactionsSorted: [LedgerTransaction] {
         sortedActiveTransactions
     }
 }
