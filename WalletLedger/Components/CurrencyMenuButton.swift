@@ -27,15 +27,15 @@ struct CurrencyMenuButton: View {
     }
 
     /// Adding a pocket uses the same menu, without changing the primary currency.
-    init(adding codes: [CurrencyCode], otherCodes: [CurrencyCode], onSelect: @escaping (CurrencyCode) -> Void) {
+    init(adding codes: [CurrencyCode], otherCodes: [CurrencyCode] = [], showsOther: Bool = true, requiresConfiguredRate: Bool = true, onSelect: @escaping (CurrencyCode) -> Void) {
         _selection = Binding(get: { nil }, set: { code in
             if let code { onSelect(code) }
         })
         self.codes = codes
         self.title = "Add Currency"
-        self.showsOther = true
+        self.showsOther = showsOther
         self.showsStablecoinNames = false
-        self.requiresConfiguredRate = true
+        self.requiresConfiguredRate = requiresConfiguredRate
         self.otherCodes = otherCodes
     }
 

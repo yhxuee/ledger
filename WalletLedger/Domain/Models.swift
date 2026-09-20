@@ -27,6 +27,15 @@ enum AccountType: String, Codable, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    var displayTitle: String {
+        switch self {
+        case .investment: "Invest"
+        case .lending: "Lending"
+        case .crypto: "Crypto"
+        default: rawValue
+        }
+    }
+
     static func from(aliasOrRaw raw: String) -> AccountType {
         let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         switch normalized {
@@ -36,7 +45,7 @@ enum AccountType: String, Codable, CaseIterable, Identifiable, Sendable {
             return .savings
         case "credit", "credit card", "creditcard":
             return .credit
-        case "investment", "investments":
+        case "investment", "investments", "invest":
             return .investment
         case "cash":
             return .cash
@@ -288,9 +297,9 @@ struct LedgerAccount: Identifiable, Codable, Hashable, Sendable {
         if type == .stocks {
             let market = stockMetadata?.market.rawValue ?? settlementCurrency.rawValue
             let symbol = stockMetadata?.symbol.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return symbol.isEmpty ? "\(type.rawValue) · \(market)" : "\(symbol) · \(market)"
+            return symbol.isEmpty ? "\(type.displayTitle) · \(market)" : "\(symbol) · \(market)"
         }
-        let base = "\(type.rawValue) · \(currency.rawValue)"
+        let base = "\(type.displayTitle) · \(currency.rawValue)"
         let count = normalizedPockets.count
         return count > 1 ? "\(base) · \(count) currencies" : base
     }

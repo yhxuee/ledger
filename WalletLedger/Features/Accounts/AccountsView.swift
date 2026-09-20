@@ -300,7 +300,7 @@ private struct AccountEditorView: View {
                 Section("Account") {
                     TextField("Name", text: $account.name)
                     TextField("Tag", text: $account.logo).textInputAutocapitalization(.characters).onChange(of: account.logo) { _, value in account.logo = String(value.prefix(4)).uppercased() }
-                    Picker("Type", selection: $account.type) { ForEach(AccountType.allCases) { Text($0.rawValue).tag($0) } }
+                    Picker("Type", selection: $account.type) { ForEach(AccountType.allCases) { Text(LocalizedStringKey($0.displayTitle)).tag($0) } }
                         .onChange(of: account.type) { _, value in
                             if value == .loan, account.loanMetadata == nil { account.loanMetadata = .init(annualPercentageRate: 0, interestInterval: nil, customIntervalDays: 30, linkedRecurringRuleID: nil) }
                             if value != .loan { interestEnabled = false }
@@ -311,6 +311,19 @@ private struct AccountEditorView: View {
                                 if account.stockMetadata == nil { account.stockMetadata = .init(market: market, symbol: "") }
                                 account.currency = market.settlementCurrency
                             }
+                            if value == .crypto {
+                                if !CurrencyCode.usdStablecoins.contains(account.currency) {
+                                    let oldCurrency = account.currency
+                                    account.currency = .USDT
+                                    desiredBalance = LedgerCalculations.convert(desiredBalance, from: oldCurrency, to: .USDT, rates: store.state.settings.rates)
+                                }
+                                if account.isMultiCurrency {
+                                    account.currencyPockets = account.currencyPockets.filter { CurrencyCode.usdStablecoins.contains($0.currency) }
+                                    if !account.currencyPockets.contains(where: { $0.currency == account.currency }) {
+                                        account.currencyPockets.insert(AccountCurrencyPocket(currency: account.currency, openingBalance: 0), at: 0)
+                                    }
+                                }
+                            }
                         }
                     if account.type == .stocks {
                         stockSection
@@ -320,7 +333,8 @@ private struct AccountEditorView: View {
                         }
                         if account.usesCurrencyPockets {
                             LabeledContent("Primary Currency") {
-                                CurrencyMenuButton(selection: $account.currency, codes: account.pocketCurrencies,
+                                let primaryCurrencies = account.type == .crypto ? account.pocketCurrencies.filter { CurrencyCode.usdStablecoins.contains($0) } : account.pocketCurrencies
+                                CurrencyMenuButton(selection: $account.currency, codes: primaryCurrencies,
                                                    title: "Primary Currency", requiresConfiguredRate: false)
                             }
                             ForEach(account.normalizedPockets) { pocket in
@@ -329,14 +343,31 @@ private struct AccountEditorView: View {
                                 }
                             }
                             .onDelete(perform: removePockets)
-                            CurrencyMenuButton(adding: CurrencySelection.addable(excluding: account.pocketCurrencies),
-                                                    otherCodes: store.availableCurrencies.filter { !account.pocketCurrencies.contains($0) },
-                                                    onSelect: addPocket)
-                        } else {
-                            CurrencyPickerLink(selection: $account.currency)
-                                .onChange(of: account.currency) { oldValue, newValue in
-                                    desiredBalance = LedgerCalculations.convert(desiredBalance, from: oldValue, to: newValue, rates: store.state.settings.rates)
+                            if account.type == .crypto {
+                                let remainingStablecoins = CurrencyCode.usdStablecoins.filter { !account.pocketCurrencies.contains($0) }
+                                if !remainingStablecoins.isEmpty {
+                                    CurrencyMenuButton(adding: remainingStablecoins,
+                                                       showsOther: false,
+                                                       requiresConfiguredRate: false,
+                                                       onSelect: addPocket)
                                 }
+                            } else {
+                                CurrencyMenuButton(adding: CurrencySelection.addable(excluding: account.pocketCurrencies),
+                                                   otherCodes: store.availableCurrencies.filter { !account.pocketCurrencies.contains($0) },
+                                                   onSelect: addPocket)
+                            }
+                        } else {
+                            if account.type == .crypto {
+                                CurrencyPickerLink(selection: $account.currency, codes: CurrencyCode.usdStablecoins, showsOther: false, requiresConfiguredRate: false)
+                                    .onChange(of: account.currency) { oldValue, newValue in
+                                        desiredBalance = LedgerCalculations.convert(desiredBalance, from: oldValue, to: newValue, rates: store.state.settings.rates)
+                                    }
+                            } else {
+                                CurrencyPickerLink(selection: $account.currency)
+                                    .onChange(of: account.currency) { oldValue, newValue in
+                                        desiredBalance = LedgerCalculations.convert(desiredBalance, from: oldValue, to: newValue, rates: store.state.settings.rates)
+                                    }
+                            }
                             if account.type != .loan { LabeledContent("Current Balance") { SensitiveNumericField(placeholder: "0", value: $desiredBalance, fractionDigits: 2, width: 130) } }
                         }
                     }

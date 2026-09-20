@@ -381,19 +381,9 @@ struct TransactionEditorView: View {
     private var amountPanel: some View {
         VStack(spacing: 8) {
             if isInternalTransfer {
-                CurrencyMenuButton(selection: $currency, codes: sourceAccount?.pocketCurrencies ?? [], title: "From Currency", showsOther: true)
+                internalTransferCurrencyRow
             } else {
                 TransactionCurrencyPicker(selection: $currency).disabled(original?.linkedTransactionKind == .installment)
-            }
-            if isInternalTransfer {
-                Image(systemName: "arrow.right")
-                if let target = internalDestinationCurrency {
-                    CurrencyMenuButton(selection: Binding(get: { internalDestinationCurrency ?? target }, set: { internalDestinationCurrency = $0 }),
-                        codes: sourceAccount?.pocketCurrencies ?? [], title: "To Currency", showsOther: true)
-                } else {
-                    CurrencyMenuButton(adding: (sourceAccount?.pocketCurrencies ?? []).filter { $0 != currency },
-                        otherCodes: store.availableCurrencies.filter { $0 != currency }) { internalDestinationCurrency = $0 }
-                }
             }
             SensitiveMoneyText(amount: enteredAmount, currency: currency)
                 .font(.system(size: 58, weight: .bold, design: .rounded))
@@ -408,6 +398,52 @@ struct TransactionEditorView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
+    }
+
+    private var internalTransferCurrencyRow: some View {
+        let isCrypto = sourceAccount?.type == .crypto
+        let fromCodes = isCrypto ? CurrencyCode.usdStablecoins : (sourceAccount?.pocketCurrencies ?? [])
+        let toCodes = isCrypto ? CurrencyCode.usdStablecoins : (sourceAccount?.pocketCurrencies ?? [])
+        let addableToCodes = isCrypto
+            ? CurrencyCode.usdStablecoins.filter { $0 != currency }
+            : (sourceAccount?.pocketCurrencies ?? []).filter { $0 != currency }
+        let otherToCodes = isCrypto ? [] : store.availableCurrencies.filter { $0 != currency }
+
+        return HStack(spacing: 8) {
+            CurrencyMenuButton(
+                selection: $currency,
+                codes: fromCodes,
+                title: "From Currency",
+                showsOther: !isCrypto,
+                requiresConfiguredRate: false
+            )
+            Image(systemName: "arrow.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            if let target = internalDestinationCurrency {
+                CurrencyMenuButton(
+                    selection: Binding(
+                        get: { internalDestinationCurrency ?? target },
+                        set: { internalDestinationCurrency = $0 }
+                    ),
+                    codes: toCodes,
+                    title: "To Currency",
+                    showsOther: !isCrypto,
+                    requiresConfiguredRate: false
+                )
+            } else {
+                CurrencyMenuButton(
+                    adding: addableToCodes,
+                    otherCodes: otherToCodes,
+                    showsOther: !isCrypto,
+                    requiresConfiguredRate: false
+                ) {
+                    internalDestinationCurrency = $0
+                }
+            }
+        }
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var taxSummaryLine: some View {
@@ -521,7 +557,14 @@ struct TransactionEditorView: View {
                     Button("Cancel Internal Transfer") { destinationID = activeAccounts.first(where: { $0.id != accountID })?.id }
                     ForEach(activeAccounts) { account in
                         Button(account.name) {
-                            if account.usesCurrencyPockets { accountID = account.id; destinationID = account.id; currency = account.currency; internalDestinationCurrency = account.pocketCurrencies.first { $0 != currency } }
+                            if account.usesCurrencyPockets {
+                                accountID = account.id
+                                destinationID = account.id
+                                currency = (account.type == .crypto && !CurrencyCode.usdStablecoins.contains(account.currency)) ? .USDT : account.currency
+                                internalDestinationCurrency = (account.type == .crypto)
+                                    ? CurrencyCode.usdStablecoins.first { $0 != currency }
+                                    : account.pocketCurrencies.first { $0 != currency }
+                            }
                         }
                     }
                 } label: { Label(sourceAccount?.name ?? "Internal Transfer", systemImage: "arrow.left.arrow.right") }
@@ -576,7 +619,16 @@ struct TransactionEditorView: View {
             .clipped()
             .ledgerGlass(in: Capsule())
             .onChange(of: destinationID) { _, _ in
-                if isInternalTransfer { internalDestinationCurrency = sourceAccount?.pocketCurrencies.first { $0 != currency } }
+                if isInternalTransfer {
+                    if sourceAccount?.type == .crypto {
+                        if !CurrencyCode.usdStablecoins.contains(currency) { currency = .USDT }
+                        if internalDestinationCurrency == nil || internalDestinationCurrency == currency || !CurrencyCode.usdStablecoins.contains(internalDestinationCurrency!) {
+                            internalDestinationCurrency = CurrencyCode.usdStablecoins.first { $0 != currency }
+                        }
+                    } else {
+                        internalDestinationCurrency = sourceAccount?.pocketCurrencies.first { $0 != currency }
+                    }
+                }
                 destinationAmountOverridden = false
                 syncAmountFields()
             }

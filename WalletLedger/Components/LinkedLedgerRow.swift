@@ -22,15 +22,15 @@ struct TransactionSwipeReveal<Content: View>: View {
             content().offset(x: offset)
         }
         .clipped()
-        .simultaneousGesture(DragGesture(minimumDistance: 24)
+        .simultaneousGesture(DragGesture(minimumDistance: 32)
             .onChanged { value in
-                guard abs(value.translation.width) > abs(value.translation.height) * 1.5 else { return }
+                guard abs(value.translation.width) >= abs(value.translation.height) * 1.8 else { return }
                 dragging = true
-                offset = min(100, max(-100, value.translation.width))
+                offset = min(96, max(-96, value.translation.width))
             }
             .onEnded { _ in
                 guard dragging else { return }
-                withAnimation(.snappy) { offset = abs(offset) > 45 ? (offset > 0 ? 92 : -92) : 0 }
+                withAnimation(.snappy) { offset = abs(offset) >= 65 ? (offset > 0 ? 84 : -84) : 0 }
                 dragging = false
             })
     }
@@ -41,9 +41,16 @@ struct TransactionSwipeReveal<Content: View>: View {
             withAnimation { offset = 0 }
         } label: {
             Text(LocalizedStringKey(primary ? actionTitle : "Delete"))
-                .font(.caption.bold()).foregroundStyle(.white)
-                .frame(width: 88).frame(maxHeight: .infinity)
-                .background(primary ? Color.blue : Color.red)
+                .font(.caption.bold())
+                .foregroundStyle(.white)
+                .frame(width: 72)
+                .frame(maxHeight: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(primary ? Color.blue : Color.red)
+                )
+                .padding(.vertical, 4)
+                .padding(.horizontal, 6)
         }
         .buttonStyle(.plain)
         .disabled(primary ? !actionEnabled : !deleteEnabled)
@@ -63,33 +70,43 @@ struct LinkedLedgerRow: View {
 
     private var parent: LedgerTransaction { store.state.transactions.first { $0.id == transaction.id } ?? transaction }
     private var children: [LedgerTransaction] { TransactionSemantics.children(of: parent, in: store.state) }
-    private var title: String { parent.groupMode == .split ? "Settle" : parent.groupMode == .reimbursement ? "Reimburse" : "Refund" }
+    private var isGroupParent: Bool { parent.groupMode == .split || parent.groupMode == .reimbursement }
+    private var title: String { "Refund" }
     private var actionEnabled: Bool {
-        if parent.groupMode == .split { return !TransactionSemantics.outstandingSlots(parent, in: store.state).isEmpty }
-        if parent.groupMode == .reimbursement { return TransactionSemantics.remainingReimbursement(parent, in: store.state) > 0 }
-        return parent.groupMode == nil && parent.parentTransactionID == nil && !parent.isLockedByReversal
+        parent.groupMode == nil && parent.parentTransactionID == nil && !parent.isLockedByReversal
     }
     private var leading: Bool {
-        if parent.groupMode == .split { return preferences.value.splitActionOnRightSwipe }
-        if parent.groupMode == .reimbursement { return preferences.value.reimbursementActionOnRightSwipe }
-        return preferences.value.swipeActionOrientation == .refundLeadingDeleteTrailing
+        preferences.value.swipeActionOrientation == .refundLeadingDeleteTrailing
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            TransactionSwipeReveal(actionTitle: title, actionOnRightSwipe: leading, actionEnabled: actionEnabled,
-                deleteEnabled: parent.linkedTransactionKind != .installment, action: performAction,
-                delete: { store.deleteTransaction(parent) }) {
-                Button {
-                    if parent.groupMode != nil { withAnimation(.snappy) { expanded.toggle() } }
-                    else if !parent.isLockedByReversal { editing = parent }
-                } label: {
-                    TransactionRow(transaction: parent, category: category(parent), showsDate: showsDate,
-                        attention: TransactionSemantics.attention(parent, in: store.state))
+            if isGroupParent {
+                groupParentRow
+            } else {
+                TransactionSwipeReveal(
+                    actionTitle: title,
+                    actionOnRightSwipe: leading,
+                    actionEnabled: actionEnabled,
+                    deleteEnabled: parent.linkedTransactionKind != .installment,
+                    action: performAction,
+                    delete: { store.deleteTransaction(parent) }
+                ) {
+                    Button {
+                        if parent.groupMode != nil { withAnimation(.snappy) { expanded.toggle() } }
+                        else if !parent.isLockedByReversal { editing = parent }
+                    } label: {
+                        TransactionRow(
+                            transaction: parent,
+                            category: category(parent),
+                            showsDate: showsDate,
+                            attention: TransactionSemantics.attention(parent, in: store.state)
+                        )
                         .padding(.horizontal, 14)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu { configurationMenu }
                 }
-                .buttonStyle(.plain)
-                .contextMenu { configurationMenu }
             }
             if expanded {
                 if parent.groupMode != .installment {
@@ -116,6 +133,35 @@ struct LinkedLedgerRow: View {
         }
     }
 
+    @ViewBuilder
+    private var groupParentRow: some View {
+        let attention = TransactionSemantics.attention(parent, in: store.state)
+        Button {
+            withAnimation(.snappy) { expanded.toggle() }
+        } label: {
+            TransactionRow(
+                transaction: parent,
+                category: category(parent),
+                showsDate: showsDate,
+                attention: attention
+            )
+            .padding(.horizontal, 14)
+        }
+        .buttonStyle(.plain)
+        .background {
+            if attention != nil {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.red.opacity(0.10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(Color.red.opacity(0.24), lineWidth: 0.8)
+                    )
+                    .padding(.horizontal, 6)
+            }
+        }
+        .contextMenu { configurationMenu }
+    }
+
     private func category(_ transaction: LedgerTransaction) -> LedgerCategory {
         store.state.categories.first { $0.id == transaction.categoryID } ?? SeedData.expenseCategories[0]
     }
@@ -134,9 +180,24 @@ struct LinkedLedgerRow: View {
                 Button("Set Installments") { setupMode = .installment }
             }
         } else if let mode = parent.groupMode {
-            Button(mode == .split ? "Edit Split" : mode == .reimbursement ? "Edit Reimbursement" : "Edit Installment Plan") { setupMode = mode }
+            if mode == .split {
+                if !TransactionSemantics.outstandingSlots(parent, in: store.state).isEmpty {
+                    Button("Settle") { performAction() }
+                }
+                Button("Edit Split") { setupMode = .split }
+            } else if mode == .reimbursement {
+                if TransactionSemantics.remainingReimbursement(parent, in: store.state) > 0 {
+                    Button("Reimburse") { performAction() }
+                }
+                Button("Edit Reimbursement") { setupMode = .reimbursement }
+            } else {
+                Button("Edit Installment Plan") { setupMode = mode }
+            }
+            if !parent.isLockedByReversal {
+                Button("Edit Transaction") { editing = parent }
+            }
         }
-        if actionEnabled { Button(LocalizedStringKey(title), action: performAction) }
+        if !isGroupParent && actionEnabled { Button(LocalizedStringKey(title), action: performAction) }
         if parent.linkedTransactionKind != .installment { Button("Delete", role: .destructive) { store.deleteTransaction(parent) } }
     }
 }

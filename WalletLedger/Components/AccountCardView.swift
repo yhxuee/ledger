@@ -93,7 +93,7 @@ struct AccountCardMetadata: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            (Text(LocalizedStringKey(account.type.rawValue)) + Text(verbatim: " · \(account.currency.rawValue)"))
+            (Text(LocalizedStringKey(account.type.displayTitle)) + Text(verbatim: " · \(account.currency.rawValue)"))
                 .lineLimit(1)
             if account.type == .stocks {
                 Text(stockDetails)

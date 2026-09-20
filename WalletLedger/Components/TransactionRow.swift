@@ -59,7 +59,6 @@ struct TransactionRow: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 9)
-        .background(attention != nil ? Color.red.opacity(0.05) : Color.clear)
         .opacity(transaction.isRefunded || (transaction.linkedTransactionKind == .installment && transaction.occurredAt > .now) ? 0.5 : 1)
         .contentShape(Rectangle())
     }
