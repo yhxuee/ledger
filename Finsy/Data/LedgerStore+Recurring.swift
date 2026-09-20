@@ -48,7 +48,7 @@ extension LedgerStore {
         if changed { state.recurringRules = rules; scheduleSave() }
     }
 
-    private func recurringAmount(for rule: RecurringRule) -> Double {
+    func recurringAmount(for rule: RecurringRule) -> Double {
         guard rule.effectiveAmountKind == .loanInterest else { return rule.amount }
         guard let accountID = rule.linkedLoanAccountID,
               let account = state.accounts.first(where: { $0.id == accountID && $0.deletedAt == nil }),
@@ -59,7 +59,7 @@ extension LedgerStore {
         return principal * (loan.annualPercentageRate / 100) / max(1, periods)
     }
 
-    private func nextDate(after date: Date, interval: RecurringInterval, customDays: Int) -> Date {
+    func nextDate(after date: Date, interval: RecurringInterval, customDays: Int) -> Date {
         let component: Calendar.Component
         let value: Int
         switch interval {
