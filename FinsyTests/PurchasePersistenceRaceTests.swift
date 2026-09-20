@@ -35,10 +35,12 @@ final class PurchasePersistenceRaceTests: XCTestCase {
             var continuation: CheckedContinuation<Void, Error>?
         }
         let gate = SuspensionGate()
+        let (stream1, streamContinuation1) = AsyncStream<Void>.makeStream()
 
         store.persistenceTestHook = {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
                 gate.continuation = cont
+                streamContinuation1.yield()
             }
         }
 
@@ -67,9 +69,9 @@ final class PurchasePersistenceRaceTests: XCTestCase {
             try await store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)
         }
 
-        // Wait cooperatively until hook is reached
-        while gate.continuation == nil {
-            await Task.yield()
+        // Cooperatively await until persistence hook is reached and suspended
+        for await _ in stream1 {
+            break
         }
 
         // While suspended, perform an unrelated mutation on the ledger
@@ -120,10 +122,12 @@ final class PurchasePersistenceRaceTests: XCTestCase {
             var continuation: CheckedContinuation<Void, Error>?
         }
         let gate = SuspensionGate()
+        let (stream2, streamContinuation2) = AsyncStream<Void>.makeStream()
 
         store.persistenceTestHook = {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
                 gate.continuation = cont
+                streamContinuation2.yield()
             }
         }
 
@@ -131,8 +135,9 @@ final class PurchasePersistenceRaceTests: XCTestCase {
             try await store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)
         }
 
-        while gate.continuation == nil {
-            await Task.yield()
+        // Cooperatively await until persistence hook is reached and suspended
+        for await _ in stream2 {
+            break
         }
 
         // While finalize is suspended, a concurrent mutation adds a second item to the session

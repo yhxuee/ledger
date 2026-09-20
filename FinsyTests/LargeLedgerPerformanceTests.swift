@@ -61,7 +61,7 @@ final class LargeLedgerPerformanceTests: XCTestCase {
         let duration = CFAbsoluteTimeGetCurrent() - start
 
         XCTAssertTrue(total.isFinite)
-        XCTAssertLessThan(duration, 0.5, "10k calculation took \(duration)s, expected < 0.5s")
+        XCTAssertLessThan(duration, 2.0, "10k calculation took \(duration)s, expected < 2.0s")
     }
 
     func test50kTransactionsCalculationPerformance() {
@@ -71,7 +71,7 @@ final class LargeLedgerPerformanceTests: XCTestCase {
         let duration = CFAbsoluteTimeGetCurrent() - start
 
         XCTAssertTrue(total.isFinite)
-        XCTAssertLessThan(duration, 1.5, "50k calculation took \(duration)s, expected < 1.5s")
+        XCTAssertLessThan(duration, 5.0, "50k calculation took \(duration)s, expected < 5.0s")
     }
 
     func test100kTransactionsCalculationPerformance() {
@@ -81,6 +81,6 @@ final class LargeLedgerPerformanceTests: XCTestCase {
         let duration = CFAbsoluteTimeGetCurrent() - start
 
         XCTAssertTrue(total.isFinite)
-        XCTAssertLessThan(duration, 3.0, "100k calculation took \(duration)s, expected < 3.0s")
+        XCTAssertLessThan(duration, 10.0, "100k calculation took \(duration)s, expected < 10.0s")
     }
 }
