@@ -35,7 +35,7 @@ final class AppPreferencesStore: ObservableObject {
             .appending(path: "app-preferences.json")
     }
 
-    nonisolated private static func load() -> AppPreferences? {
+    nonisolated static func load() -> AppPreferences? {
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
         return try? JSONDecoder().decode(AppPreferences.self, from: data)
     }
