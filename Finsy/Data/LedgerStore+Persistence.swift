@@ -78,15 +78,17 @@ extension LedgerStore {
 
 
     func persistDurableAsync() async throws {
+        #if DEBUG
+        if let hook = persistenceTestHook {
+            try await hook()
+        }
+        #endif
         guard persistenceEnabled else { return }
         commitActiveBook()
         saveTask?.cancel()
         saveRevision &+= 1
         let revision = saveRevision
         let snapshot = librarySnapshot()
-        #if DEBUG
-        try await persistenceTestHook?()
-        #endif
         try await LedgerPersistence.shared.save(snapshot, revision: revision)
         OverviewWidgetRelay.updateSnapshot(store: self)
         if let active = snapshot.books.first(where: { $0.id == snapshot.activeBookID }), active.effectiveStorageKind != .local {

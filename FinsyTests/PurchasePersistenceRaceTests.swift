@@ -43,6 +43,7 @@ final class PurchasePersistenceRaceTests: XCTestCase {
                 streamContinuation1.yield()
             }
         }
+        defer { store.persistenceTestHook = nil }
 
         // Unrelated transaction to be added while finalization is suspended
         let unrelatedTx = LedgerTransaction(
@@ -130,6 +131,7 @@ final class PurchasePersistenceRaceTests: XCTestCase {
                 streamContinuation2.yield()
             }
         }
+        defer { store.persistenceTestHook = nil }
 
         let finalizeTask = Task { @MainActor in
             try await store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)
