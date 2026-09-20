@@ -49,15 +49,28 @@ struct PurchaseSummaryView: View {
                     }
 
                     Section {
-                        HStack {
-                            Text("Total")
-                                .font(.headline)
-                            Spacer()
-                            SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency, maxIntegerDigits: 4)
-                                .font(.title3.bold())
+                        VStack(spacing: 8) {
+                            HStack {
+                                Text("Total")
+                                    .font(.headline)
+                                Spacer()
+                                SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency, maxIntegerDigits: 4)
+                                    .font(.title3.bold())
+                            }
+                            .padding(16)
+                            .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                            if session.currency != store.state.settings.baseCurrency {
+                                let converted = LedgerCalculations.convert(session.plannedAmount, from: session.currency, to: store.state.settings.baseCurrency, rates: store.state.settings.rates)
+                                HStack(spacing: 4) {
+                                    Text("≈")
+                                    SensitiveMoneyText(amount: converted, currency: store.state.settings.baseCurrency, maxIntegerDigits: 4)
+                                }
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                            }
                         }
-                        .padding(16)
-                        .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)

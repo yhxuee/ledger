@@ -39,20 +39,22 @@ extension LedgerStore {
         }
         var item = LedgerTransaction(id: UUID(), userID: state.settings.userID, type: type, accountID: source.id, destinationAccountID: type == .transfer ? destination?.id : nil, amount: amount, currency: currency, accountAmount: resolvedAccountAmount, destinationAmount: resolvedDestinationAmount, accountCurrency: source.usesCurrencyPockets ? sourcePocket : nil, destinationAccountCurrency: resolvedDestinationPocket, categoryID: type == .transfer ? .other : categoryID, occurredAt: occurredAt, note: note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty, noteAttachmentID: noteAttachmentID, exchangeRateAtTransaction: CurrencyRates.reference(currency, in: rates) ?? 1, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, recurringRuleID: recurringRuleID, couponSnapshot: couponSnapshot, createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending)
         item.applyTax(taxSnapshot)
-        state.transactions.insert(item, at: 0)
+        mutateState { state in
+            state.transactions.insert(item, at: 0)
 
-        // Mark coupon as used if applied
-        if let snapshot = couponSnapshot,
-           let accIdx = state.accounts.firstIndex(where: { $0.id == source.id }),
-           var coupons = state.accounts[accIdx].coupons,
-           let cIdx = coupons.firstIndex(where: { $0.id == snapshot.couponID }) {
-            coupons[cIdx].usedAt = occurredAt
-            coupons[cIdx].linkedTransactionID = item.id
-            coupons[cIdx].updatedAt = .now
-            state.accounts[accIdx].coupons = coupons
-            state.accounts[accIdx].updatedAt = .now
-            state.accounts[accIdx].version += 1
-            state.accounts[accIdx].syncStatus = .pending
+            // Mark coupon as used if applied
+            if let snapshot = couponSnapshot,
+               let accIdx = state.accounts.firstIndex(where: { $0.id == source.id }),
+               var coupons = state.accounts[accIdx].coupons,
+               let cIdx = coupons.firstIndex(where: { $0.id == snapshot.couponID }) {
+                coupons[cIdx].usedAt = occurredAt
+                coupons[cIdx].linkedTransactionID = item.id
+                coupons[cIdx].updatedAt = .now
+                state.accounts[accIdx].coupons = coupons
+                state.accounts[accIdx].updatedAt = .now
+                state.accounts[accIdx].version += 1
+                state.accounts[accIdx].syncStatus = .pending
+            }
         }
 
         scheduleSave()
@@ -82,34 +84,6 @@ extension LedgerStore {
         updated.linkedStatus = original.linkedStatus
         updated.completedAt = original.completedAt
         updated.couponSnapshot = item.couponSnapshot
-
-        // Handle coupon release / consumption on change
-        if original.couponSnapshot?.couponID != item.couponSnapshot?.couponID {
-            if let oldCouponID = original.couponSnapshot?.couponID,
-               let accIdx = state.accounts.firstIndex(where: { $0.id == original.accountID }),
-               var coupons = state.accounts[accIdx].coupons,
-               let cIdx = coupons.firstIndex(where: { $0.id == oldCouponID }) {
-                coupons[cIdx].usedAt = nil
-                coupons[cIdx].linkedTransactionID = nil
-                coupons[cIdx].updatedAt = .now
-                state.accounts[accIdx].coupons = coupons
-                state.accounts[accIdx].updatedAt = .now
-                state.accounts[accIdx].version += 1
-                state.accounts[accIdx].syncStatus = .pending
-            }
-            if let newSnapshot = item.couponSnapshot,
-               let accIdx = state.accounts.firstIndex(where: { $0.id == item.accountID }),
-               var coupons = state.accounts[accIdx].coupons,
-               let cIdx = coupons.firstIndex(where: { $0.id == newSnapshot.couponID }) {
-                coupons[cIdx].usedAt = item.occurredAt
-                coupons[cIdx].linkedTransactionID = item.id
-                coupons[cIdx].updatedAt = .now
-                state.accounts[accIdx].coupons = coupons
-                state.accounts[accIdx].updatedAt = .now
-                state.accounts[accIdx].version += 1
-                state.accounts[accIdx].syncStatus = .pending
-            }
-        }
 
         // Automatic completion on edit/save for pending child records:
         if original.linkedTransactionKind == .splitSettlement && original.linkedStatus == .pending {
@@ -171,22 +145,53 @@ extension LedgerStore {
         updated.updatedAt = .now
         updated.version += 1
         updated.syncStatus = .pending
-        state.transactions[index] = updated
 
-        // If this child belongs to a Combined Payment group, update the parent's aggregate amount
-        if let parentID = updated.parentTransactionID,
-           let parentIndex = state.transactions.firstIndex(where: { $0.id == parentID && $0.groupMode == .combinedPayment && $0.deletedAt == nil }) {
-            let allChildren = state.transactions.filter {
-                $0.parentTransactionID == parentID && $0.linkedTransactionKind == .combinedPaymentItem && $0.deletedAt == nil
+        mutateState { state in
+            // Handle coupon release / consumption on change
+            if original.couponSnapshot?.couponID != item.couponSnapshot?.couponID {
+                if let oldCouponID = original.couponSnapshot?.couponID,
+                   let accIdx = state.accounts.firstIndex(where: { $0.id == original.accountID }),
+                   var coupons = state.accounts[accIdx].coupons,
+                   let cIdx = coupons.firstIndex(where: { $0.id == oldCouponID }) {
+                    coupons[cIdx].usedAt = nil
+                    coupons[cIdx].linkedTransactionID = nil
+                    coupons[cIdx].updatedAt = .now
+                    state.accounts[accIdx].coupons = coupons
+                    state.accounts[accIdx].updatedAt = .now
+                    state.accounts[accIdx].version += 1
+                    state.accounts[accIdx].syncStatus = .pending
+                }
+                if let newSnapshot = item.couponSnapshot,
+                   let accIdx = state.accounts.firstIndex(where: { $0.id == item.accountID }),
+                   var coupons = state.accounts[accIdx].coupons,
+                   let cIdx = coupons.firstIndex(where: { $0.id == newSnapshot.couponID }) {
+                    coupons[cIdx].usedAt = item.occurredAt
+                    coupons[cIdx].linkedTransactionID = item.id
+                    coupons[cIdx].updatedAt = .now
+                    state.accounts[accIdx].coupons = coupons
+                    state.accounts[accIdx].updatedAt = .now
+                    state.accounts[accIdx].version += 1
+                    state.accounts[accIdx].syncStatus = .pending
+                }
             }
-            let parentCurrency = state.transactions[parentIndex].currency
-            let newAmount = allChildren.reduce(0.0) { sum, child in
-                sum + LedgerCalculations.convert(child.recognizedExpenseAmount, from: child.currency, to: parentCurrency, rates: state.settings.rates)
+
+            state.transactions[index] = updated
+
+            // If this child belongs to a Combined Payment group, update the parent's aggregate amount
+            if let parentID = updated.parentTransactionID,
+               let parentIndex = state.transactions.firstIndex(where: { $0.id == parentID && $0.groupMode == .combinedPayment && $0.deletedAt == nil }) {
+                let allChildren = state.transactions.filter {
+                    $0.parentTransactionID == parentID && $0.linkedTransactionKind == .combinedPaymentItem && $0.deletedAt == nil
+                }
+                let parentCurrency = state.transactions[parentIndex].currency
+                let newAmount = allChildren.reduce(0.0) { sum, child in
+                    sum + LedgerCalculations.convert(child.recognizedExpenseAmount, from: child.currency, to: parentCurrency, rates: state.settings.rates)
+                }
+                state.transactions[parentIndex].amount = newAmount
+                state.transactions[parentIndex].updatedAt = .now
+                state.transactions[parentIndex].version += 1
+                state.transactions[parentIndex].syncStatus = .pending
             }
-            state.transactions[parentIndex].amount = newAmount
-            state.transactions[parentIndex].updatedAt = .now
-            state.transactions[parentIndex].version += 1
-            state.transactions[parentIndex].syncStatus = .pending
         }
 
         scheduleSave()
@@ -204,37 +209,40 @@ extension LedgerStore {
         guard let index = state.transactions.firstIndex(where: { $0.id == item.id }) else { return }
         let now = Date.now
         undoState = state
-        undoTransactions = [state.transactions[index]]
+        var deletedSnapshot = [state.transactions[index]]
 
-        // Soft-delete entire group if this is a group parent
-        if item.groupMode != nil {
-            for childIndex in state.transactions.indices where state.transactions[childIndex].parentTransactionID == item.id && state.transactions[childIndex].deletedAt == nil {
-                undoTransactions.append(state.transactions[childIndex])
-                releaseCouponIfPresent(on: state.transactions[childIndex])
-                markDeleted(at: childIndex, date: now)
+        mutateState { state in
+            // Soft-delete entire group if this is a group parent
+            if item.groupMode != nil {
+                for childIndex in state.transactions.indices where state.transactions[childIndex].parentTransactionID == item.id && state.transactions[childIndex].deletedAt == nil {
+                    deletedSnapshot.append(state.transactions[childIndex])
+                    releaseCouponIfPresent(in: &state, on: state.transactions[childIndex])
+                    markDeleted(in: &state, at: childIndex, date: now)
+                }
             }
-        }
 
-        releaseCouponIfPresent(on: state.transactions[index])
+            releaseCouponIfPresent(in: &state, on: state.transactions[index])
 
-        if let originalID = state.transactions[index].reversalOfTransactionID,
-           let originalIndex = state.transactions.firstIndex(where: { $0.id == originalID }) {
-            undoTransactions.append(state.transactions[originalIndex])
-            state.transactions[originalIndex].reversalTransactionID = nil
-            state.transactions[originalIndex].updatedAt = now
-            state.transactions[originalIndex].version += 1
-            state.transactions[originalIndex].syncStatus = .pending
-        } else if let reversalID = state.transactions[index].reversalTransactionID,
-                  let reversalIndex = state.transactions.firstIndex(where: { $0.id == reversalID && $0.deletedAt == nil }) {
-            undoTransactions.append(state.transactions[reversalIndex])
-            markDeleted(at: reversalIndex, date: now)
+            if let originalID = state.transactions[index].reversalOfTransactionID,
+               let originalIndex = state.transactions.firstIndex(where: { $0.id == originalID }) {
+                deletedSnapshot.append(state.transactions[originalIndex])
+                state.transactions[originalIndex].reversalTransactionID = nil
+                state.transactions[originalIndex].updatedAt = now
+                state.transactions[originalIndex].version += 1
+                state.transactions[originalIndex].syncStatus = .pending
+            } else if let reversalID = state.transactions[index].reversalTransactionID,
+                      let reversalIndex = state.transactions.firstIndex(where: { $0.id == reversalID && $0.deletedAt == nil }) {
+                deletedSnapshot.append(state.transactions[reversalIndex])
+                markDeleted(in: &state, at: reversalIndex, date: now)
+            }
+            markDeleted(in: &state, at: index, date: now)
         }
-        markDeleted(at: index, date: now)
+        undoTransactions = deletedSnapshot
         undoMessage = "Transaction deleted"
         scheduleSave()
     }
 
-    private func releaseCouponIfPresent(on transaction: LedgerTransaction) {
+    private func releaseCouponIfPresent(in state: inout LedgerState, on transaction: LedgerTransaction) {
         guard let couponID = transaction.couponSnapshot?.couponID,
               let accIdx = state.accounts.firstIndex(where: { $0.id == transaction.accountID }),
               var coupons = state.accounts[accIdx].coupons,
@@ -255,48 +263,52 @@ extension LedgerStore {
         undoState = state
         let now = Date.now
 
-        releaseCouponIfPresent(on: state.transactions[index])
-        markDeleted(at: index, date: now)
+        mutateState { state in
+            releaseCouponIfPresent(in: &state, on: state.transactions[index])
+            markDeleted(in: &state, at: index, date: now)
 
-        let remainingChildren = state.transactions.filter {
-            $0.parentTransactionID == parentID && $0.linkedTransactionKind == .combinedPaymentItem && $0.deletedAt == nil
-        }
+            let remainingChildren = state.transactions.filter {
+                $0.parentTransactionID == parentID && $0.linkedTransactionKind == .combinedPaymentItem && $0.deletedAt == nil
+            }
 
-        if remainingChildren.count >= 2 {
-            // Recalculate parent aggregate amount
-            let parentCurrency = state.transactions[parentIndex].currency
-            let newAmount = remainingChildren.reduce(0.0) { sum, child in
-                sum + LedgerCalculations.convert(child.recognizedExpenseAmount, from: child.currency, to: parentCurrency, rates: state.settings.rates)
+            if remainingChildren.count >= 2 {
+                // Recalculate parent aggregate amount
+                let parentCurrency = state.transactions[parentIndex].currency
+                let newAmount = remainingChildren.reduce(0.0) { sum, child in
+                    sum + LedgerCalculations.convert(child.recognizedExpenseAmount, from: child.currency, to: parentCurrency, rates: state.settings.rates)
+                }
+                state.transactions[parentIndex].amount = newAmount
+                state.transactions[parentIndex].updatedAt = now
+                state.transactions[parentIndex].version += 1
+                state.transactions[parentIndex].syncStatus = .pending
+                undoMessage = "Payment removed from Combined Payment"
+            } else if remainingChildren.count == 1 {
+                // Automatically dissolve group: restore remaining child to ordinary expense, soft-delete parent
+                if let lastChildIndex = state.transactions.firstIndex(where: { $0.id == remainingChildren[0].id }) {
+                    state.transactions[lastChildIndex].parentTransactionID = nil
+                    state.transactions[lastChildIndex].linkedTransactionKind = nil
+                    state.transactions[lastChildIndex].updatedAt = now
+                    state.transactions[lastChildIndex].version += 1
+                    state.transactions[lastChildIndex].syncStatus = .pending
+                }
+                markDeleted(in: &state, at: parentIndex, date: now)
+                for idx in state.transactions.indices where state.transactions[idx].parentTransactionID == parentID && state.transactions[idx].deletedAt == nil {
+                    markDeleted(in: &state, at: idx, date: now)
+                }
+                undoMessage = "Combined Payment dissolved"
+            } else {
+                markDeleted(in: &state, at: parentIndex, date: now)
+                undoMessage = "Combined Payment deleted"
             }
-            state.transactions[parentIndex].amount = newAmount
-            state.transactions[parentIndex].updatedAt = now
-            state.transactions[parentIndex].version += 1
-            state.transactions[parentIndex].syncStatus = .pending
-            undoMessage = "Payment removed from Combined Payment"
-        } else if remainingChildren.count == 1 {
-            // Automatically dissolve group: restore remaining child to ordinary expense, soft-delete parent
-            if let lastChildIndex = state.transactions.firstIndex(where: { $0.id == remainingChildren[0].id }) {
-                state.transactions[lastChildIndex].parentTransactionID = nil
-                state.transactions[lastChildIndex].linkedTransactionKind = nil
-                state.transactions[lastChildIndex].updatedAt = now
-                state.transactions[lastChildIndex].version += 1
-                state.transactions[lastChildIndex].syncStatus = .pending
-            }
-            markDeleted(at: parentIndex, date: now)
-            for idx in state.transactions.indices where state.transactions[idx].parentTransactionID == parentID && state.transactions[idx].deletedAt == nil {
-                markDeleted(at: idx, date: now)
-            }
-            undoMessage = "Combined Payment dissolved"
-        } else {
-            markDeleted(at: parentIndex, date: now)
-            undoMessage = "Combined Payment deleted"
         }
         scheduleSave()
     }
 
     func undoDelete() {
         if let undoState {
-            state = undoState
+            mutateState { state in
+                state = undoState
+            }
             self.undoState = nil
             undoTransactions = []
             undoMessage = nil
@@ -304,8 +316,11 @@ extension LedgerStore {
             return
         }
         guard !undoTransactions.isEmpty else { return }
-        for item in undoTransactions {
-            if let index = state.transactions.firstIndex(where: { $0.id == item.id }) { state.transactions[index] = item }
+        let items = undoTransactions
+        mutateState { state in
+            for item in items {
+                if let index = state.transactions.firstIndex(where: { $0.id == item.id }) { state.transactions[index] = item }
+            }
         }
         undoTransactions = []
         undoMessage = nil
@@ -343,11 +358,13 @@ extension LedgerStore {
         guard let originalIndex = state.transactions.firstIndex(where: { $0.id == original.id && $0.deletedAt == nil }),
               !state.transactions.contains(where: { $0.reversalOfTransactionID == original.id && $0.deletedAt == nil }) else { return nil }
         guard let reversal = RefundEngine.makeReversal(of: original, in: state, now: now) else { return nil }
-        state.transactions[originalIndex].reversalTransactionID = reversal.id
-        state.transactions[originalIndex].updatedAt = now
-        state.transactions[originalIndex].version += 1
-        state.transactions[originalIndex].syncStatus = .pending
-        state.transactions.insert(reversal, at: 0)
+        mutateState { state in
+            state.transactions[originalIndex].reversalTransactionID = reversal.id
+            state.transactions[originalIndex].updatedAt = now
+            state.transactions[originalIndex].version += 1
+            state.transactions[originalIndex].syncStatus = .pending
+            state.transactions.insert(reversal, at: 0)
+        }
         scheduleSave()
         return reversal
     }

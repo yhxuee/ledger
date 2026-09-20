@@ -31,7 +31,7 @@ Transactions and accounts keep soft-deletion behavior. Deleting a refund restore
 
 ## Backup and sharing
 
-- `.walletledger` JSON exports remain the complete portable finance backup.
+- `.fsy` (and legacy `.walletledger`) JSON exports remain the complete portable finance backup; `.fsy` is the current document format while `.walletledger` remains supported for backward-compatible imports.
 - iCloud Documents Back Up/Restore remains available.
 - A backup imported while a shared ledger is active becomes a new local ledger.
 - Shared ledgers use one custom CloudKit zone per logical LedgerBook and a zone-wide `CKShare`; they do not copy the JSON backup file.

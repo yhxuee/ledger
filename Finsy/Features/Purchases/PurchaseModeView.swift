@@ -113,6 +113,7 @@ struct PurchaseSessionEditorView: View {
     @State private var initialized = false
     @State private var starting = false
     @State private var startedSessionID: UUID?
+    @State private var draftSaveTask: Task<Void, Never>?
     @FocusState private var focusedItem: UUID?
     private let isNew: Bool
 
@@ -180,7 +181,6 @@ struct PurchaseSessionEditorView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 10)
-                                .background(Color(hex: category(section.categoryID).colorHex).opacity(0.04))
                                 .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
                         .buttonStyle(.plain)
@@ -217,15 +217,16 @@ struct PurchaseSessionEditorView: View {
                     .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                 }
                 Section {
-                    VStack(spacing: 12) {
+                    HStack(spacing: 12) {
                         Button {
-                            saveDraft()
+                            flushDraft()
                             dismiss()
                         } label: {
                             Text("Save for Later")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
+                        .controlSize(.large)
 
                         Button {
                             Task { await startPurchase() }
@@ -235,11 +236,9 @@ struct PurchaseSessionEditorView: View {
                                 .fontWeight(.semibold)
                         }
                         .glassPrimaryButton()
+                        .controlSize(.large)
                         .disabled(!canStart || starting)
                     }
-                    .padding(16)
-                    .frame(maxWidth: .infinity)
-                    .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
@@ -254,7 +253,7 @@ struct PurchaseSessionEditorView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
-                        saveDraft()
+                        flushDraft()
                         dismiss()
                     } label: {
                         Image(systemName: "checkmark")
@@ -284,12 +283,13 @@ struct PurchaseSessionEditorView: View {
                 session.ledgerBookID = store.activeBookID
                 session.normalizeSections()
                 initialized = true
-                saveDraft()
+                flushDraft()
+            }
+            .onDisappear {
+                flushDraft()
             }
             .onChange(of: session) { _, _ in
-                guard initialized, !starting else { return }
-                session.normalizeSections()
-                saveDraft()
+                scheduleDraftSave()
             }
         }
     }
@@ -328,17 +328,34 @@ struct PurchaseSessionEditorView: View {
     private var canStart: Bool { paymentValid && (try? PurchaseRules.validateItems(session, in: store.state)) != nil }
     private func category(_ id: LedgerCategoryID) -> LedgerCategory { store.state.categories.first { $0.id == id } ?? SeedData.categories.last! }
     private func items(in id: LedgerCategoryID) -> [PurchaseItem] { session.orderedItems.filter { $0.categoryID == id } }
-    private func saveDraft() { if initialized && !starting { store.savePurchaseSession(session) } }
+    private func flushDraft() {
+        draftSaveTask?.cancel()
+        draftSaveTask = nil
+        guard initialized, !starting else { return }
+        session.normalizeSections()
+        store.savePurchaseSession(session)
+    }
+    private func scheduleDraftSave() {
+        guard initialized, !starting else { return }
+        draftSaveTask?.cancel()
+        draftSaveTask = Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            flushDraft()
+        }
+    }
     private func addItem(categoryID: LedgerCategoryID) {
         let item = PurchaseItem(id: UUID(), categoryID: categoryID, note: "", amount: 0, displayOrder: (session.items.map(\.displayOrder).max() ?? -1) + 1, isCompleted: false, completedAt: nil, linkedTransactionID: nil)
         session.items.append(item)
         session.normalizeSections()
         focusedItem = item.id
+        flushDraft()
     }
     private func setCategory(itemID: UUID, categoryID: LedgerCategoryID) {
         guard let index = session.items.firstIndex(where: { $0.id == itemID }) else { return }
         session.items[index].categoryID = categoryID
         session.normalizeSections()
+        flushDraft()
     }
     private func moveSection(_ id: UUID, by delta: Int) {
         var sections = session.orderedSections
@@ -346,6 +363,7 @@ struct PurchaseSessionEditorView: View {
         sections.swapAt(index, index + delta)
         for i in sections.indices { sections[i].displayOrder = i }
         session.sections = sections
+        flushDraft()
     }
     private func moveItems(categoryID: LedgerCategoryID, offsets: IndexSet, destination: Int) {
         var values = items(in: categoryID)
@@ -353,9 +371,11 @@ struct PurchaseSessionEditorView: View {
         for index in values.indices {
             if let original = session.items.firstIndex(where: { $0.id == values[index].id }) { session.items[original].displayOrder = index }
         }
+        flushDraft()
     }
     private func startPurchase() async {
         guard !starting else { return }
+        flushDraft()
         if session.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { session.name = "Purchase" }
         store.savePurchaseSession(session)
         starting = true
@@ -380,18 +400,31 @@ struct ActivePurchaseView: View {
             List {
                 if let session {
                     Section {
-                        HStack(spacing: 20) {
-                            PurchaseProgressRing(fraction: session.completionFraction, completed: session.items.allSatisfy(\.isCompleted), iconSize: 18, lineWidth: 5)
-                                .frame(width: 64, height: 64)
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("\(session.completedItemCount) / \(session.items.count) items").font(.headline)
-                                SensitiveMoneyText(amount: session.completedAmount, currency: session.currency, maxIntegerDigits: 4).font(.title3.bold()).lineLimit(1).minimumScaleFactor(0.85)
-                                HStack { Text("Planned").foregroundStyle(.secondary); SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency, maxIntegerDigits: 4) }.font(.caption)
+                        VStack(spacing: 8) {
+                            HStack(spacing: 20) {
+                                PurchaseProgressRing(fraction: session.completionFraction, completed: session.items.allSatisfy(\.isCompleted), iconSize: 18, lineWidth: 5)
+                                    .frame(width: 64, height: 64)
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("\(session.completedItemCount) / \(session.items.count) items").font(.headline)
+                                    SensitiveMoneyText(amount: session.completedAmount, currency: session.currency, maxIntegerDigits: 4).font(.title3.bold()).lineLimit(1).minimumScaleFactor(0.85)
+                                    HStack { Text("Planned").foregroundStyle(.secondary); SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency, maxIntegerDigits: 4) }.font(.caption)
+                                }
+                            }
+                            .padding(16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .ledgerGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+
+                            if session.currency != store.state.settings.baseCurrency {
+                                let converted = LedgerCalculations.convert(session.completedAmount, from: session.currency, to: store.state.settings.baseCurrency, rates: store.state.settings.rates)
+                                HStack(spacing: 4) {
+                                    Text("≈")
+                                    SensitiveMoneyText(amount: converted, currency: store.state.settings.baseCurrency, maxIntegerDigits: 4)
+                                }
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
                             }
                         }
-                        .padding(16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .ledgerGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)

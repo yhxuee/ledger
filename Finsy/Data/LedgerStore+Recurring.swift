@@ -2,31 +2,39 @@ import Foundation
 
 extension LedgerStore {
     func saveRecurringRule(_ rule: RecurringRule) {
-        var rules = state.recurringRules ?? []
         var activeRule = rule
         activeRule.deletedAt = nil
-        if let index = rules.firstIndex(where: { $0.id == rule.id }) { rules[index] = activeRule }
-        else { rules.append(activeRule) }
-        state.recurringRules = rules
+        mutateState { state in
+            var rules = state.recurringRules ?? []
+            if let index = rules.firstIndex(where: { $0.id == rule.id }) { rules[index] = activeRule }
+            else { rules.append(activeRule) }
+            state.recurringRules = rules
+        }
         scheduleSave()
     }
 
     func deleteRecurringRule(_ rule: RecurringRule) {
-        guard var rules = state.recurringRules, let index = rules.firstIndex(where: { $0.id == rule.id }) else { return }
+        guard (state.recurringRules ?? []).contains(where: { $0.id == rule.id }) else { return }
         undoState = state
-        rules[index].deletedAt = .now
-        rules[index].isEnabled = false
-        rules[index].updatedAt = .now
-        state.recurringRules = rules
+        mutateState { state in
+            guard var rules = state.recurringRules, let index = rules.firstIndex(where: { $0.id == rule.id }) else { return }
+            rules[index].deletedAt = .now
+            rules[index].isEnabled = false
+            rules[index].updatedAt = .now
+            state.recurringRules = rules
+        }
         undoMessage = "Recurring transaction deleted"
         scheduleSave()
     }
 
     func setRecurringRule(_ rule: RecurringRule, enabled: Bool) {
-        guard var rules = state.recurringRules, let index = rules.firstIndex(where: { $0.id == rule.id }) else { return }
-        rules[index].isEnabled = enabled
-        rules[index].updatedAt = .now
-        state.recurringRules = rules
+        guard (state.recurringRules ?? []).contains(where: { $0.id == rule.id }) else { return }
+        mutateState { state in
+            guard var rules = state.recurringRules, let index = rules.firstIndex(where: { $0.id == rule.id }) else { return }
+            rules[index].isEnabled = enabled
+            rules[index].updatedAt = .now
+            state.recurringRules = rules
+        }
         scheduleSave()
     }
 
@@ -45,7 +53,12 @@ extension LedgerStore {
                 changed = true
             }
         }
-        if changed { state.recurringRules = rules; scheduleSave() }
+        if changed {
+            mutateState { state in
+                state.recurringRules = rules
+            }
+            scheduleSave()
+        }
     }
 
     func recurringAmount(for rule: RecurringRule) -> Double {

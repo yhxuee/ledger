@@ -7,14 +7,14 @@ extension LedgerStore {
             SchemaMigration.normalize(&importedState)
             try BackupCodec.validate(importedState)
             if activeBook.effectiveStorageKind == .local {
-                state = importedState
+                mutateState { state in state = importedState }
             } else {
                 commitActiveBook()
                 let now = Date.now
                 let imported = LedgerBook(id: UUID(), name: "Imported Ledger", state: importedState, createdAt: now, updatedAt: now, storageKind: .local, cloudZoneName: nil, cloudZoneOwnerName: nil)
                 books.append(imported)
                 activeBookID = imported.id
-                state = imported.state
+                mutateState { state in state = imported.state }
             }
             scheduleSave()
         } catch { presentedError = error.localizedDescription }
@@ -29,7 +29,7 @@ extension LedgerStore {
         let book = LedgerBook(id: UUID(), name: "Ledger 1", state: initial, createdAt: .now, updatedAt: .now)
         books = [book]
         activeBookID = book.id
-        state = initial
+        mutateState { state in state = initial }
         currencyCatalog = CurrencyDescriptor.bundled
         currencyCatalogUpdatedAt = nil
         undoTransactions = []

@@ -81,13 +81,16 @@ extension LedgerStore {
         account.updatedAt = .now
         account.deletedAt = nil
         account.syncStatus = .pending
-        if let index = state.accounts.firstIndex(where: { $0.id == account.id }) { state.accounts[index] = account }
-        else { state.accounts.append(account) }
-        syncLoanInterestRule(accountID: account.id, previousRuleID: previousRuleID)
+
+        mutateState { state in
+            if let index = state.accounts.firstIndex(where: { $0.id == account.id }) { state.accounts[index] = account }
+            else { state.accounts.append(account) }
+            syncLoanInterestRule(in: &state, accountID: account.id, previousRuleID: previousRuleID)
+        }
         scheduleSave()
     }
 
-    private func syncLoanInterestRule(accountID: UUID, previousRuleID: UUID?) {
+    private func syncLoanInterestRule(in state: inout LedgerState, accountID: UUID, previousRuleID: UUID?) {
         guard let accountIndex = state.accounts.firstIndex(where: { $0.id == accountID }) else { return }
         let account = state.accounts[accountIndex]
         guard account.type == .loan, var metadata = account.loanMetadata, metadata.annualPercentageRate > 0, let interval = metadata.interestInterval else {
@@ -108,36 +111,43 @@ extension LedgerStore {
     func deleteAccount(_ account: LedgerAccount) {
         undoState = state
         let deletedAt = Date.now
-        if let index = state.accounts.firstIndex(where: { $0.id == account.id }) {
-            state.accounts[index].deletedAt = deletedAt
-            state.accounts[index].updatedAt = deletedAt
-            state.accounts[index].version += 1
-        }
-        for index in state.transactions.indices where state.transactions[index].accountID == account.id || state.transactions[index].destinationAccountID == account.id {
-            state.transactions[index].deletedAt = deletedAt
-            state.transactions[index].updatedAt = deletedAt
-            state.transactions[index].version += 1
-        }
-        if var rules = state.recurringRules {
-            for index in rules.indices where rules[index].accountID == account.id || rules[index].destinationAccountID == account.id { rules[index].isEnabled = false; rules[index].updatedAt = deletedAt }
-            state.recurringRules = rules
-        }
-        state.settings.defaultExpenseAccountByCategory = state.settings.defaultExpenseAccountByCategory.filter { $0.value != account.id }
-        state.settings.budgetPlan.accountAllocations[account.id] = nil
-        if var sessions = state.purchaseSessions {
-            for sessionIndex in sessions.indices {
-                for itemIndex in sessions[sessionIndex].items.indices where sessions[sessionIndex].items[itemIndex].resolvedAccountID == account.id { sessions[sessionIndex].items[itemIndex].resolvedAccountID = nil }
+        var stoppedSessions: [PurchaseSession] = []
+
+        mutateState { state in
+            if let index = state.accounts.firstIndex(where: { $0.id == account.id }) {
+                state.accounts[index].deletedAt = deletedAt
+                state.accounts[index].updatedAt = deletedAt
+                state.accounts[index].version += 1
             }
-            for index in sessions.indices where sessions[index].accountID == account.id && (sessions[index].status == .active || sessions[index].status == .awaitingSummary) {
-                sessions[index].status = .draft
-                sessions[index].updatedAt = deletedAt
-                let stopped = sessions[index]
-                if persistenceEnabled {
-                    try? PurchaseSharedStateStore.write(session: stopped)
-                    Task { await PurchaseLiveActivityController.shared.end(sessionID: stopped.id) }
+            for index in state.transactions.indices where state.transactions[index].accountID == account.id || state.transactions[index].destinationAccountID == account.id {
+                state.transactions[index].deletedAt = deletedAt
+                state.transactions[index].updatedAt = deletedAt
+                state.transactions[index].version += 1
+            }
+            if var rules = state.recurringRules {
+                for index in rules.indices where rules[index].accountID == account.id || rules[index].destinationAccountID == account.id { rules[index].isEnabled = false; rules[index].updatedAt = deletedAt }
+                state.recurringRules = rules
+            }
+            state.settings.defaultExpenseAccountByCategory = state.settings.defaultExpenseAccountByCategory.filter { $0.value != account.id }
+            state.settings.budgetPlan.accountAllocations[account.id] = nil
+            if var sessions = state.purchaseSessions {
+                for sessionIndex in sessions.indices {
+                    for itemIndex in sessions[sessionIndex].items.indices where sessions[sessionIndex].items[itemIndex].resolvedAccountID == account.id { sessions[sessionIndex].items[itemIndex].resolvedAccountID = nil }
                 }
+                for index in sessions.indices where sessions[index].accountID == account.id && (sessions[index].status == .active || sessions[index].status == .awaitingSummary) {
+                    sessions[index].status = .draft
+                    sessions[index].updatedAt = deletedAt
+                    stoppedSessions.append(sessions[index])
+                }
+                state.purchaseSessions = sessions
             }
-            state.purchaseSessions = sessions
+        }
+
+        if persistenceEnabled {
+            for stopped in stoppedSessions {
+                try? PurchaseSharedStateStore.write(session: stopped)
+                Task { await PurchaseLiveActivityController.shared.end(sessionID: stopped.id) }
+            }
         }
         undoMessage = "Account deleted"
         scheduleSave()
@@ -154,12 +164,14 @@ extension LedgerStore {
         account.version += 1
         account.syncStatus = .pending
 
-        state.accounts.remove(at: index)
+        mutateState { state in
+            state.accounts.remove(at: index)
 
-        // Move to the end of accounts (or end of frozen accounts, before soft-deleted)
-        let lastNonDeletedIndex = state.accounts.lastIndex(where: { $0.deletedAt == nil }) ?? state.accounts.count - 1
-        let insertIndex = min(lastNonDeletedIndex + 1, state.accounts.count)
-        state.accounts.insert(account, at: insertIndex)
+            // Move to the end of accounts (or end of frozen accounts, before soft-deleted)
+            let lastNonDeletedIndex = state.accounts.lastIndex(where: { $0.deletedAt == nil }) ?? state.accounts.count - 1
+            let insertIndex = min(lastNonDeletedIndex + 1, state.accounts.count)
+            state.accounts.insert(account, at: insertIndex)
+        }
 
         scheduleSave()
     }
@@ -175,15 +187,17 @@ extension LedgerStore {
         account.version += 1
         account.syncStatus = .pending
 
-        state.accounts.remove(at: index)
+        mutateState { state in
+            state.accounts.remove(at: index)
 
-        // Place at the end of the ACTIVE section (immediately before the first frozen account, or before deleted)
-        if let firstFrozenIndex = state.accounts.firstIndex(where: { $0.deletedAt == nil && $0.effectiveIsFrozen }) {
-            state.accounts.insert(account, at: firstFrozenIndex)
-        } else {
-            let lastNonDeletedIndex = state.accounts.lastIndex(where: { $0.deletedAt == nil }) ?? state.accounts.count - 1
-            let insertIndex = min(lastNonDeletedIndex + 1, state.accounts.count)
-            state.accounts.insert(account, at: insertIndex)
+            // Place at the end of the ACTIVE section (immediately before the first frozen account, or before deleted)
+            if let firstFrozenIndex = state.accounts.firstIndex(where: { $0.deletedAt == nil && $0.effectiveIsFrozen }) {
+                state.accounts.insert(account, at: firstFrozenIndex)
+            } else {
+                let lastNonDeletedIndex = state.accounts.lastIndex(where: { $0.deletedAt == nil }) ?? state.accounts.count - 1
+                let insertIndex = min(lastNonDeletedIndex + 1, state.accounts.count)
+                state.accounts.insert(account, at: insertIndex)
+            }
         }
 
         scheduleSave()
@@ -199,7 +213,9 @@ extension LedgerStore {
         let frozen = nonDeleted.filter { $0.effectiveIsFrozen }
         var newAccounts = active + frozen
         newAccounts.append(contentsOf: state.accounts.filter { $0.deletedAt != nil })
-        state.accounts = newAccounts
+        mutateState { state in
+            state.accounts = newAccounts
+        }
         scheduleSave()
     }
 
@@ -217,16 +233,20 @@ extension LedgerStore {
             newActive.append(account)
         }
         newActive.append(contentsOf: state.accounts.filter { $0.deletedAt != nil })
-        state.accounts = newActive
+        mutateState { state in
+            state.accounts = newActive
+        }
         scheduleSave()
     }
 
     func moveAccount(from sourceID: UUID, to destinationID: UUID) {
         guard sourceID != destinationID else { return }
-        guard let sourceIndex = state.accounts.firstIndex(where: { $0.id == sourceID }),
-              let destIndex = state.accounts.firstIndex(where: { $0.id == destinationID }) else { return }
-        let account = state.accounts.remove(at: sourceIndex)
-        state.accounts.insert(account, at: destIndex)
+        mutateState { state in
+            guard let sourceIndex = state.accounts.firstIndex(where: { $0.id == sourceID }),
+                  let destIndex = state.accounts.firstIndex(where: { $0.id == destinationID }) else { return }
+            let account = state.accounts.remove(at: sourceIndex)
+            state.accounts.insert(account, at: destIndex)
+        }
         scheduleSave()
     }
 

@@ -26,7 +26,7 @@ final class LedgerStore: ObservableObject {
     var fxRefreshes: Set<UUID> = []
     var lastFinancialRefresh = Date.now
 
-    @Published var state: LedgerState {
+    @Published private(set) var state: LedgerState {
         didSet {
             cachedIndex = nil
             cachedAccountViews = nil
@@ -34,6 +34,14 @@ final class LedgerStore: ObservableObject {
             financialRevision &+= 1
             scheduleNextInstallmentRefresh()
         }
+    }
+
+    @discardableResult
+    func mutateState<R>(_ mutation: (inout LedgerState) throws -> R) rethrows -> R {
+        var newState = state
+        let result = try mutation(&newState)
+        state = newState
+        return result
     }
     @Published private(set) var financialRevision: UInt64 = 0
 
@@ -137,11 +145,17 @@ final class LedgerStore: ObservableObject {
         return codes.filter { CurrencyRates.reference($0, in: state.settings.rates) != nil }
     }
 
-    func markDeleted(at index: Int, date: Date) {
+    func markDeleted(in state: inout LedgerState, at index: Int, date: Date) {
         state.transactions[index].deletedAt = date
         state.transactions[index].updatedAt = date
         state.transactions[index].version += 1
         state.transactions[index].syncStatus = .pending
+    }
+
+    func markDeleted(at index: Int, date: Date) {
+        mutateState { state in
+            markDeleted(in: &state, at: index, date: date)
+        }
     }
 
     /// Refresh time-dependent views without changing the stored schedule or posting flags.

@@ -387,12 +387,12 @@ struct LinkedLedgerRow: View {
     @State private var setupMode: TransactionGroupMode?
     @State private var isDropTargeted = false
 
-    private var parent: LedgerTransaction { store.state.transactions.first { $0.id == transaction.id } ?? transaction }
-    private var children: [LedgerTransaction] { TransactionSemantics.children(of: parent, in: store.state) }
+    private var parent: LedgerTransaction { store.index.transactionsByID[transaction.id] ?? transaction }
+    private var children: [LedgerTransaction] { TransactionSemantics.children(of: parent, in: store.state, index: store.index) }
     private var isGroupParent: Bool { parent.groupMode != nil }
 
     private var groupStatus: GroupStatusPresentation? {
-        TransactionSemantics.statusPresentation(for: parent, in: store.state)
+        TransactionSemantics.statusPresentation(for: parent, in: store.state, index: store.index)
     }
 
     private var leftSwipeActions: [SwipeActionItem] {
@@ -416,7 +416,7 @@ struct LinkedLedgerRow: View {
                     )
                 ]
             } else if parent.groupMode == .combinedPayment {
-                if TransactionSemantics.combinedPaymentIsRefundable(parent, in: store.state) {
+                if TransactionSemantics.combinedPaymentIsRefundable(parent, in: store.state, index: store.index) {
                     return [
                         SwipeActionItem(
                             id: "refund",
@@ -742,8 +742,8 @@ struct LinkedLedgerRow: View {
         guard parent.linkedTransactionKind == .combinedPaymentItem,
               let parentID = parent.parentTransactionID,
               parent.deletedAt == nil else { return false }
-        guard let groupParent = store.state.transactions.first(where: { $0.id == parentID && $0.deletedAt == nil }) else { return false }
-        return !TransactionSemantics.combinedPaymentHasActiveRefund(groupParent, in: store.state)
+        guard let groupParent = store.index.transactionsByID[parentID], groupParent.deletedAt == nil else { return false }
+        return !TransactionSemantics.combinedPaymentHasActiveRefund(groupParent, in: store.state, index: store.index)
     }
 
     private var isDraggable: Bool {
@@ -752,7 +752,7 @@ struct LinkedLedgerRow: View {
 
     private func handleDrop(items: [String]) -> Bool {
         guard let firstStr = items.first, let draggedID = UUID(uuidString: firstStr), draggedID != parent.id else { return false }
-        guard let dragged = store.state.transactions.first(where: { $0.id == draggedID && $0.deletedAt == nil }) else { return false }
+        guard let dragged = store.index.transactionsByID[draggedID], dragged.deletedAt == nil else { return false }
         if isGroupParent && parent.groupMode == .combinedPayment {
             if dragged.parentTransactionID == parent.id { return false }
             let success = store.addTransactionToCombinedPayment(dragged, into: parent)
@@ -803,7 +803,7 @@ struct LinkedLedgerRow: View {
     }
 
     private func category(_ transaction: LedgerTransaction) -> LedgerCategory {
-        store.state.categories.first { $0.id == transaction.categoryID } ?? SeedData.expenseCategories[0]
+        store.index.categoriesByID[transaction.categoryID] ?? SeedData.expenseCategories[0]
     }
 
     private func swipeActionItem(for action: TransactionSwipeAction) -> SwipeActionItem {
@@ -877,7 +877,7 @@ struct LinkedLedgerRow: View {
             } label: {
                 Label("Reimbursement", systemImage: "arrow.uturn.backward.circle")
             }
-            if TransactionSemantics.isEligibleForInstallment(parent, in: store.state) {
+            if TransactionSemantics.isEligibleForInstallment(parent, in: store.state, index: store.index) {
                 Button {
                     setupMode = .installment
                 } label: {
@@ -908,7 +908,7 @@ struct LinkedLedgerRow: View {
                     Label("Edit Installment Plan", systemImage: "calendar.badge.clock")
                 }
             } else if mode == .combinedPayment {
-                if !TransactionSemantics.combinedPaymentHasActiveRefund(parent, in: store.state) {
+                if !TransactionSemantics.combinedPaymentHasActiveRefund(parent, in: store.state, index: store.index) {
                     Button {
                         store.ungroupCombinedPayment(parent)
                     } label: {

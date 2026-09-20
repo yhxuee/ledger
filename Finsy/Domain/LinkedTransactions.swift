@@ -129,7 +129,7 @@ enum TransactionSemantics {
     }
 
     /// Single authority for Expense Analytics effect, historical-FX converted to `target`.
-    static func expenseEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, now: Date = .now) -> Double? {
+    static func expenseEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, now: Date = .now, index: LedgerIndex? = nil) -> Double? {
         guard transaction.deletedAt == nil else { return nil }
 
         // Group parents
@@ -139,7 +139,7 @@ enum TransactionSemantics {
                 return 0
             case .refund:
                 let originalVal = transaction.amount
-                let refundVal = refundValueInParentCurrency(transaction, in: state)
+                let refundVal = refundValueInParentCurrency(transaction, in: state, index: index)
                 let remaining = max(originalVal - refundVal, 0)
                 guard remaining > 0 else { return 0 }
                 return LedgerCalculations.convertHistorical(remaining, rate: transaction.exchangeRateAtTransaction, to: target, rates: state.settings.rates)
@@ -176,14 +176,14 @@ enum TransactionSemantics {
 
         // Reversal of Purchase child: produces net zero expense analytics
         if let originalID = transaction.reversalOfTransactionID,
-           let original = state.transactions.first(where: { $0.id == originalID }),
+           let original = index?.transactionsByID[originalID] ?? state.transactions.first(where: { $0.id == originalID }),
            original.purchaseSessionID != nil {
             return 0
         }
 
         // Normal transactions
         if let originalID = transaction.reversalOfTransactionID {
-            guard let original = state.transactions.first(where: { $0.id == originalID }), original.type == .expense else { return nil }
+            guard let original = index?.transactionsByID[originalID] ?? state.transactions.first(where: { $0.id == originalID }), original.type == .expense else { return nil }
             let recognized = original.recognizedExpenseAmount
             return -LedgerCalculations.convertHistorical(recognized, rate: transaction.exchangeRateAtTransaction, to: target, rates: state.settings.rates)
         }
@@ -194,7 +194,7 @@ enum TransactionSemantics {
     }
 
     /// Single authority for Income Analytics effect, historical-FX converted to `target`.
-    static func incomeEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, now: Date = .now) -> Double? {
+    static func incomeEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, now: Date = .now, index: LedgerIndex? = nil) -> Double? {
         guard transaction.deletedAt == nil else { return nil }
 
         // Group parents
@@ -204,7 +204,7 @@ enum TransactionSemantics {
                 return 0
             case .refund:
                 let originalVal = transaction.amount
-                let refundVal = refundValueInParentCurrency(transaction, in: state)
+                let refundVal = refundValueInParentCurrency(transaction, in: state, index: index)
                 let excess = max(refundVal - originalVal, 0)
                 guard excess > 0 else { return 0 }
                 return LedgerCalculations.convertHistorical(excess, rate: transaction.exchangeRateAtTransaction, to: target, rates: state.settings.rates)
@@ -223,14 +223,14 @@ enum TransactionSemantics {
 
         // Reversal of purchase item produces zero income analytics
         if let originalID = transaction.reversalOfTransactionID,
-           let original = state.transactions.first(where: { $0.id == originalID }),
+           let original = index?.transactionsByID[originalID] ?? state.transactions.first(where: { $0.id == originalID }),
            original.purchaseSessionID != nil {
             return 0
         }
 
         // Normal transactions
         if let originalID = transaction.reversalOfTransactionID {
-            guard let original = state.transactions.first(where: { $0.id == originalID }), original.type == .income else { return nil }
+            guard let original = index?.transactionsByID[originalID] ?? state.transactions.first(where: { $0.id == originalID }), original.type == .income else { return nil }
             return -LedgerCalculations.historical(transaction, to: target, rates: state.settings.rates)
         }
 
@@ -239,7 +239,7 @@ enum TransactionSemantics {
     }
 
     /// Single authority for Tax Analytics effect and category attribution.
-    static func taxEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, now: Date = .now) -> (amount: Double, categoryID: LedgerCategoryID)? {
+    static func taxEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, now: Date = .now, index: LedgerIndex? = nil) -> (amount: Double, categoryID: LedgerCategoryID)? {
         guard transaction.deletedAt == nil else { return nil }
         let targetRate = CurrencyRates.reference(target, in: state.settings.rates) ?? 1
         guard targetRate.isFinite, targetRate > 0 else { return nil }
@@ -252,7 +252,7 @@ enum TransactionSemantics {
             case .refund:
                 guard transaction.isTaxExempt != true, let originalTax = transaction.taxAmount, originalTax > 0, transaction.amount > 0 else { return nil }
                 let originalVal = transaction.amount
-                let refundVal = refundValueInParentCurrency(transaction, in: state)
+                let refundVal = refundValueInParentCurrency(transaction, in: state, index: index)
                 let remainingExpense = max(originalVal - refundVal, 0)
                 let ratio = min(1.0, max(0.0, remainingExpense / originalVal))
                 let recognizedTax = originalTax * ratio
@@ -267,12 +267,14 @@ enum TransactionSemantics {
             switch kind {
             case .splitSelfExpense:
                 guard transaction.isTaxExempt != true, let childTax = transaction.taxAmount, childTax > 0 else { return nil }
-                let parentCategory = state.transactions.first(where: { $0.id == transaction.parentTransactionID })?.categoryID ?? transaction.categoryID
+                let parentTx = transaction.parentTransactionID.flatMap { index?.transactionsByID[$0] ?? state.transactions.first(where: { tx in tx.id == $0 }) }
+                let parentCategory = parentTx?.categoryID ?? transaction.categoryID
                 let converted = childTax * transaction.exchangeRateAtTransaction / targetRate
                 return (converted, parentCategory)
             case .installment:
                 guard transaction.isCompleted(asOf: now), transaction.isTaxExempt != true, let childTax = transaction.taxAmount, childTax > 0 else { return nil }
-                let parentCategory = state.transactions.first(where: { $0.id == transaction.parentTransactionID })?.categoryID ?? transaction.categoryID
+                let parentTx = transaction.parentTransactionID.flatMap { index?.transactionsByID[$0] ?? state.transactions.first(where: { tx in tx.id == $0 }) }
+                let parentCategory = parentTx?.categoryID ?? transaction.categoryID
                 let converted = childTax * transaction.exchangeRateAtTransaction / targetRate
                 return (converted, parentCategory)
             case .combinedPaymentItem:
@@ -295,7 +297,7 @@ enum TransactionSemantics {
             return nil
         }
         if let originalID = transaction.reversalOfTransactionID,
-           let original = state.transactions.first(where: { $0.id == originalID }),
+           let original = index?.transactionsByID[originalID] ?? state.transactions.first(where: { $0.id == originalID }),
            original.purchaseSessionID != nil {
             return nil
         }
@@ -306,7 +308,7 @@ enum TransactionSemantics {
               transaction.exchangeRateAtTransaction > 0 else { return nil }
 
         if let originalID = transaction.reversalOfTransactionID {
-            guard let original = state.transactions.first(where: { $0.id == originalID }),
+            guard let original = index?.transactionsByID[originalID] ?? state.transactions.first(where: { $0.id == originalID }),
                   original.isTaxExempt != true else { return nil }
         }
 
@@ -335,9 +337,9 @@ enum TransactionSemantics {
     }
 
     /// True if an expense transaction is eligible for Credit Installment setup.
-    static func isEligibleForInstallment(_ transaction: LedgerTransaction, in state: LedgerState) -> Bool {
+    static func isEligibleForInstallment(_ transaction: LedgerTransaction, in state: LedgerState, index: LedgerIndex? = nil) -> Bool {
         guard eligible(transaction) else { return false }
-        guard let account = state.accounts.first(where: { $0.id == transaction.accountID }) else { return false }
+        guard let account = index?.accountsByID[transaction.accountID] ?? state.accounts.first(where: { $0.id == transaction.accountID }) else { return false }
         return account.type == .credit
     }
 

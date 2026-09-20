@@ -362,8 +362,51 @@ final class LedgerCalculationsTests: XCTestCase {
         let store = LedgerStore(stateForTesting: state)
         let initialRevision = store.financialRevision
 
-        store.state.transactions.append(makeTransaction(type: .expense, source: state.accounts[0], amount: 50))
+        store.mutateState { state in
+            state.transactions.append(makeTransaction(type: .expense, source: state.accounts[0], amount: 50))
+        }
         XCTAssertEqual(store.financialRevision, initialRevision &+ 1)
+    }
+
+    func testMutateStatePerformsSingleRevisionBumpForMultipleMutations() throws {
+        let state = SeedData.make()
+        let store = LedgerStore(stateForTesting: state)
+        let initialRevision = store.financialRevision
+
+        store.mutateState { state in
+            state.transactions.append(makeTransaction(type: .expense, source: state.accounts[0], amount: 10))
+            state.transactions.append(makeTransaction(type: .expense, source: state.accounts[0], amount: 20))
+            state.accounts[0].name = "Renamed Account"
+        }
+        XCTAssertEqual(store.financialRevision, initialRevision &+ 1)
+        XCTAssertEqual(store.state.accounts[0].name, "Renamed Account")
+    }
+
+    func testPurchaseModeForeignCurrencyConversion() throws {
+        let state = SeedData.make()
+        let baseCurrency = state.settings.baseCurrency // HKD
+        let foreignCurrency: CurrencyCode = .USD
+        let amount = 100.0
+        let expectedConverted = LedgerCalculations.convert(amount, from: foreignCurrency, to: baseCurrency, rates: state.settings.rates)
+        XCTAssertEqual(expectedConverted, 780.0, accuracy: 0.001)
+    }
+
+    func testPurchaseSessionDraftSaveAndNormalization() throws {
+        let state = DemoDataFactory.makeWithSingleAccount()
+        let accountID = state.accounts[0].id
+        let sessionID = UUID()
+        var session = PurchaseSession(id: sessionID, ledgerBookID: UUID(), name: "Weekly Shopping", status: .draft, sections: [], items: [], createdAt: .now, startedAt: nil, completedAt: nil, receiptAttachmentID: nil, currency: .HKD, accountID: accountID)
+        let item1 = PurchaseItem(id: UUID(), categoryID: .food, note: "Apples", amount: 15, displayOrder: 1, isCompleted: false, completedAt: nil, resolvedAccountID: accountID, linkedTransactionID: nil)
+        let item2 = PurchaseItem(id: UUID(), categoryID: .shopping, note: "Paper Towels", amount: 25, displayOrder: 0, isCompleted: false, completedAt: nil, resolvedAccountID: accountID, linkedTransactionID: nil)
+        session.items = [item1, item2]
+
+        let store = LedgerStore(stateForTesting: state)
+        store.savePurchaseSession(session)
+
+        let saved = try XCTUnwrap(store.purchaseSessions.first(where: { $0.id == sessionID }))
+        XCTAssertEqual(saved.items.count, 2)
+        XCTAssertEqual(saved.sections.count, 2)
+        XCTAssertEqual(saved.plannedAmount, 40.0, accuracy: 0.001)
     }
 
     private func makeTransaction(type: LedgerTransactionType, source: LedgerAccount, destination: LedgerAccount? = nil, amount: Double) -> LedgerTransaction {

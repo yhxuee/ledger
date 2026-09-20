@@ -162,7 +162,7 @@
         }
       }
     },
-    "Wallet Ledger": {
+    "Finsy": {
       "extractionState": "manual",
       "localizations": {
         "en": {

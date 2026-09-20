@@ -16,7 +16,7 @@ extension LedgerStore {
         commitActiveBook()
         guard let book = books.first(where: { $0.id == id }) else { return }
         activeBookID = book.id
-        state = book.state
+        mutateState { state in state = book.state }
         undoTransactions = []
         undoState = nil
         undoMessage = nil
@@ -31,7 +31,7 @@ extension LedgerStore {
         let book = LedgerBook(id: UUID(), name: name, state: SeedData.makeEmpty(), createdAt: .now, updatedAt: .now)
         books.append(book)
         activeBookID = book.id
-        state = book.state
+        mutateState { state in state = book.state }
         undoTransactions = []
         undoState = nil
         undoMessage = nil
@@ -72,7 +72,7 @@ extension LedgerStore {
             books[index] = book
         } else { books.append(book) }
         activeBookID = book.id
-        state = book.state
+        mutateState { state in state = book.state }
         scheduleSave()
     }
 

@@ -82,7 +82,6 @@ private struct NewLedgerSheet: View {
 struct RootView: View {
     @EnvironmentObject private var store: LedgerStore
     @EnvironmentObject private var preferences: AppPreferencesStore
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var section: AppSection = .overview
     @State private var selectedAccountID: UUID?
@@ -94,7 +93,6 @@ struct RootView: View {
         ZStack { LedgerBackground(); content }
             .alert("Finsy", isPresented: Binding(get: { store.presentedError != nil }, set: { if !$0 { store.presentedError = nil } })) { Button("OK") { store.presentedError = nil } } message: { Text(store.presentedError ?? "") }
             .overlay(alignment: .bottom) { bottomOverlays }
-            .onChange(of: scenePhase) { _, phase in if phase == .active { store.refreshDueInstallments() } }
             .onChange(of: store.activeBookID) { _, _ in selectedAccountID = nil }
             .task {
                 evaluateLaunchForecast()

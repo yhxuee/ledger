@@ -33,15 +33,16 @@ extension LedgerStore {
     var purchaseSessions: [PurchaseSession] { (state.purchaseSessions ?? []).filter { $0.status != .cancelled }.sorted { $0.createdAt > $1.createdAt } }
 
     func savePurchaseSession(_ session: PurchaseSession) {
-        var sessions = state.purchaseSessions ?? []
         var updated = session
         updated.ledgerBookID = activeBookID
         updated.updatedAt = .now
         updated.normalizeSections()
-        if let index = sessions.firstIndex(where: { $0.id == updated.id }) { sessions[index] = updated } else { sessions.append(updated) }
-        state.purchaseSessions = sessions
-        do { try persistPurchaseChanges() }
-        catch { presentedError = "Purchase save failed: \(error.localizedDescription)" }
+        mutateState { state in
+            var sessions = state.purchaseSessions ?? []
+            if let index = sessions.firstIndex(where: { $0.id == updated.id }) { sessions[index] = updated } else { sessions.append(updated) }
+            state.purchaseSessions = sessions
+        }
+        scheduleSave()
     }
 
     private func persistPurchaseChanges() throws {
@@ -154,9 +155,11 @@ extension LedgerStore {
         sessions[sessionIndex].status = .completed
         sessions[sessionIndex].completedAt = .now
         sessions[sessionIndex].updatedAt = .now
-        state.purchaseSessions = sessions
-        try persistPurchaseChanges()
         let finished = sessions[sessionIndex]
+        mutateState { state in
+            state.purchaseSessions = sessions
+        }
+        try persistPurchaseChanges()
         Task { [weak self] in
             guard let self else { return }
             await self.publish(session: finished, requestActivity: false)
@@ -181,7 +184,9 @@ extension LedgerStore {
             changed = true
         }
         guard changed else { return false }
-        state.purchaseSessions = sessions
+        mutateState { state in
+            state.purchaseSessions = sessions
+        }
         do { try persistPurchaseChanges() }
         catch { presentedError = "Purchase sync failed: \(error.localizedDescription)" }
         return true

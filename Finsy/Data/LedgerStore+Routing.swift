@@ -3,9 +3,11 @@ import Foundation
 extension LedgerStore {
 
     func updateSettings(_ change: (inout LedgerSettings) -> Void) {
-        change(&state.settings)
-        state.settings.rates = CurrencyRates.mirroringUSDAliases(state.settings.rates)
-        state.settings.updatedAt = .now
+        mutateState { state in
+            change(&state.settings)
+            state.settings.rates = CurrencyRates.mirroringUSDAliases(state.settings.rates)
+            state.settings.updatedAt = .now
+        }
         scheduleSave()
     }
 
@@ -63,7 +65,11 @@ extension LedgerStore {
             }
         }
         guard changed else { return }
-        if let active = books.first(where: { $0.id == activeBookID }) { state = active.state }
+        if let active = books.first(where: { $0.id == activeBookID }) {
+            mutateState { state in
+                state = active.state
+            }
+        }
         scheduleSave()
     }
 
@@ -79,7 +85,9 @@ extension LedgerStore {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !symbol.isEmpty else { return nil }
         let id = LedgerCategoryID(rawValue: "custom-\(UUID().uuidString.lowercased())")
-        state.categories.append(.init(id: id, name: name, detail: rawDetail.trimmingCharacters(in: .whitespacesAndNewlines), symbol: symbol, colorHex: colorHex, kind: kind))
+        mutateState { state in
+            state.categories.append(.init(id: id, name: name, detail: rawDetail.trimmingCharacters(in: .whitespacesAndNewlines), symbol: symbol, colorHex: colorHex, kind: kind))
+        }
         scheduleSave()
         return id
     }

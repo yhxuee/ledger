@@ -126,14 +126,14 @@ enum ThreeMonthFinancialEngine {
     static func monthlyRecognizedIncome(from: Date, to: Date, baseCurrency: CurrencyCode, in state: LedgerState, now: Date, index: LedgerIndex? = nil) -> Double {
         let txs = index?.activeTransactions ?? state.transactions.filter { $0.deletedAt == nil }
         return txs.compactMap {
-            ($0.occurredAt >= from && $0.occurredAt <= to) ? TransactionSemantics.incomeEffect($0, in: state, to: baseCurrency, now: now) : nil
+            ($0.occurredAt >= from && $0.occurredAt <= to) ? TransactionSemantics.incomeEffect($0, in: state, to: baseCurrency, now: now, index: index) : nil
         }.reduce(0.0, +)
     }
 
     static func monthlyRecognizedExpense(from: Date, to: Date, baseCurrency: CurrencyCode, in state: LedgerState, now: Date, index: LedgerIndex? = nil) -> Double {
         let txs = index?.activeTransactions ?? state.transactions.filter { $0.deletedAt == nil }
         return txs.compactMap {
-            ($0.occurredAt >= from && $0.occurredAt <= to) ? TransactionSemantics.expenseEffect($0, in: state, to: baseCurrency, now: now) : nil
+            ($0.occurredAt >= from && $0.occurredAt <= to) ? TransactionSemantics.expenseEffect($0, in: state, to: baseCurrency, now: now, index: index) : nil
         }.reduce(0.0, +)
     }
 
@@ -228,26 +228,26 @@ enum ThreeMonthFinancialEngine {
         for t in idx.activeTransactions {
             let date = t.occurredAt
             if date >= windows.m1.monthStart && date <= windows.m1.monthEnd {
-                if let inc = TransactionSemantics.incomeEffect(t, in: state, to: targetCurrency, now: now) {
+                if let inc = TransactionSemantics.incomeEffect(t, in: state, to: targetCurrency, now: now, index: idx) {
                     m1Acc.income += inc
                 }
-                if let exp = TransactionSemantics.expenseEffect(t, in: state, to: targetCurrency, now: now) {
+                if let exp = TransactionSemantics.expenseEffect(t, in: state, to: targetCurrency, now: now, index: idx) {
                     m1Acc.expense += exp
                 }
                 m1Acc.turnover += externalTurnoverEffect(t, in: state, to: targetCurrency, ownedAccountIDs: ownedAccountIDs, accountsByID: accountsByID)
             } else if date >= windows.m2.monthStart && date <= windows.m2.monthEnd {
-                if let inc = TransactionSemantics.incomeEffect(t, in: state, to: targetCurrency, now: now) {
+                if let inc = TransactionSemantics.incomeEffect(t, in: state, to: targetCurrency, now: now, index: idx) {
                     m2Acc.income += inc
                 }
-                if let exp = TransactionSemantics.expenseEffect(t, in: state, to: targetCurrency, now: now) {
+                if let exp = TransactionSemantics.expenseEffect(t, in: state, to: targetCurrency, now: now, index: idx) {
                     m2Acc.expense += exp
                 }
                 m2Acc.turnover += externalTurnoverEffect(t, in: state, to: targetCurrency, ownedAccountIDs: ownedAccountIDs, accountsByID: accountsByID)
             } else if date >= windows.m3.monthStart && date <= windows.m3.monthEnd {
-                if let inc = TransactionSemantics.incomeEffect(t, in: state, to: targetCurrency, now: now) {
+                if let inc = TransactionSemantics.incomeEffect(t, in: state, to: targetCurrency, now: now, index: idx) {
                     m3Acc.income += inc
                 }
-                if let exp = TransactionSemantics.expenseEffect(t, in: state, to: targetCurrency, now: now) {
+                if let exp = TransactionSemantics.expenseEffect(t, in: state, to: targetCurrency, now: now, index: idx) {
                     m3Acc.expense += exp
                 }
                 m3Acc.turnover += externalTurnoverEffect(t, in: state, to: targetCurrency, ownedAccountIDs: ownedAccountIDs, accountsByID: accountsByID)
