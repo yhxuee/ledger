@@ -212,6 +212,13 @@ private struct OverviewSmallMetricView: View {
     private func smallExpense(title: String, data: OverviewWidgetExpenseData) -> some View {
         let currency = entry.snapshot.currency
         let masked = entry.snapshot.isPrivacyMasked
+        let topSegments = data.segments
+            .filter { $0.amount > 0 }
+            .sorted {
+                if $0.amount != $1.amount { return $0.amount > $1.amount }
+                return $0.name < $1.name
+            }
+            .prefix(2)
 
         return VStack(alignment: .leading, spacing: 0) {
             Text(title)
@@ -221,37 +228,62 @@ private struct OverviewSmallMetricView: View {
 
             Spacer(minLength: 4)
 
-            if data.segments.isEmpty || data.total == 0 {
-                VStack(spacing: 4) {
+            HStack(alignment: .center, spacing: 8) {
+                // Donut on the left
+                if data.segments.isEmpty || data.total <= 0 {
                     Circle()
-                        .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 5)
-                        .frame(width: 38, height: 38)
-                    Text("No recorded expenses")
-                        .font(.system(size: 9, weight: .regular, design: .default))
-                        .foregroundStyle(.secondary)
+                        .strokeBorder(Color.secondary.opacity(0.20), lineWidth: 6)
+                        .frame(width: 48, height: 48)
+                } else {
+                    Chart(data.segments) { segment in
+                        SectorMark(
+                            angle: .value("Amount", segment.amount),
+                            innerRadius: .ratio(0.55),
+                            angularInset: 1.0
+                        )
+                        .foregroundStyle(PurchaseActivityPalette.categoryColor(hex: segment.colorHex))
+                    }
+                    .chartLegend(.hidden)
+                    .frame(width: 48, height: 48)
+                }
+
+                // Total + Top 2 on the right
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(widgetFormattedAmount(data.total, currency: currency, masked: masked))
+                        .font(.system(size: 17, weight: .bold, design: .default))
                         .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                        .privacySensitive()
+
+                    if !topSegments.isEmpty {
+                        VStack(alignment: .leading, spacing: 1) {
+                            ForEach(Array(topSegments)) { seg in
+                                HStack(spacing: 3) {
+                                    Circle()
+                                        .fill(PurchaseActivityPalette.categoryColor(hex: seg.colorHex))
+                                        .frame(width: 4, height: 4)
+
+                                    Text(seg.name)
+                                        .font(.system(size: 9, weight: .medium, design: .default))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+
+                                    Spacer(minLength: 2)
+
+                                    Text(widgetFormattedAmount(seg.amount, currency: currency, masked: masked))
+                                        .font(.system(size: 9, weight: .regular, design: .default))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .privacySensitive()
+                                }
+                            }
+                        }
+                    }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                Chart(data.segments) { segment in
-                    SectorMark(
-                        angle: .value("Amount", segment.amount),
-                        innerRadius: .ratio(0.55),
-                        angularInset: 1.0
-                    )
-                    .foregroundStyle(PurchaseActivityPalette.categoryColor(hex: segment.colorHex))
-                }
-                .chartLegend(.hidden)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-
-            Spacer(minLength: 4)
-
-            Text(widgetFormattedAmount(data.total, currency: currency, masked: masked))
-                .font(.system(size: 20, weight: .bold, design: .default))
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-                .privacySensitive()
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
     }
 
@@ -400,19 +432,21 @@ private struct OverviewMediumMetricView: View {
     private func mediumExpense(title: String, data: OverviewWidgetExpenseData) -> some View {
         let currency = entry.snapshot.currency
         let masked = entry.snapshot.isPrivacyMasked
+        let topSegments = data.segments
+            .filter { $0.amount > 0 }
+            .sorted {
+                if $0.amount != $1.amount { return $0.amount > $1.amount }
+                return $0.name < $1.name
+            }
+            .prefix(2)
 
         return HStack(spacing: 16) {
             // Left: Donut Chart
-            if data.segments.isEmpty || data.total == 0 {
-                VStack(spacing: 6) {
-                    Circle()
-                        .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 7)
-                        .frame(width: 58, height: 58)
-                    Text("No expenses")
-                        .font(.system(size: 10, weight: .regular, design: .default))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(width: 80)
+            if data.segments.isEmpty || data.total <= 0 {
+                Circle()
+                    .strokeBorder(Color.secondary.opacity(0.20), lineWidth: 8)
+                    .frame(width: 72, height: 72)
+                    .frame(width: 80, height: 80)
             } else {
                 Chart(data.segments) { segment in
                     SectorMark(
@@ -439,33 +473,31 @@ private struct OverviewMediumMetricView: View {
                     .minimumScaleFactor(0.65)
                     .privacySensitive()
 
-                Spacer(minLength: 2)
-
-                if data.segments.isEmpty || data.total == 0 {
-                    Text("No recorded expenses")
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(.secondary)
-                } else {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(data.segments.prefix(3)) { seg in
+                if !topSegments.isEmpty {
+                    Spacer(minLength: 2)
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(Array(topSegments)) { seg in
                             HStack(spacing: 6) {
                                 Circle()
                                     .fill(PurchaseActivityPalette.categoryColor(hex: seg.colorHex))
                                     .frame(width: 6, height: 6)
                                 Text(seg.name)
-                                    .font(.system(size: 10, weight: .medium, design: .default))
+                                    .font(.system(size: 11, weight: .medium, design: .default))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
+                                    .truncationMode(.tail)
                                 Spacer()
                                 Text(widgetFormattedAmount(seg.amount, currency: currency, masked: masked))
-                                    .font(.system(size: 10, weight: .semibold, design: .default))
-                                    .foregroundStyle(.primary)
+                                    .font(.system(size: 11, weight: .medium, design: .default))
+                                    .foregroundStyle(.secondary)
                                     .lineLimit(1)
+                                    .privacySensitive()
                             }
                         }
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

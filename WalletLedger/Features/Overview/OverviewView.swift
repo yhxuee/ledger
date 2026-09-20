@@ -233,17 +233,13 @@ struct VerticalOverviewHeroLayout: Layout {
         case .todayExpensePie:
             Button { activeDetailMetric = .todayExpensePie } label: {
                 MetricCard(kind.title, compact: isSideColumn, layout: layout) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        MiniPieChart(segments: categorySegments(from: todaySummary), height: nil)
-                            .frame(maxWidth: .infinity)
-                            .frame(minHeight: isSideColumn ? 36 : 52, maxHeight: .infinity)
-                            .layoutPriority(1)
-                        SensitiveMoneyText(amount: todaySummary.total, currency: store.state.settings.baseCurrency, compact: true)
-                            .font(overviewMetricValueFont(layout: layout, isBudgetRemain: false))
-                            .minimumScaleFactor(0.65)
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    ExpenseMetricContent(
+                        segments: categorySegments(from: todaySummary),
+                        total: todaySummary.total,
+                        currency: store.state.settings.baseCurrency,
+                        layout: layout,
+                        valueFont: overviewMetricValueFont(layout: layout, isBudgetRemain: false)
+                    )
                 }
             }
             .buttonStyle(.plain)
@@ -252,17 +248,13 @@ struct VerticalOverviewHeroLayout: Layout {
         case .weekExpensePie:
             Button { activeDetailMetric = .weekExpensePie } label: {
                 MetricCard(kind.title, compact: isSideColumn, layout: layout) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        MiniPieChart(segments: categorySegments(from: weeklySummary), height: nil)
-                            .frame(maxWidth: .infinity)
-                            .frame(minHeight: isSideColumn ? 36 : 52, maxHeight: .infinity)
-                            .layoutPriority(1)
-                        SensitiveMoneyText(amount: weeklySummary.total, currency: store.state.settings.baseCurrency, compact: true)
-                            .font(overviewMetricValueFont(layout: layout, isBudgetRemain: false))
-                            .minimumScaleFactor(0.65)
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    ExpenseMetricContent(
+                        segments: categorySegments(from: weeklySummary),
+                        total: weeklySummary.total,
+                        currency: store.state.settings.baseCurrency,
+                        layout: layout,
+                        valueFont: overviewMetricValueFont(layout: layout, isBudgetRemain: false)
+                    )
                 }
             }
             .buttonStyle(.plain)
@@ -340,29 +332,72 @@ struct CategorySegmentData: Identifiable {
     var id: LedgerCategoryID { category.id }
 }
 
-private struct MiniPieChart: View {
+private struct ExpenseMetricContent: View {
     let segments: [CategorySegmentData]
-    var height: CGFloat? = 45
+    let total: Double
+    let currency: CurrencyCode
+    let layout: OverviewMetricLayout
+    let valueFont: Font
 
     var body: some View {
-        if let height {
-            chartBody(diameter: height)
-                .frame(height: height)
-        } else {
-            GeometryReader { proxy in
-                let diameter = max(24, min(proxy.size.width, proxy.size.height))
-                chartBody(diameter: diameter)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        let isSideColumn = (layout == .portraitSideColumn)
+        let topTwo = segments
+            .filter { $0.value > 0 }
+            .sorted {
+                if $0.value != $1.value { return $0.value > $1.value }
+                return $0.category.name < $1.category.name
             }
+            .prefix(2)
+
+        GeometryReader { proxy in
+            let availableHeight = proxy.size.height
+            let diameter = min(max(55, availableHeight - (isSideColumn ? 6 : 10)), isSideColumn ? 64 : 68)
+
+            HStack(alignment: .center, spacing: isSideColumn ? 8 : 10) {
+                donutView(diameter: diameter)
+
+                VStack(alignment: .leading, spacing: isSideColumn ? 2 : 3) {
+                    SensitiveMoneyText(amount: total, currency: currency, compact: true)
+                        .font(valueFont)
+                        .minimumScaleFactor(0.65)
+                        .lineLimit(1)
+
+                    if !topTwo.isEmpty {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(Array(topTwo)) { item in
+                                HStack(spacing: 4) {
+                                    Circle()
+                                        .fill(Color(hex: item.category.colorHex))
+                                        .frame(width: 5, height: 5)
+
+                                    Text(item.category.name)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+
+                                    Spacer(minLength: 3)
+
+                                    SensitiveMoneyText(amount: item.value, currency: currency, compact: true)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .center)
         }
     }
 
     @ViewBuilder
-    private func chartBody(diameter: CGFloat) -> some View {
-        if segments.isEmpty {
-            Image(systemName: "chart.pie")
-                .font(.system(size: max(16, diameter * 0.58)))
-                .foregroundStyle(.secondary)
+    private func donutView(diameter: CGFloat) -> some View {
+        if segments.isEmpty || total <= 0 {
+            Circle()
+                .strokeBorder(Color.secondary.opacity(0.20), lineWidth: max(5, diameter * 0.18))
                 .frame(width: diameter, height: diameter)
         } else {
             Chart(segments) { segment in
