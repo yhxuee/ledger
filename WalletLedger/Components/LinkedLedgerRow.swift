@@ -20,7 +20,7 @@ struct SwipeActionItem: Identifiable {
     var enabled: Bool = true
 }
 
-/// Dynamic multi-action swipe reveal following finger drag with Apple Notes-style elastic reveal.
+/// Dynamic multi-action swipe reveal following finger drag with Apple Notes-style elastic reveal and Liquid Glass actions.
 struct TransactionMultiSwipeReveal<Content: View>: View {
     @Environment(\.revealedTransactionID) private var revealedTransactionID
     let transactionID: UUID
@@ -36,18 +36,23 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
     @State private var isLockedVertical = false
     @State private var lastSwipeEndTime: Date = .distantPast
 
-    private let standardWidth: CGFloat = 74
+    private let standardWidth: CGFloat = 72
+    private let cellGap: CGFloat = 5
 
     private var leftRestingWidth: CGFloat {
-        CGFloat(leftActions.count) * standardWidth
+        let count = CGFloat(leftActions.count)
+        guard count > 0 else { return 0 }
+        return count * standardWidth + max(0, count - 1) * cellGap
     }
 
     private var rightRestingWidth: CGFloat {
-        CGFloat(rightActions.count) * standardWidth
+        let count = CGFloat(rightActions.count)
+        guard count > 0 else { return 0 }
+        return count * standardWidth + max(0, count - 1) * cellGap
     }
 
-    private var leftSnapThreshold: CGFloat { leftRestingWidth * 0.5 }
-    private var rightSnapThreshold: CGFloat { rightRestingWidth * 0.5 }
+    private var leftSnapThreshold: CGFloat { leftRestingWidth * 0.45 }
+    private var rightSnapThreshold: CGFloat { rightRestingWidth * 0.45 }
 
     private func rubberBand(extra: CGFloat) -> CGFloat {
         guard extra > 0 else { return 0 }
@@ -64,18 +69,19 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
                 return standardWidth + rubberBand(extra: totalDrag - standardWidth)
             }
         }
-        // count == 2: index 0 is outer (Slot 1), index 1 is inner (Slot 2)
+        // count == 2:
+        // Physical layout in HStack: [Slot 1 (outer, index 0), Slot 2 (inner, index 1)]
+        // Slot 2 is near transaction and grows first (2 → 1 reveal)
         if index == 1 {
-            // Slot 2: near transaction, grows first
             return min(totalDrag, standardWidth)
         } else {
-            // Slot 1: at screen edge, grows second
-            if totalDrag <= standardWidth {
+            let threshold = standardWidth + cellGap
+            if totalDrag <= threshold {
                 return 0
-            } else if totalDrag <= 2 * standardWidth {
-                return totalDrag - standardWidth
+            } else if totalDrag <= threshold + standardWidth {
+                return totalDrag - threshold
             } else {
-                return standardWidth + rubberBand(extra: totalDrag - 2 * standardWidth)
+                return standardWidth + rubberBand(extra: totalDrag - (threshold + standardWidth))
             }
         }
     }
@@ -90,18 +96,19 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
                 return standardWidth + rubberBand(extra: totalDrag - standardWidth)
             }
         }
-        // count == 2: index 0 is inner (Slot 3), index 1 is outer (Slot 4)
+        // count == 2:
+        // Physical layout in HStack: [Slot 3 (inner, index 0), Slot 4 (outer, index 1)]
+        // Slot 3 is near transaction and grows first (3 → 4 reveal)
         if index == 0 {
-            // Slot 3: near transaction, grows first
             return min(totalDrag, standardWidth)
         } else {
-            // Slot 4: at screen edge, grows second
-            if totalDrag <= standardWidth {
+            let threshold = standardWidth + cellGap
+            if totalDrag <= threshold {
                 return 0
-            } else if totalDrag <= 2 * standardWidth {
-                return totalDrag - standardWidth
+            } else if totalDrag <= threshold + standardWidth {
+                return totalDrag - threshold
             } else {
-                return standardWidth + rubberBand(extra: totalDrag - 2 * standardWidth)
+                return standardWidth + rubberBand(extra: totalDrag - (threshold + standardWidth))
             }
         }
     }
@@ -109,7 +116,7 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
     @ViewBuilder
     private var leftActionLane: some View {
         if !leftActions.isEmpty && offset > 0 {
-            HStack(spacing: 0) {
+            HStack(spacing: cellGap) {
                 ForEach(leftActions.indices, id: \.self) { i in
                     let w = leftActionWidth(index: i, totalDrag: offset)
                     if w > 0.5 {
@@ -117,6 +124,7 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
                     }
                 }
             }
+            .padding(.vertical, 4)
             .frame(width: offset, alignment: .leading)
             .frame(maxHeight: .infinity)
             .clipped()
@@ -126,7 +134,7 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
     @ViewBuilder
     private var rightActionLane: some View {
         if !rightActions.isEmpty && offset < 0 {
-            HStack(spacing: 0) {
+            HStack(spacing: cellGap) {
                 ForEach(rightActions.indices, id: \.self) { i in
                     let w = rightActionWidth(index: i, totalDrag: -offset)
                     if w > 0.5 {
@@ -134,6 +142,7 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
                     }
                 }
             }
+            .padding(.vertical, 4)
             .frame(width: -offset, alignment: .trailing)
             .frame(maxHeight: .infinity)
             .clipped()
@@ -141,39 +150,43 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
     }
 
     private func dynamicActionButton(item: SwipeActionItem, width: CGFloat) -> some View {
-        Button {
+        let dynamicRadius = min(18, max(6, width / 2))
+        let shape = RoundedRectangle(cornerRadius: dynamicRadius, style: .continuous)
+        let tintOpacity: Double = item.id == "delete" ? 0.32 : 0.22
+
+        return Button {
             let success = item.action()
             if success {
-                withAnimation(.snappy(duration: 0.25)) {
+                if revealedTransactionID.wrappedValue == transactionID {
+                    revealedTransactionID.wrappedValue = nil
+                }
+                withAnimation(.snappy(duration: 0.20)) {
                     offset = 0
-                    if revealedTransactionID.wrappedValue == transactionID {
-                        revealedTransactionID.wrappedValue = nil
-                    }
                 }
             }
         } label: {
-            ZStack {
-                Rectangle()
-                    .fill(item.color)
+            VStack(spacing: 3) {
+                Image(systemName: item.systemImage)
+                    .font(.system(size: 16, weight: .semibold))
+                    .scaleEffect(iconScale(width: width))
+                    .opacity(iconOpacity(width: width))
 
-                VStack(spacing: 3) {
-                    Image(systemName: item.systemImage)
-                        .font(.system(size: 16, weight: .semibold))
-                        .scaleEffect(iconScale(width: width))
-                        .opacity(iconOpacity(width: width))
-
-                    if width >= 44 {
-                        Text(LocalizedStringKey(item.title))
-                            .font(.system(size: 11, weight: .bold))
-                            .lineLimit(1)
-                            .opacity(textOpacity(width: width))
-                    }
+                if width >= 44 {
+                    Text(LocalizedStringKey(item.title))
+                        .font(.system(size: 11, weight: .bold))
+                        .lineLimit(1)
+                        .opacity(textOpacity(width: width))
                 }
-                .foregroundStyle(.white)
             }
-            .frame(width: width)
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
+            .foregroundStyle(.white)
+            .frame(width: min(width, standardWidth))
+            .frame(width: width, maxHeight: .infinity)
+            .background(
+                item.color.opacity(tintOpacity)
+                    .clipShape(shape)
+            )
+            .ledgerGlass(interactive: true, in: shape)
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
         .disabled(!item.enabled)
@@ -199,35 +212,50 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            HStack(spacing: 0) {
-                leftActionLane
-                Spacer(minLength: 0)
-                rightActionLane
-            }
-            .frame(maxHeight: .infinity)
-            .zIndex(offset != 0 ? 2 : 0)
-            .allowsHitTesting(offset != 0)
-
             content()
                 .offset(x: offset)
                 .contentShape(Rectangle())
-                .zIndex(offset != 0 ? 1 : 1)
-                .gesture(
-                    DragGesture(minimumDistance: 12)
+                .zIndex(1)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 20)
                         .onChanged { handleDragChange($0) }
                         .onEnded { handleDragEnd($0) }
                 )
                 .onTapGesture {
                     handleContentTap()
                 }
+
+            if !leftActions.isEmpty && offset > 0 {
+                leftActionLane
+                    .frame(width: offset, alignment: .leading)
+                    .frame(maxHeight: .infinity)
+                    .zIndex(2)
+            }
+        }
+        .overlay(alignment: .trailing) {
+            if !rightActions.isEmpty && offset < 0 {
+                rightActionLane
+                    .frame(width: -offset, alignment: .trailing)
+                    .frame(maxHeight: .infinity)
+                    .zIndex(2)
+            }
         }
         .clipped()
         .onChange(of: revealedTransactionID.wrappedValue) { _, newID in
             if newID != transactionID && offset != 0 && !isDragging {
-                withAnimation(.snappy(duration: 0.25)) {
+                withAnimation(.snappy(duration: 0.20)) {
                     offset = 0
                 }
             }
+        }
+        .onDisappear {
+            if revealedTransactionID.wrappedValue == transactionID {
+                revealedTransactionID.wrappedValue = nil
+            }
+            offset = 0
+            isDragging = false
+            isLockedHorizontal = false
+            isLockedVertical = false
         }
     }
 
@@ -236,17 +264,11 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
         let dy = value.translation.height
 
         if !isLockedHorizontal && !isLockedVertical {
-            if abs(dx) >= abs(dy) * 1.3 && abs(dx) >= 10 {
-                isLockedHorizontal = true
-                isDragging = true
-                dragStartOffset = offset
-                if let revealed = revealedTransactionID.wrappedValue, revealed != transactionID {
-                    revealedTransactionID.wrappedValue = nil
-                }
-            } else if abs(dy) > abs(dx) * 1.3 && abs(dy) >= 10 {
+            // Check vertical movement first (or if user scrolls while row is open)
+            if abs(dy) > abs(dx) * 1.5 || (abs(dy) >= 16 && abs(dy) > abs(dx)) {
                 isLockedVertical = true
                 if offset != 0 {
-                    withAnimation(.snappy(duration: 0.25)) {
+                    withAnimation(.snappy(duration: 0.18)) {
                         offset = 0
                         if revealedTransactionID.wrappedValue == transactionID {
                             revealedTransactionID.wrappedValue = nil
@@ -255,6 +277,29 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
                 }
                 return
             }
+
+            // Check if swipe direction has no actions
+            if (dx > 0 && leftActions.isEmpty && offset <= 0) || (dx < 0 && rightActions.isEmpty && offset >= 0) {
+                isLockedVertical = true
+                return
+            }
+
+            // Check conclusive horizontal commitment
+            if abs(dx) >= 20 && abs(dx) >= abs(dy) * 1.8 {
+                isLockedHorizontal = true
+                isDragging = true
+                dragStartOffset = offset
+                if let revealed = revealedTransactionID.wrappedValue, revealed != transactionID {
+                    revealedTransactionID.wrappedValue = nil
+                }
+            } else {
+                // Ambiguous or sub-threshold distance: do not modify offset or lock
+                return
+            }
+        }
+
+        if isLockedVertical {
+            return
         }
 
         guard isLockedHorizontal else { return }
@@ -277,6 +322,7 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
             actualMagnitude = maxResting + rubberBand(extra: magnitude - maxResting)
         }
 
+        // Direct assignment without withAnimation
         offset = clamped >= 0 ? actualMagnitude : -actualMagnitude
     }
 
@@ -290,7 +336,7 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
         guard wasLocked else { return }
 
         let current = offset
-        withAnimation(.snappy(duration: 0.25)) {
+        withAnimation(.snappy(duration: 0.20)) {
             if current >= leftSnapThreshold && !leftActions.isEmpty {
                 offset = leftRestingWidth
                 revealedTransactionID.wrappedValue = transactionID
@@ -307,11 +353,11 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
     }
 
     private func handleContentTap() {
-        if isDragging || Date().timeIntervalSince(lastSwipeEndTime) < 0.4 {
+        if isDragging || Date().timeIntervalSince(lastSwipeEndTime) < 0.20 {
             return
         }
         if offset != 0 {
-            withAnimation(.snappy(duration: 0.25)) {
+            withAnimation(.snappy(duration: 0.20)) {
                 offset = 0
                 if revealedTransactionID.wrappedValue == transactionID {
                     revealedTransactionID.wrappedValue = nil
@@ -320,7 +366,7 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
             return
         }
         if let revealed = revealedTransactionID.wrappedValue, revealed != transactionID {
-            withAnimation(.snappy(duration: 0.25)) {
+            withAnimation(.snappy(duration: 0.20)) {
                 revealedTransactionID.wrappedValue = nil
             }
             return

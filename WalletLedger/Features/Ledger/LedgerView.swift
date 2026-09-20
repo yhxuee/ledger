@@ -94,15 +94,6 @@ struct LedgerView: View {
             .padding(.bottom, 16)
         }
         .environment(\.revealedTransactionID, $revealedTransactionID)
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                if revealedTransactionID != nil {
-                    withAnimation(.snappy) {
-                        revealedTransactionID = nil
-                    }
-                }
-            }
-        )
         .background(LedgerBackground())
         .navigationTitle("Ledger")
         .toolbar {
