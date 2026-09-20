@@ -17,7 +17,7 @@ enum OverviewWidgetRelay {
         let weeklyBuckets = weeklySummary.buckets.enumerated().map { offset, bucket in
             let date = calendar.date(byAdding: .day, value: offset, to: startOfWeek) ?? .now
             let label = date.formatted(.dateTime.weekday(.abbreviated)).uppercased()
-            return OverviewWidgetDailyBucket(id: bucket.id.uuidString, label: label, amount: bucket.value)
+            return OverviewWidgetDailyBucket(id: bucket.id, label: label, amount: bucket.value)
         }
 
         // 2. Budget remain
@@ -53,7 +53,7 @@ enum OverviewWidgetRelay {
         // 5. 6M Trends
         let sixMonthsSummary = LedgerCalculations.analytics(state, range: .sixMonths, type: .expense, accountID: nil)
         let sixMonthsBuckets = sixMonthsSummary.buckets.map { bucket in
-            OverviewWidgetMonthlyBucket(id: bucket.id.uuidString, label: bucket.label, amount: bucket.value)
+            OverviewWidgetMonthlyBucket(id: bucket.id, label: bucket.label, amount: bucket.value)
         }
 
         let snapshot = OverviewWidgetSnapshot(
