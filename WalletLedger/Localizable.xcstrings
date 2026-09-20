@@ -3520,25 +3520,25 @@
         }
       }
     },
-    "Remain": {
+    "Budget Remain": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remain"
+            "value": "Budget Remain"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "剩余"
+            "value": "预算剩余"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "剩餘"
+            "value": "預算剩餘"
           }
         }
       }
@@ -4141,13 +4141,13 @@
         }
       }
     },
-    "This Week Expense": {
+    "Week Expense": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Week Expense"
+            "value": "Week Expense"
           }
         },
         "zh-Hans": {
@@ -4160,6 +4160,75 @@
           "stringUnit": {
             "state": "translated",
             "value": "本週支出"
+          }
+        }
+      }
+    },
+    "Finsy Metric": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finsy Metric"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finsy 指标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finsy 指標"
+          }
+        }
+      }
+    },
+    "No budget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No budget"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无预算"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無預算"
+          }
+        }
+      }
+    },
+    "No recorded expenses": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No recorded expenses"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无支出记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無支出記錄"
           }
         }
       }

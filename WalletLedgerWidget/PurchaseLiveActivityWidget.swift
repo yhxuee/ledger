@@ -5,7 +5,10 @@ import WidgetKit
 
 @main
 struct WalletLedgerWidgetBundle: WidgetBundle {
-    var body: some Widget { PurchaseLiveActivityWidget() }
+    var body: some Widget {
+        OverviewMetricWidget()
+        PurchaseLiveActivityWidget()
+    }
 }
 
 struct PurchaseLiveActivityWidget: Widget {

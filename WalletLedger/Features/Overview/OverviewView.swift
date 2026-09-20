@@ -165,12 +165,16 @@ struct VerticalOverviewHeroLayout: Layout {
         }
     }
 
-    private func overviewMetricValueFont(layout: OverviewMetricLayout) -> Font {
+    private func overviewMetricValueFont(layout: OverviewMetricLayout, isBudgetRemain: Bool = false) -> Font {
         switch layout {
         case .portraitSideColumn:
-            return .title3.bold()
+            return isBudgetRemain
+                ? .system(size: 26, weight: .bold, design: .default)
+                : .system(size: 22, weight: .bold, design: .default)
         case .horizontalGrid:
-            return .title2.bold()
+            return isBudgetRemain
+                ? .system(size: 28, weight: .bold, design: .default)
+                : .system(size: 23, weight: .bold, design: .default)
         }
     }
 
@@ -187,8 +191,8 @@ struct VerticalOverviewHeroLayout: Layout {
                             .frame(minHeight: isSideColumn ? 36 : 52, maxHeight: .infinity)
                             .layoutPriority(1)
                         SensitiveMoneyText(amount: weeklySummary.total, currency: store.state.settings.baseCurrency, compact: true)
-                            .font(overviewMetricValueFont(layout: layout))
-                            .minimumScaleFactor(0.7)
+                            .font(overviewMetricValueFont(layout: layout, isBudgetRemain: false))
+                            .minimumScaleFactor(0.65)
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -200,16 +204,20 @@ struct VerticalOverviewHeroLayout: Layout {
         case .budget:
             Button { showingBudgetDetail = true } label: {
                 MetricCard(kind.title, compact: isSideColumn, layout: layout) {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Spacer(minLength: isSideColumn ? 4 : 6)
+
                         SensitiveMoneyText(amount: usage.budget - usage.spent, currency: usageCurrency, maxIntegerDigits: 6)
-                            .font(overviewMetricValueFont(layout: layout))
-                            .minimumScaleFactor(0.7)
+                            .font(overviewMetricValueFont(layout: layout, isBudgetRemain: true))
+                            .minimumScaleFactor(0.60)
                             .lineLimit(1)
 
-                        Spacer(minLength: 4)
+                        Spacer(minLength: isSideColumn ? 6 : 8)
 
                         ProgressView(value: privacy.isLocked ? 0 : min(max(usage.ratio, 0), 1))
                             .tint(usage.ratio > 1 ? .red : LedgerPalette.coral)
+
+                        Spacer().frame(height: 4)
 
                         SensitiveValueText("\(Int(usage.ratio * 100))\(String(localized: "% used"))", maskLength: 8)
                             .font(isSideColumn ? .caption2 : .caption)
@@ -231,8 +239,8 @@ struct VerticalOverviewHeroLayout: Layout {
                             .frame(minHeight: isSideColumn ? 36 : 52, maxHeight: .infinity)
                             .layoutPriority(1)
                         SensitiveMoneyText(amount: todaySummary.total, currency: store.state.settings.baseCurrency, compact: true)
-                            .font(overviewMetricValueFont(layout: layout))
-                            .minimumScaleFactor(0.7)
+                            .font(overviewMetricValueFont(layout: layout, isBudgetRemain: false))
+                            .minimumScaleFactor(0.65)
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -250,8 +258,8 @@ struct VerticalOverviewHeroLayout: Layout {
                             .frame(minHeight: isSideColumn ? 36 : 52, maxHeight: .infinity)
                             .layoutPriority(1)
                         SensitiveMoneyText(amount: weeklySummary.total, currency: store.state.settings.baseCurrency, compact: true)
-                            .font(overviewMetricValueFont(layout: layout))
-                            .minimumScaleFactor(0.7)
+                            .font(overviewMetricValueFont(layout: layout, isBudgetRemain: false))
+                            .minimumScaleFactor(0.65)
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -270,8 +278,8 @@ struct VerticalOverviewHeroLayout: Layout {
                             .frame(minHeight: isSideColumn ? 36 : 52, maxHeight: .infinity)
                             .layoutPriority(1)
                         SensitiveMoneyText(amount: sixMonthsSummary.total, currency: store.state.settings.baseCurrency, compact: true)
-                            .font(overviewMetricValueFont(layout: layout))
-                            .minimumScaleFactor(0.7)
+                            .font(overviewMetricValueFont(layout: layout, isBudgetRemain: false))
+                            .minimumScaleFactor(0.65)
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)

@@ -21,6 +21,7 @@ struct WalletLedgerApp: App {
                 }
                 .task(id: store.activeBookID) {
                     await privacy.unlockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
+                    OverviewWidgetRelay.updateSnapshot(store: store, preferences: preferences.value)
                     _ = try? await store.refreshCurrencyCatalogIfNeeded()
                     _ = try? await store.refreshExchangeRatesIfNeeded()
                     await StockQuoteRefreshService.shared.refreshIfDue(store: store)
@@ -30,6 +31,7 @@ struct WalletLedgerApp: App {
                     if phase == .active {
                         store.reconcileSharedActivePurchases()
                         store.processDueRecurring()
+                        OverviewWidgetRelay.updateSnapshot(store: store, preferences: preferences.value)
                         Task {
                             await privacy.unlockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
                             _ = try? await store.refreshExchangeRatesIfNeeded()
@@ -38,6 +40,7 @@ struct WalletLedgerApp: App {
                         }
                     } else {
                         privacy.lockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
+                        OverviewWidgetRelay.updateSnapshot(store: store, preferences: preferences.value)
                     }
                 }
         }
