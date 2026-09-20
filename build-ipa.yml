@@ -15,7 +15,7 @@ jobs:
 
       - name: Build .app without signing
         run: |
-          # 自动获取工程中的第一个 scheme（通常是 WalletLedger）
+          # 自动获取工程中的第一个 scheme（通常是 Finsy）
           SCHEME=$(xcodebuild -list -json | tr '\n' ' ' | sed 's/.*"schemes":\s*\[\s*"\([^"]*\)".*/\1/')
           echo "Using scheme: $SCHEME"
 
@@ -35,10 +35,10 @@ jobs:
           # 将生成的 .app 移动至 Payload 目录
           cp -r ./build_output/Build/Products/Release-iphoneos/*.app Payload/
           # 压缩生成 ipa
-          zip -r WalletLedger.ipa Payload
+          zip -r Finsy.ipa Payload
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WalletLedger-IPA
-          path: WalletLedger.ipa
+          name: Finsy-IPA
+          path: Finsy.ipa

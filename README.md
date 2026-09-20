@@ -1,6 +1,6 @@
-# Wallet Ledger for iOS
+# Finsy for iOS
 
-Wallet Ledger 2.0 is a local-first SwiftUI personal-finance application. It preserves the existing Liquid Glass design while replacing prototype aggregates with a versioned domain model, derived balances/analytics, durable local persistence, purchase workflows, and optional CloudKit-shared ledgers.
+Finsy 2.0 is a local-first SwiftUI personal-finance application. It preserves the existing Liquid Glass design while replacing prototype aggregates with a versioned domain model, derived balances/analytics, durable local persistence, purchase workflows, and optional CloudKit-shared ledgers.
 
 ## Requirements
 
@@ -13,7 +13,7 @@ Wallet Ledger 2.0 is a local-first SwiftUI personal-finance application. It pres
 - `Domain`: schema-v2 entities, v1 migration mirrors, pure balance/budget/analytics/refund/purchase presentation calculations.
 - `Data`: `LedgerRepository`, local Application Support persistence, backup codecs, cached Frankfurter catalogue/rates, privacy controller, EventKit import, ActivityKit bridge, receipt storage, CloudKit record mapper and `CKSyncEngine` coordinators.
 - `Features`: the existing Overview, Ledger, Analytics, Accounts and four-section Settings design plus dedicated editors, Budget Detail and Purchase Mode/Summary.
-- `WalletLedgerWidget`: interactive Lock Screen/Dynamic Island Live Activity. The App Group snapshot coordinates active-purchase item completion; the main ledger remains a durable source of truth.
+- `FinsyWidget`: interactive Lock Screen/Dynamic Island Live Activity. The App Group snapshot coordinates active-purchase item completion; the main ledger remains a durable source of truth.
 
 Balances, budget use and analytics are always derived from active transactions. There is no mutable stored total. Transfers are balance movements, refunds are linked exact reversals, and PurchaseSession aggregate rows are presentation-only.
 
@@ -41,7 +41,7 @@ Transactions and accounts keep soft-deletion behavior. Deleting a refund restore
 
 Source and project target changes are included, but these account-bound steps must be completed in Xcode/Developer Portal:
 
-1. Select a development team for both `WalletLedger` and `WalletLedgerWidget`.
+1. Select a development team for both `Finsy` and `FinsyWidget`.
 2. Register `com.finsy.app` and `com.finsy.app.Widget` (or change both identifiers consistently).
 3. Create/enable `iCloud.com.finsy.app` with CloudKit and iCloud Documents, then select it on the app target.
 4. Create/enable App Group `group.com.finsy.app` for both targets.
@@ -64,6 +64,6 @@ Source and project target changes are included, but these account-bound steps mu
 
 For this change, Swift syntax parsing, plist validation and whitespace checks are available on Windows. The unsigned Release build requires macOS/Xcode; no XCTest was run. The existing `.github/workflows/build-ipa.yml` builds unsigned Release with tests disabled by default.
 
-`WalletLedgerTests` covers balance semantics, soft deletion, native backup round-trip, native v1 migration, legacy Web conversion, flexible currencies, refund idempotency and deletion, both budget modes, multi-currency budgets, dynamic loan interest, deleted default-account mappings, PurchaseSession finalization/grouping, and CloudKit record mapping without network access.
+`FinsyTests` covers balance semantics, soft deletion, native backup round-trip, native v1 migration, legacy Web conversion, flexible currencies, refund idempotency and deletion, both budget modes, multi-currency budgets, dynamic loan interest, deleted default-account mappings, PurchaseSession finalization/grouping, and CloudKit record mapping without network access.
 
 This checkout is authored from Windows, where SwiftUI, ActivityKit, EventKit and CloudKit SDK compilation is unavailable. Run the included Xcode test target or the existing macOS GitHub Actions workflow before signing a release archive.

@@ -13,10 +13,10 @@ bad()  { printf 'FAIL  %s\n' "$1"; failures=$((failures + 1)); }
 APP_GROUP="group.com.finsy.app"
 APP_ID="com.finsy.app"
 WIDGET_ID="com.finsy.app.Widget"
-PBX="WalletLedger.xcodeproj/project.pbxproj"
+PBX="Finsy.xcodeproj/project.pbxproj"
 
 echo "== Entitlement files =="
-for pair in "WalletLedger/WalletLedger.entitlements:$APP_GROUP" "WalletLedgerWidget/WalletLedgerWidget.entitlements:$APP_GROUP"; do
+for pair in "Finsy/Finsy.entitlements:$APP_GROUP" "FinsyWidget/FinsyWidget.entitlements:$APP_GROUP"; do
   file="${pair%%:*}"
   group="${pair##*:}"
   if [[ -f "$file" ]]; then
@@ -33,8 +33,8 @@ done
 echo "== Xcode project wiring =="
 if [[ -f "$PBX" ]]; then
   for expected in \
-      "CODE_SIGN_ENTITLEMENTS = WalletLedger/WalletLedger.entitlements" \
-      "CODE_SIGN_ENTITLEMENTS = WalletLedgerWidget/WalletLedgerWidget.entitlements" \
+      "CODE_SIGN_ENTITLEMENTS = Finsy/Finsy.entitlements" \
+      "CODE_SIGN_ENTITLEMENTS = FinsyWidget/FinsyWidget.entitlements" \
       "PRODUCT_BUNDLE_IDENTIFIER = $APP_ID;" \
       "PRODUCT_BUNDLE_IDENTIFIER = $WIDGET_ID;" \
       "com.apple.ApplicationGroups.iOS = {enabled = 1; }" \
@@ -46,12 +46,12 @@ else
 fi
 
 echo "== Live Activity support =="
-for pair in "WalletLedger/Info.plist" "WalletLedgerWidget/Info.plist"; do
+for pair in "Finsy/Info.plist" "FinsyWidget/Info.plist"; do
   if grep -q "NSSupportsLiveActivities" "$pair"; then ok "$pair declares NSSupportsLiveActivities"; else bad "$pair is missing NSSupportsLiveActivities"; fi
 done
 
 echo "== App Group identifier consistency =="
-declared="$(grep -rho "$APP_GROUP" WalletLedger WalletLedgerShared 2>/dev/null | head -n 1 || true)"
+declared="$(grep -rho "$APP_GROUP" Finsy FinsyShared 2>/dev/null | head -n 1 || true)"
 if [[ -n "${declared:-}" ]]; then ok "identifier used in code: $declared"; else bad "App Group identifier not found in app sources"; fi
 
 echo

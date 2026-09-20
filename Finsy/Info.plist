@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key><string>$(DEVELOPMENT_LANGUAGE)</string>
+    <key>CFBundleDisplayName</key><string>Finsy</string>
+    <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key><string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+    <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>NSFaceIDUsageDescription</key><string>Use Face ID to protect balances, transactions, budgets, analytics, and other financial values.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key><string>Choose a recurring calendar event to prefill a recurring financial transaction. Finsy never modifies the calendar event.</string>
+    <key>NSCameraUsageDescription</key><string>Take a photo for a transaction note or a completed purchase receipt.</string>
+    <key>NSPhotoLibraryUsageDescription</key><string>Choose a receipt image when a camera is unavailable.</string>
+    <key>NSSupportsLiveActivities</key><true/>
+    <key>CKSharingSupported</key><true/>
+    <key>UIBackgroundModes</key><array><string>remote-notification</string><string>fetch</string></array>
+    <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.finsy.app.market-refresh</string></array>
+    <key>CFBundleURLTypes</key>
+    <array><dict><key>CFBundleURLName</key><string>com.finsy.app.purchase</string><key>CFBundleURLSchemes</key><array><string>finsy</string><string>walletledger</string></array></dict></array>
+    <key>LSRequiresIPhoneOS</key><true/>
+    <key>UIApplicationSupportsIndirectInputEvents</key><true/>
+    <key>UILaunchScreen</key><dict/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
+    <key>LSSupportsOpeningDocumentsInPlace</key><true/>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key><string>Finsy Backup</string>
+            <key>LSHandlerRank</key><string>Owner</string>
+            <key>LSItemContentTypes</key><array>
+                <string>com.finsy.app.backup</string>
+                <string>org.medx.walletledger.backup</string>
+                <string>com.finsy.app.pairing-request</string>
+                <string>com.finsy.app.key-grant</string>
+                <string>public.json</string>
+                <string>public.comma-separated-values-text</string>
+            </array>
+        </dict>
+    </array>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key><string>com.finsy.app.backup</string>
+            <key>UTTypeDescription</key><string>Finsy Backup</string>
+            <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+            <key>UTTypeTagSpecification</key><dict>
+                <key>public.filename-extension</key><array><string>fsy</string></array>
+            </dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key><string>com.finsy.app.pairing-request</string>
+            <key>UTTypeDescription</key><string>Finsy Pairing Request</string>
+            <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+            <key>UTTypeTagSpecification</key><dict>
+                <key>public.filename-extension</key><array><string>fsyrequest</string></array>
+            </dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key><string>com.finsy.app.key-grant</string>
+            <key>UTTypeDescription</key><string>Finsy Key Grant</string>
+            <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+            <key>UTTypeTagSpecification</key><dict>
+                <key>public.filename-extension</key><array><string>fsykey</string></array>
+            </dict>
+        </dict>
+    </array>
+    <key>UTImportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key><string>org.medx.walletledger.backup</string>
+            <key>UTTypeDescription</key><string>Finsy Legacy Backup</string>
+            <key>UTTypeConformsTo</key><array><string>public.json</string></array>
+            <key>UTTypeTagSpecification</key><dict>
+                <key>public.filename-extension</key><array><string>walletledger</string></array>
+            </dict>
+        </dict>
+    </array>
+</dict>
+</plist>

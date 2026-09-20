@@ -36,8 +36,8 @@ jobs:
           set -euo pipefail
 
           xcodebuild clean build \
-            -project WalletLedger.xcodeproj \
-            -scheme WalletLedger \
+            -project Finsy.xcodeproj \
+            -scheme Finsy \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
@@ -52,26 +52,26 @@ jobs:
 
           APP_PATH="$(find ./build_output/Build/Products/Release-iphoneos \
             -maxdepth 1 \
-            -name 'WalletLedger.app' \
+            -name 'Finsy.app' \
             -print \
             -quit)"
 
           if [ -z "$APP_PATH" ]; then
-            echo "::error::WalletLedger.app was not produced."
+            echo "::error::Finsy.app was not produced."
             exit 1
           fi
 
           echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
 
-          WIDGET_PATH="$APP_PATH/PlugIns/WalletLedgerWidget.appex"
+          WIDGET_PATH="$APP_PATH/PlugIns/FinsyWidget.appex"
 
           if [ ! -d "$WIDGET_PATH" ]; then
-            echo "::error::WalletLedgerWidget.appex is not embedded in WalletLedger.app."
+            echo "::error::FinsyWidget.appex is not embedded in Finsy.app."
             exit 1
           fi
 
-          echo "WalletLedger.app found at: $APP_PATH"
-          echo "WalletLedgerWidget.appex is embedded."
+          echo "Finsy.app found at: $APP_PATH"
+          echo "FinsyWidget.appex is embedded."
 
           # Bundle identity: iLoader re-signs both products, so their identifiers and build
           # numbers must be the ones the provisioning profiles will be created for.
@@ -101,9 +101,9 @@ jobs:
           # Entitlement sources and their target wiring must survive the unsigned build so the
           # re-signing step can attach the same App Group to the app and the extension.
           APP_GROUP="group.com.finsy.app"
-          PBX="WalletLedger.xcodeproj/project.pbxproj"
+          PBX="Finsy.xcodeproj/project.pbxproj"
 
-          for entitlements in "WalletLedger/WalletLedger.entitlements" "WalletLedgerWidget/WalletLedgerWidget.entitlements"; do
+          for entitlements in "Finsy/Finsy.entitlements" "FinsyWidget/FinsyWidget.entitlements"; do
             if [ ! -f "$entitlements" ]; then
               echo "::error::Missing entitlement file: $entitlements"
               exit 1
@@ -118,8 +118,8 @@ jobs:
           done
 
           for reference in \
-            "CODE_SIGN_ENTITLEMENTS = WalletLedger/WalletLedger.entitlements" \
-            "CODE_SIGN_ENTITLEMENTS = WalletLedgerWidget/WalletLedgerWidget.entitlements"; do
+            "CODE_SIGN_ENTITLEMENTS = Finsy/Finsy.entitlements" \
+            "CODE_SIGN_ENTITLEMENTS = FinsyWidget/FinsyWidget.entitlements"; do
             if ! grep -qF "$reference" "$PBX"; then
               echo "::error::project.pbxproj no longer references: $reference"
               exit 1
@@ -132,25 +132,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          rm -rf Payload WalletLedger-unsigned.ipa
+          rm -rf Payload Finsy-unsigned.ipa
           mkdir -p Payload
 
-          cp -R "$APP_PATH" Payload/WalletLedger.app
+          cp -R "$APP_PATH" Payload/Finsy.app
 
-          zip -qry WalletLedger-unsigned.ipa Payload
+          zip -qry Finsy-unsigned.ipa Payload
 
-          test -f WalletLedger-unsigned.ipa
+          test -f Finsy-unsigned.ipa
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: WalletLedger-Unsigned-IPA
-          path: WalletLedger-unsigned.ipa
+          name: Finsy-Unsigned-IPA
+          path: Finsy-unsigned.ipa
           if-no-files-found: error
 
   # Optional XCTest job. Manual workflow_dispatch only, and only when run_tests is enabled.
   # It is fully independent of `build`: a red test job can never block or delete the
-  # successfully produced WalletLedger-Unsigned-IPA artifact.
+  # successfully produced Finsy-Unsigned-IPA artifact.
   tests:
     name: Run XCTest
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_tests == true }}
@@ -184,15 +184,15 @@ jobs:
 
           echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
 
-      - name: Run WalletLedger tests
+      - name: Run Finsy tests
         run: |
           set -euo pipefail
 
           xcodebuild test \
-            -project WalletLedger.xcodeproj \
-            -scheme WalletLedger \
+            -project Finsy.xcodeproj \
+            -scheme Finsy \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            -only-testing:WalletLedgerTests \
+            -only-testing:FinsyTests \
             -parallel-testing-enabled NO \
             -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO
@@ -201,7 +201,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: WalletLedger-Test-Results
+          name: Finsy-Test-Results
           path: TestResults.xcresult
           if-no-files-found: ignore
 
@@ -256,7 +256,7 @@ jobs:
         if: env.SIGNING_CERTIFICATE_P12 != ''
         run: |
           xcodebuild clean build \
-            -scheme "WalletLedger" \
+            -scheme "Finsy" \
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath ./build_signed \
@@ -278,11 +278,11 @@ jobs:
         run: |
           mkdir -p Payload
           cp -r ./build_signed/Build/Products/Release-iphoneos/*.app Payload/
-          zip -r WalletLedger-signed.ipa Payload
+          zip -r Finsy-signed.ipa Payload
 
       - name: Upload signed IPA artifact
         if: env.SIGNING_CERTIFICATE_P12 != ''
         uses: actions/upload-artifact@v4
         with:
-          name: WalletLedger-Signed-IPA
-          path: WalletLedger-signed.ipa
+          name: Finsy-Signed-IPA
+          path: Finsy-signed.ipa

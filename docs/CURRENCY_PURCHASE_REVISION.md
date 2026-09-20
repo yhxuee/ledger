@@ -2,15 +2,15 @@
 
 ## Architecture and changed files
 
-- Shared domain identities now live in `WalletLedgerShared/FinanceIdentifiers.swift`; purchase entities in `PurchaseModels.swift`. Both app and widget compile these sources.
+- Shared domain identities now live in `FinsyShared/FinanceIdentifiers.swift`; purchase entities in `PurchaseModels.swift`. Both app and widget compile these sources.
 - `Domain/CurrencyRates.swift` resolves live reference rates. `LedgerCalculations.swift`, `LedgerStore.swift`, `RefundEngine.swift`, and `BackupCodec.swift` use it. Financial totals remain derived.
 - `Components/CurrencyPickerLink.swift` implements the hierarchical picker; `AccountsPortfolioSummaryView.swift` replaces only the Accounts dashboard card.
 - `Features/Purchases/PurchaseModeView.swift` contains inline grouped editing and item-count active progress. `PurchaseSummaryView.swift` uses purchase units. `PurchaseLedgerPresentation.swift` owns presentation-only aggregation.
-- `Data/PurchaseLiveActivity.swift`, shared attributes/state/progress ring/intent, and `WalletLedgerWidget/PurchaseLiveActivityWidget.swift` implement explicit activity results and updated presentations.
+- `Data/PurchaseLiveActivity.swift`, shared attributes/state/progress ring/intent, and `FinsyWidget/PurchaseLiveActivityWidget.swift` implement explicit activity results and updated presentations.
 - Backup/local JSON/CloudKit migration paths are updated in `BackupCodec.swift`, `LedgerRepository.swift`, `PurchaseRules.swift`, and `CloudRecordMapper.swift`.
 - `LedgerView.swift` uses a native large root title. Secondary screens remain inline.
 - `Shared/MoneyFormatting.swift` centralizes the two monetary display semantics; `DesignSystem.swift` exposes them as `LedgerFormat`. `SettingsEditors.swift` locks stablecoin reference values and shows symbols next to budget allocation amounts.
-- The test workflow now runs all WalletLedgerTests and exports rendering screenshots and an ActivityKit environment diagnostic.
+- The test workflow now runs all FinsyTests and exports rendering screenshots and an ActivityKit environment diagnostic.
 
 ## Stablecoins and FX
 
@@ -69,7 +69,7 @@ Currencies without a distinct symbol keep their code as a separated fallback (`C
 ### Nonfatal bridge warnings
 `LedgerStore.purchaseSyncWarning` is a separate, deduplicated channel rendered inline by `PurchaseStatusNotice`. App Group / ActivityKit infrastructure problems go there; `presentedError` stays reserved for real operation errors (invalid account/session, local persistence failure). The App Group notice is a single concise line — "Lock Screen item controls require a signed build with App Group access." — shown at most once per purchase: repeats are dropped, a dismissal keeps it dismissed, and a recovered bridge clears it. Raw container errors are only written to the Debug log.
 
-An unsigned build (`CODE_SIGNING_ALLOWED=NO`, `CODE_SIGN_ENTITLEMENTS=""`) cannot provide `group.com.finsy.app`, so Purchase Mode runs locally, the Live Activity still displays, and Lock Screen / Dynamic Island item controls are read-only. That is the intended graceful fallback, not a failure. A signed build must carry `com.apple.security.application-groups` → `group.com.finsy.app` in **both** `WalletLedger.app` and `WalletLedgerWidget.appex`, which `Scripts/verify-app-group-entitlements.sh` checks on the built products.
+An unsigned build (`CODE_SIGNING_ALLOWED=NO`, `CODE_SIGN_ENTITLEMENTS=""`) cannot provide `group.com.finsy.app`, so Purchase Mode runs locally, the Live Activity still displays, and Lock Screen / Dynamic Island item controls are read-only. That is the intended graceful fallback, not a failure. A signed build must carry `com.apple.security.application-groups` → `group.com.finsy.app` in **both** `Finsy.app` and `FinsyWidget.appex`, which `Scripts/verify-app-group-entitlements.sh` checks on the built products.
 
 ### Controlled reconciliation
 `reconcileSharedActivePurchases()` runs when the app becomes active, when `ActivePurchaseView` appears (and every 3 seconds while it stays visible), and once before Purchase Summary. It reports whether it changed anything and persists immediately. Adoption requires the same account/currency identity and a *strictly* newer subsecond `updatedAt` (`PurchaseRules.shouldAdoptSharedSnapshot`), so an older or equal snapshot can never overwrite newer local work.
@@ -89,24 +89,24 @@ Shared widget-safe `PurchaseActivityPalette` (coral `#F05E4F`, teal `#62B28F`, b
 ### App Group runtime entitlement
 `Scripts/verify-purchase-configuration.sh` audits the repository configuration (entitlement files, project wiring, bundle IDs, capability markers). `Scripts/verify-app-group-entitlements.sh` inspects `codesign -d --entitlements` for both the app and the embedded `.appex` of a built product. CI runs the source audit in the optional signed job and additionally builds and verifies a signed IPA when the signing secrets are configured.
 
-The default CI artifact stays **unsigned**: only the signing identity is disabled (`CODE_SIGN_IDENTITY=""`, `CODE_SIGNING_REQUIRED=NO`, `CODE_SIGNING_ALLOWED=NO`). `CODE_SIGN_ENTITLEMENTS` is deliberately **not** cleared, so `WalletLedger/WalletLedger.entitlements` and `WalletLedgerWidget/WalletLedgerWidget.entitlements` stay attached to their targets and remain available to a later re-signing step. Because the artifact carries no signature, **no App Group runtime access is validated by CI** — that is expected and must not be reported as a runtime result.
+The default CI artifact stays **unsigned**: only the signing identity is disabled (`CODE_SIGN_IDENTITY=""`, `CODE_SIGNING_REQUIRED=NO`, `CODE_SIGNING_ALLOWED=NO`). `CODE_SIGN_ENTITLEMENTS` is deliberately **not** cleared, so `Finsy/Finsy.entitlements` and `FinsyWidget/FinsyWidget.entitlements` stay attached to their targets and remain available to a later re-signing step. Because the artifact carries no signature, **no App Group runtime access is validated by CI** — that is expected and must not be reported as a runtime result.
 
 The unsigned IPA is re-signed outside CI (iLoader) with an Apple ID. For interactive Lock Screen / Dynamic Island item control to work, that re-signing must:
 1. create/reuse the App ID `com.finsy.app` **and** `com.finsy.app.Widget`;
 2. enable **App Groups** on both App IDs and assign both to `group.com.finsy.app`;
-3. re-sign the main app **and** the embedded `WalletLedger.app/PlugIns/WalletLedgerWidget.appex` with profiles that include that group (an app-only re-sign leaves the extension without container access);
+3. re-sign the main app **and** the embedded `Finsy.app/PlugIns/FinsyWidget.appex` with profiles that include that group (an app-only re-sign leaves the extension without container access);
 4. keep both products' `CFBundleVersion` equal (build 10).
 
 If the re-signed build does not receive the App Group entitlement, Purchase Mode keeps working locally with the existing read-only Lock Screen fallback ("Lock Screen item controls require a signed build with App Group access."); no local directory, `UserDefaults.standard`, or Documents/tmp storage is used as a substitute for the App Group container.
 
 ## Project configuration audited
 
-- Existing `WalletLedgerWidget` target remains embedded via Embed App Extensions and target dependency.
+- Existing `FinsyWidget` target remains embedded via Embed App Extensions and target dependency.
 - App ID: `com.finsy.app`; widget ID: `com.finsy.app.Widget`.
-- Both targets compile `WalletLedgerShared` and use `group.com.finsy.app`.
+- Both targets compile `FinsyShared` and use `group.com.finsy.app`.
 - Both deployment targets remain iOS 17. NSSupportsLiveActivities remains true. App/extension versions match (build 10).
 - No new target, permission key or entitlement is needed for this revision. Existing CloudKit/iCloud Documents configuration is preserved.
-- The unsigned CI build verifies, after building: `WalletLedger.app` exists, `PlugIns/WalletLedgerWidget.appex` is embedded, both bundle identifiers are `com.finsy.app` / `com.finsy.app.Widget`, both `CFBundleVersion` values match, both entitlement files still declare `group.com.finsy.app`, and `project.pbxproj` still references both via `CODE_SIGN_ENTITLEMENTS`.
+- The unsigned CI build verifies, after building: `Finsy.app` exists, `PlugIns/FinsyWidget.appex` is embedded, both bundle identifiers are `com.finsy.app` / `com.finsy.app.Widget`, both `CFBundleVersion` values match, both entitlement files still declare `group.com.finsy.app`, and `project.pbxproj` still references both via `CODE_SIGN_ENTITLEMENTS`.
 
 ## Verification and device checklist
 

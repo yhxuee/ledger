@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Verifies the SIGNED products actually carry the App Group entitlement at runtime.
 #
-# Usage: Scripts/verify-app-group-entitlements.sh path/to/WalletLedger.app
+# Usage: Scripts/verify-app-group-entitlements.sh path/to/Finsy.app
 # Source files looking correct is not enough: this inspects the built binaries.
 set -euo pipefail
 
@@ -15,7 +15,7 @@ ok()  { printf 'OK    %s\n' "$1"; }
 bad() { printf 'FAIL  %s\n' "$1"; failures=$((failures + 1)); }
 
 if [[ -z "$APP_PATH" ]]; then
-  echo "usage: $0 path/to/WalletLedger.app" >&2
+  echo "usage: $0 path/to/Finsy.app" >&2
   exit 2
 fi
 if [[ ! -d "$APP_PATH" ]]; then
@@ -62,7 +62,7 @@ check_target() {
 echo "== Inspecting $APP_PATH =="
 check_target "$APP_PATH" "$APP_ID" "app"
 
-WIDGET_PATH="$APP_PATH/PlugIns/WalletLedgerWidget.appex"
+WIDGET_PATH="$APP_PATH/PlugIns/FinsyWidget.appex"
 check_target "$WIDGET_PATH" "$WIDGET_ID" "widget extension"
 
 if [[ -d "$WIDGET_PATH" ]]; then
