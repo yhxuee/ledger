@@ -378,12 +378,30 @@ enum TransactionSemantics {
             return refundVal < (parent.amount - 0.005) ? .refundPartial : .refundComplete
 
         case .combinedPayment:
-            let refundChild = groupChildren.first { $0.linkedTransactionKind == .combinedPaymentRefund }
-            if refundChild != nil {
-                return .refundComplete
-            }
-            return nil
+            return combinedPaymentHasActiveRefund(parent, in: state) ? .refundComplete : nil
         }
+    }
+
+    static func combinedPaymentHasActiveRefund(_ parent: LedgerTransaction, in state: LedgerState) -> Bool {
+        state.transactions.contains {
+            $0.parentTransactionID == parent.id &&
+            $0.linkedTransactionKind == .combinedPaymentRefund &&
+            $0.deletedAt == nil
+        }
+    }
+
+    static func combinedPaymentActiveItems(_ parent: LedgerTransaction, in state: LedgerState) -> [LedgerTransaction] {
+        state.transactions.filter {
+            $0.parentTransactionID == parent.id &&
+            $0.linkedTransactionKind == .combinedPaymentItem &&
+            $0.deletedAt == nil
+        }
+    }
+
+    static func combinedPaymentIsRefundable(_ parent: LedgerTransaction, in state: LedgerState) -> Bool {
+        guard parent.groupMode == .combinedPayment, parent.deletedAt == nil else { return false }
+        guard !combinedPaymentHasActiveRefund(parent, in: state) else { return false }
+        return combinedPaymentActiveItems(parent, in: state).count >= 2
     }
 
     /// Sum of posted installment postings for refunding an installment parent.

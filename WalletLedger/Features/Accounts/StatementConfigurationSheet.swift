@@ -25,6 +25,7 @@ struct StatementConfigurationSheet: View {
     let type: StatementType
 
     @State private var selectedMonth: Date = .now
+    @State private var showingMonthPicker = false
     @State private var selectedAccountIDs: Set<UUID> = []
     @State private var isGenerating = false
     @State private var shareItem: ShareSheetItem?
@@ -32,6 +33,12 @@ struct StatementConfigurationSheet: View {
 
     private var primaryActionColor: Color {
         LedgerPalette.primaryAction(for: colorScheme)
+    }
+
+    private var monthFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter
     }
 
     private var activeAccounts: [LedgerAccount] {
@@ -46,8 +53,20 @@ struct StatementConfigurationSheet: View {
         NavigationStack {
             Form {
                 Section("Statement Period") {
-                    DatePicker("Month", selection: $selectedMonth, displayedComponents: [.date])
-                        .datePickerStyle(.compact)
+                    Button {
+                        showingMonthPicker = true
+                    } label: {
+                        HStack {
+                            Text("Month")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text(monthFormatter.string(from: selectedMonth))
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.bold())
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
                 }
 
                 Section {
@@ -70,9 +89,17 @@ struct StatementConfigurationSheet: View {
                                 selectedAccountIDs.insert(account.id)
                             }
                         } label: {
-                            HStack {
+                            HStack(spacing: 8) {
                                 Text(account.name)
                                     .foregroundStyle(.primary)
+                                if account.effectiveIsFrozen {
+                                    Text("Frozen")
+                                        .font(.caption2.weight(.medium))
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.secondary.opacity(0.12), in: Capsule())
+                                }
                                 Spacer()
                                 if selectedAccountIDs.contains(account.id) {
                                     Image(systemName: "checkmark")
@@ -140,6 +167,12 @@ struct StatementConfigurationSheet: View {
             }
             .sheet(item: $shareItem) { item in
                 StatementShareSheet(activityItems: [item.url])
+            }
+            .sheet(isPresented: $showingMonthPicker) {
+                MonthYearPickerSheet(selectedDate: $selectedMonth)
+                    .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
+                    .presentationCornerRadius(28)
             }
             .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }

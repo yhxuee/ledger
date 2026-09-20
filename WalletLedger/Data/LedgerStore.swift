@@ -649,11 +649,63 @@ final class LedgerStore: ObservableObject {
         scheduleSave()
     }
 
+    func freezeAccount(_ id: UUID) {
+        guard let index = state.accounts.firstIndex(where: { $0.id == id && $0.deletedAt == nil }) else { return }
+        var account = state.accounts[index]
+        guard !account.effectiveIsFrozen else { return }
+        undoState = state
+        let now = Date.now
+        account.isFrozen = true
+        account.updatedAt = now
+        account.version += 1
+        account.syncStatus = .pending
+
+        state.accounts.remove(at: index)
+
+        // Move to the end of accounts (or end of frozen accounts, before soft-deleted)
+        let lastNonDeletedIndex = state.accounts.lastIndex(where: { $0.deletedAt == nil }) ?? state.accounts.count - 1
+        let insertIndex = min(lastNonDeletedIndex + 1, state.accounts.count)
+        state.accounts.insert(account, at: insertIndex)
+
+        undoMessage = "Account frozen"
+        scheduleSave()
+    }
+
+    func unfreezeAccount(_ id: UUID) {
+        guard let index = state.accounts.firstIndex(where: { $0.id == id && $0.deletedAt == nil }) else { return }
+        var account = state.accounts[index]
+        guard account.effectiveIsFrozen else { return }
+        undoState = state
+        let now = Date.now
+        account.isFrozen = false
+        account.updatedAt = now
+        account.version += 1
+        account.syncStatus = .pending
+
+        state.accounts.remove(at: index)
+
+        // Place at the end of the ACTIVE section (immediately before the first frozen account, or before deleted)
+        if let firstFrozenIndex = state.accounts.firstIndex(where: { $0.deletedAt == nil && $0.effectiveIsFrozen }) {
+            state.accounts.insert(account, at: firstFrozenIndex)
+        } else {
+            let lastNonDeletedIndex = state.accounts.lastIndex(where: { $0.deletedAt == nil }) ?? state.accounts.count - 1
+            let insertIndex = min(lastNonDeletedIndex + 1, state.accounts.count)
+            state.accounts.insert(account, at: insertIndex)
+        }
+
+        undoMessage = "Account unfrozen"
+        scheduleSave()
+    }
+
     func moveAccounts(from offsets: IndexSet, to destination: Int) {
-        var active = state.accounts.filter { $0.deletedAt == nil }
-        guard destination >= 0, destination <= active.count else { return }
-        active.move(fromOffsets: offsets, toOffset: destination)
-        var newAccounts = active
+        var nonDeleted = state.accounts.filter { $0.deletedAt == nil }
+        guard destination >= 0, destination <= nonDeleted.count else { return }
+        nonDeleted.move(fromOffsets: offsets, toOffset: destination)
+
+        // Enforce active accounts first, then frozen accounts, preserving relative order in each partition
+        let active = nonDeleted.filter { !$0.effectiveIsFrozen }
+        let frozen = nonDeleted.filter { $0.effectiveIsFrozen }
+        var newAccounts = active + frozen
         newAccounts.append(contentsOf: state.accounts.filter { $0.deletedAt != nil })
         state.accounts = newAccounts
         scheduleSave()
@@ -1485,7 +1537,7 @@ extension LedgerStore {
     }
 
     func canAddToCombinedPayment(item: LedgerTransaction, parent: LedgerTransaction) -> Bool {
-        guard parent.groupMode == .combinedPayment, parent.deletedAt == nil, !parent.isEffectivelyCompleted else { return false }
+        guard parent.groupMode == .combinedPayment, parent.deletedAt == nil, !TransactionSemantics.combinedPaymentHasActiveRefund(parent, in: state) else { return false }
         guard item.id != parent.id, item.deletedAt == nil, item.type == .expense else { return false }
         guard item.parentTransactionID == nil, item.groupMode == nil, item.purchaseSessionID == nil else { return false }
         guard item.reversalOfTransactionID == nil, item.reversalTransactionID == nil else { return false }
@@ -1525,8 +1577,69 @@ extension LedgerStore {
         return true
     }
 
+    func canDetachCombinedPaymentChild(childID: UUID) -> Bool {
+        guard let child = state.transactions.first(where: { $0.id == childID && $0.deletedAt == nil }) else { return false }
+        guard child.linkedTransactionKind == .combinedPaymentItem, let parentID = child.parentTransactionID else { return false }
+        guard let parent = state.transactions.first(where: { $0.id == parentID && $0.deletedAt == nil && $0.groupMode == .combinedPayment }) else { return false }
+        guard !TransactionSemantics.combinedPaymentHasActiveRefund(parent, in: state) else { return false }
+        return true
+    }
+
+    @discardableResult
+    func detachCombinedPaymentChild(childID: UUID, now: Date = .now) -> Bool {
+        guard canDetachCombinedPaymentChild(childID: childID) else { return false }
+        guard let childIndex = state.transactions.firstIndex(where: { $0.id == childID }) else { return false }
+        guard let parentID = state.transactions[childIndex].parentTransactionID,
+              let parentIndex = state.transactions.firstIndex(where: { $0.id == parentID }) else { return false }
+
+        undoState = state
+
+        // Detach child: restore to standalone transaction
+        state.transactions[childIndex].parentTransactionID = nil
+        state.transactions[childIndex].linkedTransactionKind = nil
+        state.transactions[childIndex].linkedTransactionIndex = nil
+        state.transactions[childIndex].linkedStatus = nil
+        state.transactions[childIndex].updatedAt = now
+        state.transactions[childIndex].version += 1
+        state.transactions[childIndex].syncStatus = .pending
+
+        let remainingChildren = state.transactions.filter {
+            $0.parentTransactionID == parentID && $0.linkedTransactionKind == .combinedPaymentItem && $0.deletedAt == nil
+        }
+
+        if remainingChildren.count >= 2 {
+            let parentCurrency = state.transactions[parentIndex].currency
+            let newAmount = remainingChildren.reduce(0.0) { sum, child in
+                sum + LedgerCalculations.convert(child.recognizedExpenseAmount, from: child.currency, to: parentCurrency, rates: state.settings.rates)
+            }
+            state.transactions[parentIndex].amount = newAmount
+            state.transactions[parentIndex].occurredAt = remainingChildren.map(\.occurredAt).max() ?? state.transactions[parentIndex].occurredAt
+            state.transactions[parentIndex].updatedAt = now
+            state.transactions[parentIndex].version += 1
+            state.transactions[parentIndex].syncStatus = .pending
+        } else if remainingChildren.count == 1 {
+            // Auto-dissolve group: remaining child becomes standalone, synthetic parent soft-deleted
+            if let lastChildIndex = state.transactions.firstIndex(where: { $0.id == remainingChildren[0].id }) {
+                state.transactions[lastChildIndex].parentTransactionID = nil
+                state.transactions[lastChildIndex].linkedTransactionKind = nil
+                state.transactions[lastChildIndex].linkedTransactionIndex = nil
+                state.transactions[lastChildIndex].linkedStatus = nil
+                state.transactions[lastChildIndex].updatedAt = now
+                state.transactions[lastChildIndex].version += 1
+                state.transactions[lastChildIndex].syncStatus = .pending
+            }
+            markDeleted(at: parentIndex, date: now)
+        } else {
+            markDeleted(at: parentIndex, date: now)
+        }
+
+        undoMessage = "Transaction detached from Combined Payment"
+        scheduleSave()
+        return true
+    }
+
     func ungroupCombinedPayment(_ parent: LedgerTransaction) {
-        guard parent.groupMode == .combinedPayment, parent.deletedAt == nil, !parent.isEffectivelyCompleted else { return }
+        guard parent.groupMode == .combinedPayment, parent.deletedAt == nil, !TransactionSemantics.combinedPaymentHasActiveRefund(parent, in: state) else { return }
         guard let parentIndex = state.transactions.firstIndex(where: { $0.id == parent.id }) else { return }
         undoState = state
         let now = Date.now
@@ -1553,7 +1666,7 @@ extension LedgerStore {
     func refundCombinedPayment(parentID: UUID, now: Date = .now) -> Bool {
         guard let parentIndex = state.transactions.firstIndex(where: { $0.id == parentID && $0.deletedAt == nil }) else { return false }
         let parent = state.transactions[parentIndex]
-        guard parent.groupMode == .combinedPayment, !parent.isEffectivelyCompleted else { return false }
+        guard TransactionSemantics.combinedPaymentIsRefundable(parent, in: state) else { return false }
         let children = state.transactions.filter {
             $0.parentTransactionID == parent.id && $0.linkedTransactionKind == .combinedPaymentItem && $0.deletedAt == nil
         }

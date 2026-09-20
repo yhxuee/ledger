@@ -114,19 +114,27 @@ enum LedgerCalculations {
         activeAccounts(state).map { .init(account: $0, balance: balance(for: $0, in: state)) }
     }
 
+    static func portfolioAccounts(_ state: LedgerState) -> [LedgerAccount] {
+        activeAccounts(state).filter { !$0.effectiveIsFrozen }
+    }
+
     static func portfolioBalance(_ state: LedgerState, target: CurrencyCode? = nil) -> Double {
         let currency = target ?? state.settings.baseCurrency
-        return accountViews(state).reduce(0) { $0 + convert($1.balance, from: $1.account.currency, to: currency, rates: state.settings.rates) }
+        return accountViews(state)
+            .filter { !$0.account.effectiveIsFrozen }
+            .reduce(0) { $0 + convert($1.balance, from: $1.account.currency, to: currency, rates: state.settings.rates) }
     }
 
     static func portfolioSummary(_ state: LedgerState, target: CurrencyCode? = nil) -> (netWorth: Double, assets: Double, liabilities: Double) {
         let currency = target ?? state.settings.baseCurrency
-        return accountViews(state).reduce(into: (netWorth: 0.0, assets: 0.0, liabilities: 0.0)) { result, item in
-            let value = convert(item.balance, from: item.account.currency, to: currency, rates: state.settings.rates)
-            result.netWorth += value
-            if value >= 0 { result.assets += value }
-            else { result.liabilities += abs(value) }
-        }
+        return accountViews(state)
+            .filter { !$0.account.effectiveIsFrozen }
+            .reduce(into: (netWorth: 0.0, assets: 0.0, liabilities: 0.0)) { result, item in
+                let value = convert(item.balance, from: item.account.currency, to: currency, rates: state.settings.rates)
+                result.netWorth += value
+                if value >= 0 { result.assets += value }
+                else { result.liabilities += abs(value) }
+            }
     }
 
     static func budgetUsage(_ state: LedgerState, now: Date = .now) -> (budget: Double, spent: Double, ratio: Double) {

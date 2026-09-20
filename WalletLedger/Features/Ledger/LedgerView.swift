@@ -14,6 +14,7 @@ struct LedgerView: View {
     @State private var calendarDay = Date.now
     @State private var hasCalendarDay = false
     @State private var revealedTransactionID: UUID? = nil
+    @State private var isDetachDropTargeted = false
 
     private var filtered: [LedgerTransaction] {
         store.activeTransactions.filter { item in
@@ -92,6 +93,37 @@ struct LedgerView: View {
                 }
             }
             .padding(.bottom, 16)
+        }
+        .dropDestination(for: String.self) { items, _ in
+            guard let firstStr = items.first, let childID = UUID(uuidString: firstStr) else { return false }
+            if store.canDetachCombinedPaymentChild(childID: childID) {
+                let success = store.detachCombinedPaymentChild(childID: childID)
+                if success {
+                    HapticFeedback.notification(type: .success, enabled: preferences.value.hapticFeedbackEnabled)
+                }
+                return success
+            }
+            return false
+        } isTargeted: { targeted in
+            withAnimation(.snappy(duration: 0.2)) {
+                isDetachDropTargeted = targeted
+            }
+        }
+        .overlay(alignment: .top) {
+            if isDetachDropTargeted {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                        .font(.caption.weight(.semibold))
+                    Text("Drop to remove from Combined Payment")
+                        .font(.caption.weight(.medium))
+                }
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .ledgerGlass(interactive: false, in: Capsule())
+                .padding(.top, 12)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
         .environment(\.revealedTransactionID, $revealedTransactionID)
         .background(LedgerBackground())

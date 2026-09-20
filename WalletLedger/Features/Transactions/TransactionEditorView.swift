@@ -173,7 +173,12 @@ struct TransactionEditorView: View {
         }
     }
 
-    private var activeAccounts: [LedgerAccount] { store.accounts.map(\.account).filter { original?.linkedTransactionKind != .installment || $0.type == .credit } }
+    private var activeAccounts: [LedgerAccount] {
+        store.accounts.map(\.account).filter { acc in
+            let available = acc.isAvailableForNewTransactions || acc.id == original?.accountID || acc.id == original?.destinationAccountID
+            return available && (original?.linkedTransactionKind != .installment || acc.type == .credit)
+        }
+    }
     private var canSave: Bool { abs(amount) > 0 && accountID != nil && (type != .transfer || (destinationID != nil && (destinationID != accountID || (isInternalTransfer && internalDestinationCurrency != nil && currency != internalDestinationCurrency)))) }
     private var hasNote: Bool {
         !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || noteImage != nil || noteAttachmentID != nil

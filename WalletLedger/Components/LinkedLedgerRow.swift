@@ -416,7 +416,7 @@ struct LinkedLedgerRow: View {
                     )
                 ]
             } else if parent.groupMode == .combinedPayment {
-                if !parent.isEffectivelyCompleted {
+                if TransactionSemantics.combinedPaymentIsRefundable(parent, in: store.state) {
                     return [
                         SwipeActionItem(
                             id: "refund",
@@ -728,7 +728,7 @@ struct LinkedLedgerRow: View {
         )
     }
 
-    private var isDraggable: Bool {
+    private var isStandaloneExpenseDraggable: Bool {
         parent.type == .expense &&
         parent.deletedAt == nil &&
         parent.parentTransactionID == nil &&
@@ -738,10 +738,23 @@ struct LinkedLedgerRow: View {
         parent.reversalTransactionID == nil
     }
 
+    private var isDetachableCombinedPaymentChild: Bool {
+        guard parent.linkedTransactionKind == .combinedPaymentItem,
+              let parentID = parent.parentTransactionID,
+              parent.deletedAt == nil else { return false }
+        guard let groupParent = store.state.transactions.first(where: { $0.id == parentID && $0.deletedAt == nil }) else { return false }
+        return !TransactionSemantics.combinedPaymentHasActiveRefund(groupParent, in: store.state)
+    }
+
+    private var isDraggable: Bool {
+        isStandaloneExpenseDraggable || isDetachableCombinedPaymentChild
+    }
+
     private func handleDrop(items: [String]) -> Bool {
         guard let firstStr = items.first, let draggedID = UUID(uuidString: firstStr), draggedID != parent.id else { return false }
         guard let dragged = store.state.transactions.first(where: { $0.id == draggedID && $0.deletedAt == nil }) else { return false }
         if isGroupParent && parent.groupMode == .combinedPayment {
+            if dragged.parentTransactionID == parent.id { return false }
             let success = store.addTransactionToCombinedPayment(dragged, into: parent)
             if success {
                 HapticFeedback.selection(enabled: preferences.value.hapticFeedbackEnabled)
@@ -895,7 +908,7 @@ struct LinkedLedgerRow: View {
                     Label("Edit Installment Plan", systemImage: "calendar.badge.clock")
                 }
             } else if mode == .combinedPayment {
-                if !parent.isEffectivelyCompleted {
+                if !TransactionSemantics.combinedPaymentHasActiveRefund(parent, in: store.state) {
                     Button {
                         store.ungroupCombinedPayment(parent)
                     } label: {

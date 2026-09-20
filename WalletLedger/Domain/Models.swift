@@ -294,16 +294,21 @@ struct LedgerAccount: Identifiable, Codable, Hashable, Sendable {
     var currencyPockets: [AccountCurrencyPocket] = []
     var stockMetadata: StockMetadata? = nil
     var coupons: [WalletCoupon]? = []
+    var isFrozen: Bool? = nil
     var createdAt: Date
     var updatedAt: Date
     var deletedAt: Date?
     var version: Int
     var syncStatus: SyncStatus
 
+    var effectiveIsFrozen: Bool { isFrozen ?? false }
+    var isAvailableForNewTransactions: Bool { deletedAt == nil && !effectiveIsFrozen }
+
     enum CodingKeys: String, CodingKey {
         case id, userID, name, type, currency, openingBalance, budget, includeInBudget, logo, cardStyle
         case cardImageData, loanMetadata, isMultiCurrency, currencyPockets, stockMetadata
         case coupons
+        case isFrozen
         case createdAt, updatedAt, deletedAt, version, syncStatus
     }
 
@@ -383,6 +388,7 @@ extension LedgerAccount {
         currencyPockets = try container.decodeIfPresent([AccountCurrencyPocket].self, forKey: .currencyPockets) ?? []
         stockMetadata = try container.decodeIfPresent(StockMetadata.self, forKey: .stockMetadata)
         coupons = try container.decodeIfPresent([WalletCoupon].self, forKey: .coupons) ?? []
+        isFrozen = try container.decodeIfPresent(Bool.self, forKey: .isFrozen)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         deletedAt = try container.decodeIfPresent(Date.self, forKey: .deletedAt)

@@ -44,8 +44,15 @@ struct DefaultExpenseAccountsView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    private var availableAccounts: [AccountViewModel] {
+        store.accounts.filter { $0.account.isAvailableForNewTransactions }
+    }
+
     private func categoryRow(_ category: LedgerCategory) -> some View {
-        HStack(alignment: .center, spacing: 10) {
+        let mappedID = store.state.settings.defaultExpenseAccountByCategory[category.id]
+        let mappedAccount = mappedID.flatMap { id in store.state.accounts.first(where: { $0.id == id && $0.deletedAt == nil }) }
+
+        return HStack(alignment: .center, spacing: 10) {
             CategoryIcon(
                 category: category,
                 font: .system(size: 17, weight: .semibold)
@@ -55,22 +62,54 @@ struct DefaultExpenseAccountsView: View {
             Text(category.name)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Picker(selection: mappingBinding(category.id)) {
-                Text("No Default").tag(Optional<UUID>.none)
-                ForEach(store.accounts) { item in Text(item.account.name).tag(Optional(item.id)) }
+            Menu {
+                Button {
+                    store.updateSettings { $0.defaultExpenseAccountByCategory[category.id] = nil }
+                } label: {
+                    if mappedID == nil {
+                        Label("No Default", systemImage: "checkmark")
+                    } else {
+                        Text("No Default")
+                    }
+                }
+
+                ForEach(availableAccounts) { item in
+                    Button {
+                        store.updateSettings { $0.defaultExpenseAccountByCategory[category.id] = item.id }
+                    } label: {
+                        if mappedID == item.id {
+                            Label(item.account.name, systemImage: "checkmark")
+                        } else {
+                            Text(item.account.name)
+                        }
+                    }
+                }
             } label: {
-                EmptyView()
+                HStack(spacing: 5) {
+                    if let mappedAccount {
+                        Text(mappedAccount.logo)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(mappedAccount.effectiveIsFrozen ? .secondary : .primary)
+                        if mappedAccount.effectiveIsFrozen {
+                            Text("Frozen")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Color.secondary.opacity(0.12), in: Capsule())
+                        }
+                    } else {
+                        Text("No Default")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
-            .pickerStyle(.menu)
-            .labelsHidden()
         }
         .frame(minHeight: 50)
-    }
-
-    private func mappingBinding(_ categoryID: LedgerCategoryID) -> Binding<UUID?> {
-        Binding(get: { store.state.settings.defaultExpenseAccountByCategory[categoryID] }, set: { accountID in
-            store.updateSettings { $0.defaultExpenseAccountByCategory[categoryID] = accountID }
-        })
     }
 }
 

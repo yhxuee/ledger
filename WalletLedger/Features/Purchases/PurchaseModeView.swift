@@ -141,7 +141,7 @@ struct PurchaseSessionEditorView: View {
                             if let id = session.accountID, !store.accounts.contains(where: { $0.id == id }) {
                                 Text("Account unavailable").tag(Optional(id))
                             }
-                            ForEach(store.accounts) { account in
+                            ForEach(store.accounts.filter { $0.account.isAvailableForNewTransactions || $0.id == session.accountID }) { account in
                                 Text("\(account.account.name) · \(account.account.currency.rawValue)").tag(Optional(account.id))
                             }
                         }
@@ -277,8 +277,9 @@ struct PurchaseSessionEditorView: View {
             .onAppear {
                 guard !initialized else { return }
                 if isNew {
-                    session.accountID = store.accounts.first?.id
-                    session.currency = store.accounts.first?.account.currency ?? store.state.settings.baseCurrency
+                    let firstAvailable = store.accounts.first(where: { $0.account.isAvailableForNewTransactions })
+                    session.accountID = firstAvailable?.id
+                    session.currency = firstAvailable?.account.currency ?? store.state.settings.baseCurrency
                 }
                 session.ledgerBookID = store.activeBookID
                 session.normalizeSections()

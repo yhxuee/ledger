@@ -101,6 +101,30 @@ struct AccountsView: View {
                                     isReordering = true
                                 }
                             }
+                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                if item.account.effectiveIsFrozen {
+                                    Button {
+                                        store.unfreezeAccount(item.id)
+                                    } label: {
+                                        Label("Unfreeze", systemImage: "play.circle")
+                                    }
+                                    .tint(.blue)
+                                } else {
+                                    Button {
+                                        store.freezeAccount(item.id)
+                                    } label: {
+                                        Label("Freeze", systemImage: "pause.circle")
+                                    }
+                                    .tint(.indigo)
+                                }
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    deleting = item.account
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                             .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
@@ -191,7 +215,20 @@ struct AccountsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 14) {
                 Text(item.account.logo).font(.caption.bold()).frame(width: 42, height: 42).background(LinearGradient(colors: [Color(hex: item.account.cardStyle.startHex), Color(hex: item.account.cardStyle.endHex)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 12))
-                VStack(alignment: .leading) { Text(item.account.name).font(.headline).lineLimit(1); Text(item.account.metadataLine).font(.caption).foregroundStyle(.secondary) }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(item.account.name).font(.headline).lineLimit(1)
+                        if item.account.effectiveIsFrozen {
+                            Text("Frozen")
+                                .font(.caption2.weight(.medium))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.secondary.opacity(0.15), in: Capsule())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Text(item.account.metadataLine).font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
                 SensitiveMoneyText(amount: item.balance, currency: item.account.currency, maxIntegerDigits: 4).font(.headline.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.85)
                     .frame(minWidth: LedgerAmountWidth.row, alignment: .trailing)
@@ -203,7 +240,10 @@ struct AccountsView: View {
             if item.account.type == .stocks, let stock = item.account.stockMetadata {
                 StockValuationView(stock: stock).font(.subheadline)
             }
-        }.padding(15).ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .padding(15)
+        .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .opacity(item.account.effectiveIsFrozen ? 0.7 : 1.0)
     }
 }
 

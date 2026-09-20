@@ -7,16 +7,38 @@ enum StatementType: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+enum StatementError: LocalizedError {
+    case invalidDateRange
+    case noDataAvailable
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidDateRange: return "The selected date range is invalid."
+        case .noDataAvailable: return "No records were found for the selected accounts and period."
+        }
+    }
+}
+
 enum StatementPDFGenerator {
     // Standard A4 dimensions in points (72 pt/inch)
-    static let pageWidth: CGFloat = 595.2
-    static let pageHeight: CGFloat = 841.8
-    static let pageRect = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
+    static let portraitWidth: CGFloat = 595.2
+    static let portraitHeight: CGFloat = 841.8
+
+    static let landscapeWidth: CGFloat = 841.8
+    static let landscapeHeight: CGFloat = 595.2
+
     static let margin: CGFloat = 36
-    static let contentWidth: CGFloat = pageWidth - (margin * 2)
     static let footerHeight: CGFloat = 46
 
+    // Fixed print-safe colors for document rendering (independent of trait environment / Dark Mode)
+    private static let textColor = UIColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 1.0)
+    private static let secondaryTextColor = UIColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1.0)
+    private static let ruleColor = UIColor(red: 0.85, green: 0.85, blue: 0.85, alpha: 1.0)
+    private static let tableHeaderBgColor = UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0)
+    private static let alternateRowBgColor = UIColor(red: 0.985, green: 0.985, blue: 0.985, alpha: 1.0)
+
     private static let mandatoryDisclaimer = "Disclaimer: Finsy is a personal bookkeeping tool and is NOT a bank, financial institution, or licensed tax advisor. This statement is generated solely from user-entered records for informational and personal budgeting purposes only."
+    private static let taxDisclaimer = "Disclaimer: Finsy is a personal bookkeeping tool and is NOT a bank, financial institution, or licensed tax advisor. This statement is generated solely from user-entered records for informational and personal budgeting purposes only. This document does not constitute official tax advice."
 
     struct AccountMonthlySummary: Sendable {
         let account: LedgerAccount
@@ -28,33 +50,58 @@ enum StatementPDFGenerator {
 
     struct TaxItem: Sendable {
         let transaction: LedgerTransaction
+        let accountName: String
         let categoryName: String
-        let taxAmount: Double
+        let note: String
+        let grossAmount: Double
         let taxBase: Double
         let rate: Double
+        let taxAmount: Double
+        let status: String
+    }
+
+    // MARK: - Date Helpers
+
+    private static func periodEnd(for startOfMonth: Date, calendar: Calendar, now: Date) -> Date {
+        guard let endOfMonth = calendar.date(byAdding: DateComponents(month: 1, second: -1), to: startOfMonth) else {
+            return now
+        }
+        if calendar.isDate(startOfMonth, equalTo: now, toGranularity: .month) {
+            return now
+        } else {
+            return endOfMonth
+        }
+    }
+
+    private static func formatPeriodString(startOfMonth: Date, periodEnd: Date, calendar: Calendar, now: Date) -> String {
+        let monthFormatter = DateFormatter()
+        monthFormatter.dateFormat = "MMMM"
+        let monthName = monthFormatter.string(from: startOfMonth)
+        let year = calendar.component(.year, from: startOfMonth)
+
+        let startDay = 1
+        let endDay = calendar.component(.day, from: periodEnd)
+        return "\(monthName) \(startDay)–\(endDay), \(year)"
     }
 
     // MARK: - Entry Points
 
-    static func generateMonthlyStatement(monthDate: Date, accounts: [LedgerAccount], in state: LedgerState) throws -> URL {
+    static func generateMonthlyStatement(monthDate: Date, accounts: [LedgerAccount], in state: LedgerState, now: Date = .now) throws -> URL {
         let calendar = Calendar.current
-        guard let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: monthDate)),
-              let endOfMonth = calendar.date(byAdding: DateComponents(month: 1, day: -1, hour: 23, minute: 59, second: 59), to: startOfMonth) else {
+        guard let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: monthDate)) else {
             throw StatementError.invalidDateRange
         }
-
-        let monthFormatter = DateFormatter()
-        monthFormatter.dateFormat = "MMMM yyyy"
-        let monthString = monthFormatter.string(from: startOfMonth)
+        let cutoffEnd = periodEnd(for: startOfMonth, calendar: calendar, now: now)
+        let periodString = formatPeriodString(startOfMonth: startOfMonth, periodEnd: cutoffEnd, calendar: calendar, now: now)
 
         let safeAccounts = accounts.filter { $0.deletedAt == nil }
         let accountIDs = Set(safeAccounts.map(\.id))
 
-        // Collect transactions for this month
+        // Collect transactions for this month through cutoffEnd
         let allTransactions = state.transactions.filter {
             $0.deletedAt == nil &&
             $0.occurredAt >= startOfMonth &&
-            $0.occurredAt <= endOfMonth &&
+            $0.occurredAt <= cutoffEnd &&
             (accountIDs.contains($0.accountID) || ($0.destinationAccountID != nil && accountIDs.contains($0.destinationAccountID!))) &&
             TransactionSemantics.posts($0)
         }.sorted { $0.occurredAt < $1.occurredAt }
@@ -92,6 +139,9 @@ enum StatementPDFGenerator {
             ))
         }
 
+        let pageRect = CGRect(x: 0, y: 0, width: portraitWidth, height: portraitHeight)
+        let contentWidth = portraitWidth - (margin * 2)
+
         let renderer = UIGraphicsPDFRenderer(bounds: pageRect)
         let pdfData = renderer.pdfData { context in
             var pageIndex = 1
@@ -99,11 +149,22 @@ enum StatementPDFGenerator {
 
             func startNewPage() {
                 if pageIndex > 1 {
-                    drawFooter(pageNumber: pageIndex - 1)
+                    drawFooter(pageNumber: pageIndex - 1, totalWidth: portraitWidth, totalHeight: portraitHeight, disclaimer: mandatoryDisclaimer)
                 }
                 context.beginPage()
+                // Explicitly fill page with white background for print and dark-mode immunity
+                UIColor.white.setFill()
+                UIRectFill(pageRect)
+
                 yOffset = margin
-                drawHeader(title: "FINSY MONTHLY STATEMENT", subtitle: "Period: \(monthString)", date: Date.now, accounts: safeAccounts, yOffset: &yOffset)
+                drawHeader(
+                    title: "FINSY MONTHLY STATEMENT",
+                    subtitle: "Period: \(periodString)",
+                    date: now,
+                    accounts: safeAccounts,
+                    pageWidth: portraitWidth,
+                    yOffset: &yOffset
+                )
                 pageIndex += 1
             }
 
@@ -111,25 +172,33 @@ enum StatementPDFGenerator {
 
             // 1. Account Summary Section
             drawSectionTitle("Account Summary", yOffset: &yOffset)
-            drawAccountSummaryTable(summaries: summaries, yOffset: &yOffset)
+            drawAccountSummaryTable(summaries: summaries, contentWidth: contentWidth, yOffset: &yOffset)
 
-            yOffset += 16
+            yOffset += 18
 
             // 2. Transaction Detail Section
             drawSectionTitle("Transaction Records (\(allTransactions.count))", yOffset: &yOffset)
-            drawTransactionTableHeader(yOffset: &yOffset)
+            drawTransactionTableHeader(contentWidth: contentWidth, yOffset: &yOffset)
 
-            for transaction in allTransactions {
-                // If row doesn't fit on this page, start new page
-                if yOffset + 24 > pageHeight - margin - footerHeight {
+            for (idx, transaction) in allTransactions.enumerated() {
+                let note = transaction.note ?? (transaction.type == .transfer ? "Transfer" : "")
+                let estimatedRowHeight: CGFloat = note.count > 30 ? 28 : 20
+                if yOffset + estimatedRowHeight > portraitHeight - margin - footerHeight {
                     startNewPage()
                     drawSectionTitle("Transaction Records (Continued)", yOffset: &yOffset)
-                    drawTransactionTableHeader(yOffset: &yOffset)
+                    drawTransactionTableHeader(contentWidth: contentWidth, yOffset: &yOffset)
                 }
-                drawTransactionRow(transaction: transaction, in: state, yOffset: &yOffset)
+                drawTransactionRow(
+                    transaction: transaction,
+                    in: state,
+                    contentWidth: contentWidth,
+                    rowHeight: estimatedRowHeight,
+                    isAlternate: idx % 2 == 1,
+                    yOffset: &yOffset
+                )
             }
 
-            drawFooter(pageNumber: pageIndex - 1)
+            drawFooter(pageNumber: pageIndex - 1, totalWidth: portraitWidth, totalHeight: portraitHeight, disclaimer: mandatoryDisclaimer)
         }
 
         let filename = "Finsy_Monthly_Statement_\(calendar.component(.year, from: startOfMonth))_\(calendar.component(.month, from: startOfMonth)).pdf"
@@ -138,16 +207,13 @@ enum StatementPDFGenerator {
         return tempURL
     }
 
-    static func generateTaxStatement(monthDate: Date, accounts: [LedgerAccount], in state: LedgerState) throws -> URL {
+    static func generateTaxStatement(monthDate: Date, accounts: [LedgerAccount], in state: LedgerState, now: Date = .now) throws -> URL {
         let calendar = Calendar.current
-        guard let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: monthDate)),
-              let endOfMonth = calendar.date(byAdding: DateComponents(month: 1, day: -1, hour: 23, minute: 59, second: 59), to: startOfMonth) else {
+        guard let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: monthDate)) else {
             throw StatementError.invalidDateRange
         }
-
-        let monthFormatter = DateFormatter()
-        monthFormatter.dateFormat = "MMMM yyyy"
-        let monthString = monthFormatter.string(from: startOfMonth)
+        let cutoffEnd = periodEnd(for: startOfMonth, calendar: calendar, now: now)
+        let periodString = formatPeriodString(startOfMonth: startOfMonth, periodEnd: cutoffEnd, calendar: calendar, now: now)
 
         let safeAccounts = accounts.filter { $0.deletedAt == nil }
         let accountIDs = Set(safeAccounts.map(\.id))
@@ -155,31 +221,62 @@ enum StatementPDFGenerator {
 
         // Collect tax transactions using TransactionSemantics.taxEffect
         var taxItems: [TaxItem] = []
-        var categoryTotals: [String: (base: Double, tax: Double)] = [:]
+        var categoryTotals: [String: (base: Double, tax: Double, count: Int)] = [:]
 
         let candidateTransactions = state.transactions.filter {
             $0.deletedAt == nil &&
             $0.occurredAt >= startOfMonth &&
-            $0.occurredAt <= endOfMonth &&
+            $0.occurredAt <= cutoffEnd &&
             accountIDs.contains($0.accountID)
         }.sorted { $0.occurredAt < $1.occurredAt }
 
-        for t in candidateTransactions {
-            if let effect = TransactionSemantics.taxEffect(t, in: state, to: targetCurrency) {
-                let cat = state.categories.first { $0.id == effect.categoryID }?.name ?? "General"
-                let base = t.taxBaseAmount ?? (t.amount - (t.taxAmount ?? 0))
-                let rate = t.taxRate ?? state.settings.taxRate(for: state.categories.first { $0.id == effect.categoryID } ?? SeedData.expenseCategories[0])
-                taxItems.append(TaxItem(transaction: t, categoryName: cat, taxAmount: effect.amount, taxBase: base, rate: rate))
-
-                var current = categoryTotals[cat] ?? (0, 0)
-                current.base += base
-                current.tax += effect.amount
-                categoryTotals[cat] = current
+        for transaction in candidateTransactions {
+            // Check semantic tax effect
+            guard let taxResult = TransactionSemantics.taxEffect(transaction, in: state, to: targetCurrency, now: now),
+                  taxResult.taxAmount > 0 || taxResult.taxBaseAmount > 0 else {
+                continue
             }
+
+            let catName = state.categories.first { $0.id == transaction.categoryID }?.name ?? "General"
+            let accName = safeAccounts.first { $0.id == transaction.accountID }?.name ?? "Account"
+            let note = transaction.note ?? ""
+            let rate = transaction.taxRate ?? 0
+
+            var status = "Taxable"
+            if transaction.isTaxExempt == true {
+                status = "Tax-Free"
+            } else if transaction.isReversal {
+                status = "Refund Support"
+            } else if transaction.groupMode == .combinedPayment {
+                status = "Combined"
+            }
+
+            taxItems.append(TaxItem(
+                transaction: transaction,
+                accountName: accName,
+                categoryName: catName,
+                note: note,
+                grossAmount: transaction.amount,
+                taxBase: taxResult.taxBaseAmount,
+                rate: rate,
+                taxAmount: taxResult.taxAmount,
+                status: status
+            ))
+
+            let current = categoryTotals[catName, default: (base: 0, tax: 0, count: 0)]
+            categoryTotals[catName] = (
+                base: current.base + taxResult.taxBaseAmount,
+                tax: current.tax + taxResult.taxAmount,
+                count: current.count + 1
+            )
         }
 
-        let totalBase = taxItems.reduce(0.0) { $0 + $1.taxBase }
-        let totalTax = taxItems.reduce(0.0) { $0 + $1.taxAmount }
+        let totalBase = categoryTotals.values.reduce(0.0) { $0 + $1.base }
+        let totalTax = categoryTotals.values.reduce(0.0) { $0 + $1.tax }
+
+        // Render Tax Statement in A4 Landscape for optimal 9-column legibility
+        let pageRect = CGRect(x: 0, y: 0, width: landscapeWidth, height: landscapeHeight)
+        let contentWidth = landscapeWidth - (margin * 2)
 
         let renderer = UIGraphicsPDFRenderer(bounds: pageRect)
         let pdfData = renderer.pdfData { context in
@@ -188,11 +285,22 @@ enum StatementPDFGenerator {
 
             func startNewPage() {
                 if pageIndex > 1 {
-                    drawFooter(pageNumber: pageIndex - 1)
+                    drawFooter(pageNumber: pageIndex - 1, totalWidth: landscapeWidth, totalHeight: landscapeHeight, disclaimer: taxDisclaimer)
                 }
                 context.beginPage()
+                // Explicit white background
+                UIColor.white.setFill()
+                UIRectFill(pageRect)
+
                 yOffset = margin
-                drawHeader(title: "FINSY MONTHLY TAX STATEMENT", subtitle: "Period: \(monthString) · Currency: \(targetCurrency.rawValue)", date: Date.now, accounts: safeAccounts, yOffset: &yOffset)
+                drawHeader(
+                    title: "FINSY MONTHLY TAX STATEMENT",
+                    subtitle: "Period: \(periodString) · Currency: \(targetCurrency.rawValue)",
+                    date: now,
+                    accounts: safeAccounts,
+                    pageWidth: landscapeWidth,
+                    yOffset: &yOffset
+                )
                 pageIndex += 1
             }
 
@@ -200,24 +308,32 @@ enum StatementPDFGenerator {
 
             // 1. Tax Summary by Category
             drawSectionTitle("Tax Summary by Category", yOffset: &yOffset)
-            drawTaxCategorySummaryTable(categoryTotals: categoryTotals, totalBase: totalBase, totalTax: totalTax, currency: targetCurrency, yOffset: &yOffset)
+            drawTaxCategorySummaryTable(categoryTotals: categoryTotals, totalBase: totalBase, totalTax: totalTax, currency: targetCurrency, contentWidth: contentWidth, yOffset: &yOffset)
 
-            yOffset += 16
+            yOffset += 18
 
             // 2. Tax Transactions
             drawSectionTitle("Tax-Recognized Records (\(taxItems.count))", yOffset: &yOffset)
-            drawTaxTableHeader(yOffset: &yOffset)
+            drawTaxTableHeader(contentWidth: contentWidth, yOffset: &yOffset)
 
-            for item in taxItems {
-                if yOffset + 24 > pageHeight - margin - footerHeight {
+            for (idx, item) in taxItems.enumerated() {
+                let estimatedRowHeight: CGFloat = item.note.count > 30 ? 28 : 20
+                if yOffset + estimatedRowHeight > landscapeHeight - margin - footerHeight {
                     startNewPage()
                     drawSectionTitle("Tax-Recognized Records (Continued)", yOffset: &yOffset)
-                    drawTaxTableHeader(yOffset: &yOffset)
+                    drawTaxTableHeader(contentWidth: contentWidth, yOffset: &yOffset)
                 }
-                drawTaxRow(item: item, in: state, yOffset: &yOffset)
+                drawTaxRow(
+                    item: item,
+                    in: state,
+                    contentWidth: contentWidth,
+                    rowHeight: estimatedRowHeight,
+                    isAlternate: idx % 2 == 1,
+                    yOffset: &yOffset
+                )
             }
 
-            drawFooter(pageNumber: pageIndex - 1)
+            drawFooter(pageNumber: pageIndex - 1, totalWidth: landscapeWidth, totalHeight: landscapeHeight, disclaimer: taxDisclaimer)
         }
 
         let filename = "Finsy_Tax_Statement_\(calendar.component(.year, from: startOfMonth))_\(calendar.component(.month, from: startOfMonth)).pdf"
@@ -251,18 +367,18 @@ enum StatementPDFGenerator {
 
     // MARK: - Drawing Components
 
-    private static func drawHeader(title: String, subtitle: String, date: Date, accounts: [LedgerAccount], yOffset: inout CGFloat) {
+    private static func drawHeader(title: String, subtitle: String, date: Date, accounts: [LedgerAccount], pageWidth: CGFloat, yOffset: inout CGFloat) {
         let titleAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 18, weight: .bold),
-            .foregroundColor: UIColor.label
+            .font: UIFont.systemFont(ofSize: 21, weight: .bold),
+            .foregroundColor: textColor
         ]
         let subAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 10, weight: .semibold),
-            .foregroundColor: UIColor.secondaryLabel
+            .font: UIFont.systemFont(ofSize: 10.5, weight: .semibold),
+            .foregroundColor: secondaryTextColor
         ]
         let dateAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 9, weight: .regular),
-            .foregroundColor: UIColor.tertiaryLabel
+            .font: UIFont.systemFont(ofSize: 8.5, weight: .regular),
+            .foregroundColor: secondaryTextColor
         ]
 
         title.draw(at: CGPoint(x: margin, y: yOffset), withAttributes: titleAttrs)
@@ -273,123 +389,159 @@ enum StatementPDFGenerator {
         let dateSize = (dateStr as NSString).size(withAttributes: dateAttrs)
         dateStr.draw(at: CGPoint(x: pageWidth - margin - dateSize.width, y: yOffset + 4), withAttributes: dateAttrs)
 
-        yOffset += 22
+        yOffset += 24
         subtitle.draw(at: CGPoint(x: margin, y: yOffset), withAttributes: subAttrs)
 
         let accountNames = accounts.map(\.name).joined(separator: ", ")
         let accStr = "Accounts (\(accounts.count)): \(accountNames)"
         let accSize = (accStr as NSString).size(withAttributes: dateAttrs)
-        accStr.draw(at: CGPoint(x: pageWidth - margin - min(accSize.width, 240), y: yOffset), withAttributes: dateAttrs)
+        let maxAccWidth: CGFloat = min(accSize.width, pageWidth * 0.45)
+        accStr.draw(in: CGRect(x: pageWidth - margin - maxAccWidth, y: yOffset, width: maxAccWidth, height: 14), withAttributes: dateAttrs)
 
         yOffset += 18
 
         // Divider
-        let path = UIBezierPath()
-        path.move(to: CGPoint(x: margin, y: yOffset))
-        path.addLine(to: CGPoint(x: pageWidth - margin, y: yOffset))
-        UIColor.separator.setStroke()
-        path.lineWidth = 1
-        path.stroke()
-
+        drawHLine(y: yOffset, width: pageWidth - (margin * 2))
         yOffset += 12
     }
 
     private static func drawSectionTitle(_ title: String, yOffset: inout CGFloat) {
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 12, weight: .bold),
-            .foregroundColor: UIColor.label
+            .font: UIFont.systemFont(ofSize: 13, weight: .bold),
+            .foregroundColor: textColor
         ]
         title.draw(at: CGPoint(x: margin, y: yOffset), withAttributes: attrs)
-        yOffset += 16
+        yOffset += 18
     }
 
-    private static func drawAccountSummaryTable(summaries: [AccountMonthlySummary], yOffset: inout CGFloat) {
-        // Headers
-        let colWidths: [CGFloat] = [130, 60, 80, 80, 80, 93]
+    // MARK: - Monthly Statement Tables
+
+    private static func drawAccountSummaryTable(summaries: [AccountMonthlySummary], contentWidth: CGFloat, yOffset: inout CGFloat) {
+        let colWidths: [CGFloat] = [
+            contentWidth * 0.26, // Account
+            contentWidth * 0.12, // Currency
+            contentWidth * 0.155, // Opening
+            contentWidth * 0.155, // Inflow (+)
+            contentWidth * 0.155, // Outflow (-)
+            contentWidth * 0.155  // Closing
+        ]
         let headers = ["Account", "Currency", "Opening", "Inflow (+)", "Outflow (-)", "Closing"]
         let headerAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 8, weight: .bold),
-            .foregroundColor: UIColor.secondaryLabel
+            .font: UIFont.systemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: secondaryTextColor
         ]
         let cellAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 8, weight: .regular),
-            .foregroundColor: UIColor.label
+            .font: UIFont.systemFont(ofSize: 9.5, weight: .regular),
+            .foregroundColor: textColor
         ]
         let numAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.monospacedDigitSystemFont(ofSize: 8, weight: .medium),
-            .foregroundColor: UIColor.label
+            .font: UIFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .medium),
+            .foregroundColor: textColor
         ]
+
+        // Header background fill
+        let headerRect = CGRect(x: margin, y: yOffset - 2, width: contentWidth, height: 18)
+        tableHeaderBgColor.setFill()
+        UIRectFill(headerRect)
 
         var x = margin
         for (i, h) in headers.enumerated() {
             let alignment: NSTextAlignment = i >= 2 ? .right : .left
-            drawText(h, in: CGRect(x: x, y: yOffset, width: colWidths[i], height: 14), attrs: headerAttrs, alignment: alignment)
+            drawText(h, in: CGRect(x: x, y: yOffset, width: colWidths[i], height: 16), attrs: headerAttrs, alignment: alignment)
             x += colWidths[i]
         }
-        yOffset += 16
-
-        // Divider
+        yOffset += 18
         drawHLine(y: yOffset, width: contentWidth)
         yOffset += 4
 
-        for item in summaries {
+        for (idx, item) in summaries.enumerated() {
             let acc = item.account
-            let open = item.openingBalance
-            let inf = item.totalInflow
-            let outf = item.totalOutflow
-            let close = item.closingBalance
+            let rowRect = CGRect(x: margin, y: yOffset - 2, width: contentWidth, height: 20)
+            if idx % 2 == 1 {
+                alternateRowBgColor.setFill()
+                UIRectFill(rowRect)
+            }
 
             x = margin
-            drawText(acc.name, in: CGRect(x: x, y: yOffset, width: colWidths[0], height: 14), attrs: cellAttrs, alignment: .left)
+            drawText(acc.name, in: CGRect(x: x, y: yOffset, width: colWidths[0], height: 16), attrs: cellAttrs, alignment: .left)
             x += colWidths[0]
-            drawText(acc.currency.rawValue, in: CGRect(x: x, y: yOffset, width: colWidths[1], height: 14), attrs: cellAttrs, alignment: .left)
+            drawText(acc.currency.rawValue, in: CGRect(x: x, y: yOffset, width: colWidths[1], height: 16), attrs: cellAttrs, alignment: .left)
             x += colWidths[1]
-            drawText(formatMoney(open), in: CGRect(x: x, y: yOffset, width: colWidths[2], height: 14), attrs: numAttrs, alignment: .right)
+            drawText(formatMoney(item.openingBalance), in: CGRect(x: x, y: yOffset, width: colWidths[2], height: 16), attrs: numAttrs, alignment: .right)
             x += colWidths[2]
-            drawText(formatMoney(inf), in: CGRect(x: x, y: yOffset, width: colWidths[3], height: 14), attrs: numAttrs, alignment: .right)
+            drawText(formatMoney(item.totalInflow), in: CGRect(x: x, y: yOffset, width: colWidths[3], height: 16), attrs: numAttrs, alignment: .right)
             x += colWidths[3]
-            drawText(formatMoney(outf), in: CGRect(x: x, y: yOffset, width: colWidths[4], height: 14), attrs: numAttrs, alignment: .right)
+            drawText(formatMoney(item.totalOutflow), in: CGRect(x: x, y: yOffset, width: colWidths[4], height: 16), attrs: numAttrs, alignment: .right)
             x += colWidths[4]
-            drawText(formatMoney(close), in: CGRect(x: x, y: yOffset, width: colWidths[5], height: 14), attrs: numAttrs, alignment: .right)
+            drawText(formatMoney(item.closingBalance), in: CGRect(x: x, y: yOffset, width: colWidths[5], height: 16), attrs: numAttrs, alignment: .right)
 
-            yOffset += 16
+            yOffset += 20
         }
         drawHLine(y: yOffset, width: contentWidth)
     }
 
-    private static func drawTransactionTableHeader(yOffset: inout CGFloat) {
-        let colWidths: [CGFloat] = [70, 95, 85, 173, 100]
+    private static func drawTransactionTableHeader(contentWidth: CGFloat, yOffset: inout CGFloat) {
+        let colWidths: [CGFloat] = [
+            contentWidth * 0.14, // Date
+            contentWidth * 0.18, // Account
+            contentWidth * 0.18, // Category
+            contentWidth * 0.32, // Description / Note
+            contentWidth * 0.18  // Amount
+        ]
         let headers = ["Date", "Account", "Category", "Description / Note", "Amount"]
         let headerAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 8, weight: .bold),
-            .foregroundColor: UIColor.secondaryLabel
+            .font: UIFont.systemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: secondaryTextColor
         ]
+
+        let headerRect = CGRect(x: margin, y: yOffset - 2, width: contentWidth, height: 18)
+        tableHeaderBgColor.setFill()
+        UIRectFill(headerRect)
 
         var x = margin
         for (i, h) in headers.enumerated() {
             let alignment: NSTextAlignment = i == 4 ? .right : .left
-            drawText(h, in: CGRect(x: x, y: yOffset, width: colWidths[i], height: 14), attrs: headerAttrs, alignment: alignment)
+            drawText(h, in: CGRect(x: x, y: yOffset, width: colWidths[i], height: 16), attrs: headerAttrs, alignment: alignment)
             x += colWidths[i]
         }
-        yOffset += 16
+        yOffset += 18
         drawHLine(y: yOffset, width: contentWidth)
         yOffset += 4
     }
 
-    private static func drawTransactionRow(transaction: LedgerTransaction, in state: LedgerState, yOffset: inout CGFloat) {
-        let colWidths: [CGFloat] = [70, 95, 85, 173, 100]
+    private static func drawTransactionRow(
+        transaction: LedgerTransaction,
+        in state: LedgerState,
+        contentWidth: CGFloat,
+        rowHeight: CGFloat,
+        isAlternate: Bool,
+        yOffset: inout CGFloat
+    ) {
+        let colWidths: [CGFloat] = [
+            contentWidth * 0.14,
+            contentWidth * 0.18,
+            contentWidth * 0.18,
+            contentWidth * 0.32,
+            contentWidth * 0.18
+        ]
         let cellAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 8, weight: .regular),
-            .foregroundColor: UIColor.label
+            .font: UIFont.systemFont(ofSize: 9.5, weight: .regular),
+            .foregroundColor: textColor
         ]
         let dateAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.monospacedDigitSystemFont(ofSize: 8, weight: .regular),
-            .foregroundColor: UIColor.secondaryLabel
+            .font: UIFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .regular),
+            .foregroundColor: secondaryTextColor
         ]
         let numAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.monospacedDigitSystemFont(ofSize: 8, weight: .semibold),
-            .foregroundColor: transaction.type == .income ? UIColor.systemGreen : UIColor.label
+            .font: UIFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .semibold),
+            .foregroundColor: textColor
         ]
+
+        if isAlternate {
+            let rowRect = CGRect(x: margin, y: yOffset - 2, width: contentWidth, height: rowHeight)
+            alternateRowBgColor.setFill()
+            UIRectFill(rowRect)
+        }
 
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
@@ -401,201 +553,250 @@ enum StatementPDFGenerator {
         let amtStr = "\(prefix)\(transaction.currency.rawValue) \(formatMoney(transaction.amount))"
 
         var x = margin
-        drawText(dateStr, in: CGRect(x: x, y: yOffset, width: colWidths[0], height: 14), attrs: dateAttrs, alignment: .left)
+        drawText(dateStr, in: CGRect(x: x, y: yOffset, width: colWidths[0], height: 16), attrs: dateAttrs, alignment: .left)
         x += colWidths[0]
-        drawText(accName, in: CGRect(x: x, y: yOffset, width: colWidths[1], height: 14), attrs: cellAttrs, alignment: .left)
+        drawText(accName, in: CGRect(x: x, y: yOffset, width: colWidths[1], height: 16), attrs: cellAttrs, alignment: .left)
         x += colWidths[1]
-        drawText(catName, in: CGRect(x: x, y: yOffset, width: colWidths[2], height: 14), attrs: cellAttrs, alignment: .left)
+        drawText(catName, in: CGRect(x: x, y: yOffset, width: colWidths[2], height: 16), attrs: cellAttrs, alignment: .left)
         x += colWidths[2]
-        drawText(desc, in: CGRect(x: x, y: yOffset, width: colWidths[3], height: 14), attrs: cellAttrs, alignment: .left)
+        drawText(desc, in: CGRect(x: x, y: yOffset, width: colWidths[3], height: rowHeight), attrs: cellAttrs, alignment: .left)
         x += colWidths[3]
-        drawText(amtStr, in: CGRect(x: x, y: yOffset, width: colWidths[4], height: 14), attrs: numAttrs, alignment: .right)
+        drawText(amtStr, in: CGRect(x: x, y: yOffset, width: colWidths[4], height: 16), attrs: numAttrs, alignment: .right)
 
-        yOffset += 16
+        yOffset += rowHeight
     }
 
-    private static func drawTaxCategorySummaryTable(categoryTotals: [String: (base: Double, tax: Double)], totalBase: Double, totalTax: Double, currency: CurrencyCode, yOffset: inout CGFloat) {
-        let colWidths: [CGFloat] = [170, 110, 110, 133]
-        let headers = ["Category", "Tax Base Amount", "Tax Amount Recognized", "Effective Ratio"]
+    // MARK: - Tax Statement Tables (Landscape)
+
+    private static func drawTaxCategorySummaryTable(
+        categoryTotals: [String: (base: Double, tax: Double, count: Int)],
+        totalBase: Double,
+        totalTax: Double,
+        currency: CurrencyCode,
+        contentWidth: CGFloat,
+        yOffset: inout CGFloat
+    ) {
+        let colWidths: [CGFloat] = [
+            contentWidth * 0.30, // Category
+            contentWidth * 0.15, // Rate / Records
+            contentWidth * 0.25, // Tax Base Amount
+            contentWidth * 0.30  // Tax Total Recognized
+        ]
+        let headers = ["Category", "Records", "Tax Base Amount", "Tax Total Recognized"]
         let headerAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 8, weight: .bold),
-            .foregroundColor: UIColor.secondaryLabel
+            .font: UIFont.systemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: secondaryTextColor
         ]
         let cellAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 8, weight: .regular),
-            .foregroundColor: UIColor.label
+            .font: UIFont.systemFont(ofSize: 9.5, weight: .regular),
+            .foregroundColor: textColor
         ]
         let numAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.monospacedDigitSystemFont(ofSize: 8, weight: .medium),
-            .foregroundColor: UIColor.label
+            .font: UIFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .medium),
+            .foregroundColor: textColor
         ]
+
+        let headerRect = CGRect(x: margin, y: yOffset - 2, width: contentWidth, height: 18)
+        tableHeaderBgColor.setFill()
+        UIRectFill(headerRect)
 
         var x = margin
         for (i, h) in headers.enumerated() {
-            let alignment: NSTextAlignment = i >= 1 ? .right : .left
-            drawText(h, in: CGRect(x: x, y: yOffset, width: colWidths[i], height: 14), attrs: headerAttrs, alignment: alignment)
+            let alignment: NSTextAlignment = i >= 2 ? .right : .left
+            drawText(h, in: CGRect(x: x, y: yOffset, width: colWidths[i], height: 16), attrs: headerAttrs, alignment: alignment)
             x += colWidths[i]
         }
-        yOffset += 16
+        yOffset += 18
         drawHLine(y: yOffset, width: contentWidth)
         yOffset += 4
 
-        for (cat, val) in categoryTotals.sorted(by: { $0.key < $1.key }) {
-            let ratio = val.base > 0 ? (val.tax / val.base * 100) : 0
+        for (idx, item) in categoryTotals.sorted(by: { $0.key < $1.key }).enumerated() {
+            let (cat, val) = item
+            if idx % 2 == 1 {
+                let rowRect = CGRect(x: margin, y: yOffset - 2, width: contentWidth, height: 20)
+                alternateRowBgColor.setFill()
+                UIRectFill(rowRect)
+            }
+
             x = margin
-            drawText(cat, in: CGRect(x: x, y: yOffset, width: colWidths[0], height: 14), attrs: cellAttrs, alignment: .left)
+            drawText(cat, in: CGRect(x: x, y: yOffset, width: colWidths[0], height: 16), attrs: cellAttrs, alignment: .left)
             x += colWidths[0]
-            drawText("\(currency.rawValue) \(formatMoney(val.base))", in: CGRect(x: x, y: yOffset, width: colWidths[1], height: 14), attrs: numAttrs, alignment: .right)
+            drawText("\(val.count) records", in: CGRect(x: x, y: yOffset, width: colWidths[1], height: 16), attrs: cellAttrs, alignment: .left)
             x += colWidths[1]
-            drawText("\(currency.rawValue) \(formatMoney(val.tax))", in: CGRect(x: x, y: yOffset, width: colWidths[2], height: 14), attrs: numAttrs, alignment: .right)
+            drawText("\(currency.rawValue) \(formatMoney(val.base))", in: CGRect(x: x, y: yOffset, width: colWidths[2], height: 16), attrs: numAttrs, alignment: .right)
             x += colWidths[2]
-            drawText(String(format: "%.1f%%", ratio), in: CGRect(x: x, y: yOffset, width: colWidths[3], height: 14), attrs: numAttrs, alignment: .right)
-            yOffset += 16
-        }
+            drawText("\(currency.rawValue) \(formatMoney(val.tax))", in: CGRect(x: x, y: yOffset, width: colWidths[3], height: 16), attrs: numAttrs, alignment: .right)
 
-        drawHLine(y: yOffset, width: contentWidth)
-        yOffset += 4
+            yOffset += 20
+        }
 
         // Total Row
-        x = margin
-        let boldAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 8, weight: .bold),
-            .foregroundColor: UIColor.label
+        drawHLine(y: yOffset, width: contentWidth)
+        yOffset += 4
+        let boldNumAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: textColor
         ]
-        drawText("Total", in: CGRect(x: x, y: yOffset, width: colWidths[0], height: 14), attrs: boldAttrs, alignment: .left)
-        x += colWidths[0]
-        drawText("\(currency.rawValue) \(formatMoney(totalBase))", in: CGRect(x: x, y: yOffset, width: colWidths[1], height: 14), attrs: boldAttrs, alignment: .right)
-        x += colWidths[1]
-        drawText("\(currency.rawValue) \(formatMoney(totalTax))", in: CGRect(x: x, y: yOffset, width: colWidths[2], height: 14), attrs: boldAttrs, alignment: .right)
+        let boldTextAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: textColor
+        ]
+        x = margin
+        drawText("Total", in: CGRect(x: x, y: yOffset, width: colWidths[0], height: 16), attrs: boldTextAttrs, alignment: .left)
+        x += colWidths[0] + colWidths[1]
+        drawText("\(currency.rawValue) \(formatMoney(totalBase))", in: CGRect(x: x, y: yOffset, width: colWidths[2], height: 16), attrs: boldNumAttrs, alignment: .right)
         x += colWidths[2]
-        let totalRatio = totalBase > 0 ? (totalTax / totalBase * 100) : 0
-        drawText(String(format: "%.1f%%", totalRatio), in: CGRect(x: x, y: yOffset, width: colWidths[3], height: 14), attrs: boldAttrs, alignment: .right)
-        yOffset += 16
+        drawText("\(currency.rawValue) \(formatMoney(totalTax))", in: CGRect(x: x, y: yOffset, width: colWidths[3], height: 16), attrs: boldNumAttrs, alignment: .right)
+
+        yOffset += 20
         drawHLine(y: yOffset, width: contentWidth)
     }
 
-    private static func drawTaxTableHeader(yOffset: inout CGFloat) {
-        let colWidths: [CGFloat] = [70, 85, 80, 148, 70, 70]
-        let headers = ["Date", "Account", "Category", "Note", "Tax Base", "Tax Amount"]
-        let headerAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 8, weight: .bold),
-            .foregroundColor: UIColor.secondaryLabel
+    private static func drawTaxTableHeader(contentWidth: CGFloat, yOffset: inout CGFloat) {
+        let colWidths: [CGFloat] = [
+            contentWidth * 0.09, // Date
+            contentWidth * 0.12, // Account
+            contentWidth * 0.12, // Category
+            contentWidth * 0.22, // Description / Note
+            contentWidth * 0.10, // Amount
+            contentWidth * 0.10, // Tax Base
+            contentWidth * 0.07, // Rate
+            contentWidth * 0.10, // Tax
+            contentWidth * 0.08  // Status
         ]
+        let headers = ["Date", "Account", "Category", "Description / Note", "Gross Amt", "Tax Base", "Rate", "Tax Amount", "Status"]
+        let headerAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: secondaryTextColor
+        ]
+
+        let headerRect = CGRect(x: margin, y: yOffset - 2, width: contentWidth, height: 18)
+        tableHeaderBgColor.setFill()
+        UIRectFill(headerRect)
 
         var x = margin
         for (i, h) in headers.enumerated() {
-            let alignment: NSTextAlignment = i >= 4 ? .right : .left
-            drawText(h, in: CGRect(x: x, y: yOffset, width: colWidths[i], height: 14), attrs: headerAttrs, alignment: alignment)
+            let alignment: NSTextAlignment = (i >= 4 && i <= 7) ? .right : .left
+            drawText(h, in: CGRect(x: x, y: yOffset, width: colWidths[i], height: 16), attrs: headerAttrs, alignment: alignment)
             x += colWidths[i]
         }
-        yOffset += 16
+        yOffset += 18
         drawHLine(y: yOffset, width: contentWidth)
         yOffset += 4
     }
 
-    private static func drawTaxRow(item: TaxItem, in state: LedgerState, yOffset: inout CGFloat) {
-        let t = item.transaction
-        let catName = item.categoryName
-        let taxAmt = item.taxAmount
-        let taxBase = item.taxBase
-
-        let colWidths: [CGFloat] = [70, 85, 80, 148, 70, 70]
+    private static func drawTaxRow(
+        item: TaxItem,
+        in state: LedgerState,
+        contentWidth: CGFloat,
+        rowHeight: CGFloat,
+        isAlternate: Bool,
+        yOffset: inout CGFloat
+    ) {
+        let colWidths: [CGFloat] = [
+            contentWidth * 0.09,
+            contentWidth * 0.12,
+            contentWidth * 0.12,
+            contentWidth * 0.22,
+            contentWidth * 0.10,
+            contentWidth * 0.10,
+            contentWidth * 0.07,
+            contentWidth * 0.10,
+            contentWidth * 0.08
+        ]
         let cellAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 8, weight: .regular),
-            .foregroundColor: UIColor.label
+            .font: UIFont.systemFont(ofSize: 9.5, weight: .regular),
+            .foregroundColor: textColor
         ]
         let dateAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.monospacedDigitSystemFont(ofSize: 8, weight: .regular),
-            .foregroundColor: UIColor.secondaryLabel
+            .font: UIFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .regular),
+            .foregroundColor: secondaryTextColor
         ]
         let numAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.monospacedDigitSystemFont(ofSize: 8, weight: .medium),
-            .foregroundColor: UIColor.label
+            .font: UIFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .medium),
+            .foregroundColor: textColor
         ]
+
+        if isAlternate {
+            let rowRect = CGRect(x: margin, y: yOffset - 2, width: contentWidth, height: rowHeight)
+            alternateRowBgColor.setFill()
+            UIRectFill(rowRect)
+        }
 
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
-        let dateStr = df.string(from: t.occurredAt)
-        let accName = state.accounts.first { $0.id == t.accountID }?.name ?? "Account"
-        let desc = t.note ?? catName
+        let dateStr = df.string(from: item.transaction.occurredAt)
+        let rateStr = String(format: "%.1f%%", item.rate * 100)
 
         var x = margin
-        drawText(dateStr, in: CGRect(x: x, y: yOffset, width: colWidths[0], height: 14), attrs: dateAttrs, alignment: .left)
+        drawText(dateStr, in: CGRect(x: x, y: yOffset, width: colWidths[0], height: 16), attrs: dateAttrs, alignment: .left)
         x += colWidths[0]
-        drawText(accName, in: CGRect(x: x, y: yOffset, width: colWidths[1], height: 14), attrs: cellAttrs, alignment: .left)
+        drawText(item.accountName, in: CGRect(x: x, y: yOffset, width: colWidths[1], height: 16), attrs: cellAttrs, alignment: .left)
         x += colWidths[1]
-        drawText(catName, in: CGRect(x: x, y: yOffset, width: colWidths[2], height: 14), attrs: cellAttrs, alignment: .left)
+        drawText(item.categoryName, in: CGRect(x: x, y: yOffset, width: colWidths[2], height: 16), attrs: cellAttrs, alignment: .left)
         x += colWidths[2]
-        drawText(desc, in: CGRect(x: x, y: yOffset, width: colWidths[3], height: 14), attrs: cellAttrs, alignment: .left)
+        drawText(item.note.isEmpty ? item.categoryName : item.note, in: CGRect(x: x, y: yOffset, width: colWidths[3], height: rowHeight), attrs: cellAttrs, alignment: .left)
         x += colWidths[3]
-        drawText(formatMoney(taxBase), in: CGRect(x: x, y: yOffset, width: colWidths[4], height: 14), attrs: numAttrs, alignment: .right)
+        drawText(formatMoney(item.grossAmount), in: CGRect(x: x, y: yOffset, width: colWidths[4], height: 16), attrs: numAttrs, alignment: .right)
         x += colWidths[4]
-        drawText(formatMoney(taxAmt), in: CGRect(x: x, y: yOffset, width: colWidths[5], height: 14), attrs: numAttrs, alignment: .right)
+        drawText(formatMoney(item.taxBase), in: CGRect(x: x, y: yOffset, width: colWidths[5], height: 16), attrs: numAttrs, alignment: .right)
+        x += colWidths[5]
+        drawText(rateStr, in: CGRect(x: x, y: yOffset, width: colWidths[6], height: 16), attrs: numAttrs, alignment: .right)
+        x += colWidths[6]
+        drawText(formatMoney(item.taxAmount), in: CGRect(x: x, y: yOffset, width: colWidths[7], height: 16), attrs: numAttrs, alignment: .right)
+        x += colWidths[7]
+        drawText(item.status, in: CGRect(x: x, y: yOffset, width: colWidths[8], height: 16), attrs: cellAttrs, alignment: .left)
 
-        yOffset += 16
+        yOffset += rowHeight
     }
 
-    private static func drawFooter(pageNumber: Int) {
-        let footerY = pageHeight - margin - footerHeight
+    // MARK: - Footer & Primitives
 
-        // Top line for footer
-        drawHLine(y: footerY, width: contentWidth)
+    private static func drawFooter(pageNumber: Int, totalWidth: CGFloat, totalHeight: CGFloat, disclaimer: String) {
+        let footerY = totalHeight - margin - 28
+        drawHLine(y: footerY, width: totalWidth - (margin * 2))
 
-        // Left note & Page number
-        let metaAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 8, weight: .regular),
-            .foregroundColor: UIColor.secondaryLabel
+        let discAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 8.5, weight: .regular),
+            .foregroundColor: secondaryTextColor
         ]
-        "Finsy · Personal Bookkeeping Record".draw(at: CGPoint(x: margin, y: footerY + 4), withAttributes: metaAttrs)
+        let pageAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 8.5, weight: .semibold),
+            .foregroundColor: secondaryTextColor
+        ]
+
         let pageStr = "Page \(pageNumber)"
-        let pageSize = (pageStr as NSString).size(withAttributes: metaAttrs)
-        pageStr.draw(at: CGPoint(x: pageWidth - margin - pageSize.width, y: footerY + 4), withAttributes: metaAttrs)
+        let pageDim = (pageStr as NSString).size(withAttributes: pageAttrs)
+        let maxDiscWidth = totalWidth - (margin * 2) - pageDim.width - 16
 
-        // Mandatory Disclaimer on EVERY page
-        let disclaimerParagraph = NSMutableParagraphStyle()
-        disclaimerParagraph.alignment = .left
-        disclaimerParagraph.lineBreakMode = .byWordWrapping
-        let disclaimerAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 6.5, weight: .regular),
-            .foregroundColor: UIColor.tertiaryLabel,
-            .paragraphStyle: disclaimerParagraph
-        ]
-
-        let disclaimerRect = CGRect(x: margin, y: footerY + 16, width: contentWidth, height: 28)
-        mandatoryDisclaimer.draw(in: disclaimerRect, withAttributes: disclaimerAttrs)
-    }
-
-    private static func drawText(_ text: String, in rect: CGRect, attrs: [NSAttributedString.Key: Any], alignment: NSTextAlignment) {
-        let style = NSMutableParagraphStyle()
-        style.alignment = alignment
-        style.lineBreakMode = .byTruncatingTail
-        var finalAttrs = attrs
-        finalAttrs[.paragraphStyle] = style
-        (text as NSString).draw(in: rect, withAttributes: finalAttrs)
+        disclaimer.draw(in: CGRect(x: margin, y: footerY + 6, width: maxDiscWidth, height: 26), withAttributes: discAttrs)
+        pageStr.draw(at: CGPoint(x: totalWidth - margin - pageDim.width, y: footerY + 6), withAttributes: pageAttrs)
     }
 
     private static func drawHLine(y: CGFloat, width: CGFloat) {
         let path = UIBezierPath()
         path.move(to: CGPoint(x: margin, y: y))
         path.addLine(to: CGPoint(x: margin + width, y: y))
-        UIColor.separator.setStroke()
-        path.lineWidth = 0.5
+        ruleColor.setStroke()
+        path.lineWidth = 0.75
         path.stroke()
     }
 
-    private static func formatMoney(_ amount: Double) -> String {
-        String(format: "%.2f", amount)
+    private static func drawText(_ text: String, in rect: CGRect, attrs: [NSAttributedString.Key: Any], alignment: NSTextAlignment = .left) {
+        var styleAttrs = attrs
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = alignment
+        paragraphStyle.lineBreakMode = .byTruncatingTail
+        styleAttrs[.paragraphStyle] = paragraphStyle
+
+        (text as NSString).draw(in: rect, withAttributes: styleAttrs)
     }
-}
 
-enum StatementError: LocalizedError {
-    case invalidDateRange
-    case generationFailed
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidDateRange: "Invalid date range for monthly statement."
-        case .generationFailed: "Failed to render PDF document."
-        }
+    private static func formatMoney(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
     }
 }

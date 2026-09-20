@@ -696,10 +696,7 @@ private struct OverviewAccountPickerButton: View {
             guard !Task.isCancelled else { return }
             accounts = prepared
             cards = [OverviewPickerCard(account: nil)] + prepared.map { OverviewPickerCard(account: $0) }
-            portfolioBalance = prepared.reduce(0) {
-                $0 + LedgerCalculations.convert($1.balance, from: $1.account.currency,
-                                                to: state.settings.baseCurrency, rates: state.settings.rates)
-            }
+            portfolioBalance = LedgerCalculations.portfolioBalance(state)
             // Publish lightweight cards first. Cold artwork never delays sheet opening.
             for account in prepared {
                 guard !Task.isCancelled else { return }
