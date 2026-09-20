@@ -1,5 +1,5 @@
 import Foundation
-import PassKit
+@preconcurrency import PassKit
 import SwiftUI
 
 @MainActor
@@ -157,7 +157,6 @@ struct AddPassSheetView: UIViewControllerRepresentable {
     let pass: PKPass
     var onCompletion: (@MainActor @Sendable () -> Void)? = nil
 
-    @MainActor
     func makeUIViewController(context: Context) -> PKAddPassesViewController {
         guard let controller = PKAddPassesViewController(pass: pass) else {
             return PKAddPassesViewController()
@@ -166,22 +165,20 @@ struct AddPassSheetView: UIViewControllerRepresentable {
         return controller
     }
 
-    @MainActor
     func updateUIViewController(_ uiViewController: PKAddPassesViewController, context: Context) {}
 
-    @MainActor
     func makeCoordinator() -> Coordinator {
         Coordinator(onCompletion: onCompletion)
     }
 
-    @MainActor
-    final class Coordinator: NSObject, PKAddPassesViewControllerDelegate {
+    final class Coordinator: NSObject, @preconcurrency PKAddPassesViewControllerDelegate {
         let onCompletion: (@MainActor @Sendable () -> Void)?
 
         init(onCompletion: (@MainActor @Sendable () -> Void)?) {
             self.onCompletion = onCompletion
         }
 
+        @MainActor
         func addPassesViewControllerDidFinish(_ controller: PKAddPassesViewController) {
             controller.dismiss(animated: true) { [onCompletion] in
                 onCompletion?()
