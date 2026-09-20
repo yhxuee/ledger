@@ -146,6 +146,8 @@ struct AccountsView: View {
             AccountEditorView(item: nil) { deleting = $0 }
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
+        }
         .sheet(item: $statementConfigType) { type in
             StatementConfigurationSheet(type: type)
                 .presentationDetents([.medium, .large])
