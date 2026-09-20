@@ -185,6 +185,15 @@ struct SettingsView: View {
             Divider()
 
             NavigationLink {
+                CashFlowForecastSettingsView()
+            } label: {
+                SettingsLinkRow("Cash Flow Forecast", systemImage: "chart.line.uptrend.xyaxis", detail: preferences.value.cashFlowForecastEnabled ? "On" : "Off")
+            }
+            .foregroundStyle(.primary)
+
+            Divider()
+
+            NavigationLink {
                 SwipeActionsEditorView()
             } label: {
                 SettingsLinkRow("Swipe Actions", systemImage: "hand.draw", detail: nil)

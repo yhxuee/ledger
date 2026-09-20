@@ -157,10 +157,14 @@ struct AppPreferences: Codable, Hashable, Sendable {
     var overviewMetrics: [OverviewMetricKind] = [.sixMonthTrend, .weekExpensePie]
     var overviewCardLayout: AccountCardLayout = .portrait
     var accountCardMaterialStyle: AccountCardMaterialStyle = .auto
+    var cashFlowForecastEnabled: Bool = true
+    var forecastYellowThreshold: Double = 0.10
+    var forecastRedThreshold: Double = 0.20
 
     enum CodingKeys: String, CodingKey {
         case splitActionOnRightSwipe, reimbursementActionOnRightSwipe
         case schemaVersion, languageCode, biometricLockEnabled, swipeActionOrientation, transactionSwipeActions, hapticFeedbackEnabled, dateFormat, transactionLayout, overviewMetrics, overviewCardLayout, accountCardMaterialStyle
+        case cashFlowForecastEnabled, forecastYellowThreshold, forecastRedThreshold
     }
 
     init(schemaVersion: Int = 1, languageCode: String = "en", biometricLockEnabled: Bool = false,
@@ -170,7 +174,10 @@ struct AppPreferences: Codable, Hashable, Sendable {
          transactionLayout: TransactionEditorLayout = .standard,
          overviewMetrics: [OverviewMetricKind] = [.sixMonthTrend, .weekExpensePie],
          overviewCardLayout: AccountCardLayout = .portrait,
-         accountCardMaterialStyle: AccountCardMaterialStyle = .auto) {
+         accountCardMaterialStyle: AccountCardMaterialStyle = .auto,
+         cashFlowForecastEnabled: Bool = true,
+         forecastYellowThreshold: Double = 0.10,
+         forecastRedThreshold: Double = 0.20) {
         self.schemaVersion = schemaVersion
         self.languageCode = languageCode
         self.biometricLockEnabled = biometricLockEnabled
@@ -182,6 +189,9 @@ struct AppPreferences: Codable, Hashable, Sendable {
         self.overviewMetrics = overviewMetrics.count == 2 && Set(overviewMetrics).count == 2 ? overviewMetrics : [.sixMonthTrend, .weekExpensePie]
         self.overviewCardLayout = overviewCardLayout
         self.accountCardMaterialStyle = accountCardMaterialStyle
+        self.cashFlowForecastEnabled = cashFlowForecastEnabled
+        self.forecastYellowThreshold = forecastYellowThreshold
+        self.forecastRedThreshold = forecastRedThreshold
     }
 
     init(from decoder: Decoder) throws {
@@ -205,6 +215,9 @@ struct AppPreferences: Codable, Hashable, Sendable {
         overviewMetrics = decodedMetrics.count == 2 && Set(decodedMetrics).count == 2 ? decodedMetrics : [.sixMonthTrend, .weekExpensePie]
         overviewCardLayout = try values.decodeIfPresent(AccountCardLayout.self, forKey: .overviewCardLayout) ?? .portrait
         accountCardMaterialStyle = try values.decodeIfPresent(AccountCardMaterialStyle.self, forKey: .accountCardMaterialStyle) ?? .auto
+        cashFlowForecastEnabled = try values.decodeIfPresent(Bool.self, forKey: .cashFlowForecastEnabled) ?? true
+        forecastYellowThreshold = try values.decodeIfPresent(Double.self, forKey: .forecastYellowThreshold) ?? 0.10
+        forecastRedThreshold = try values.decodeIfPresent(Double.self, forKey: .forecastRedThreshold) ?? 0.20
     }
 
     mutating func setOverviewMetric(at index: Int, to newKind: OverviewMetricKind) {

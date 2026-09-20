@@ -146,7 +146,7 @@ final class LedgerStore: ObservableObject {
     }
 
     @discardableResult
-    func addTransaction(type: LedgerTransactionType, accountID: UUID, destinationAccountID: UUID?, amount: Double, currency: CurrencyCode, categoryID: LedgerCategoryID, occurredAt: Date, note: String?, noteAttachmentID: String? = nil, purchaseSessionID: UUID? = nil, purchaseItemID: UUID? = nil, accountCurrency: CurrencyCode? = nil, accountAmount: Double? = nil, destinationAccountCurrency: CurrencyCode? = nil, destinationAmount: Double? = nil, taxSnapshot: TaxSnapshot? = nil, linkedRecovery: Bool = false) -> LedgerTransaction? {
+    func addTransaction(type: LedgerTransactionType, accountID: UUID, destinationAccountID: UUID?, amount: Double, currency: CurrencyCode, categoryID: LedgerCategoryID, occurredAt: Date, note: String?, noteAttachmentID: String? = nil, purchaseSessionID: UUID? = nil, purchaseItemID: UUID? = nil, recurringRuleID: UUID? = nil, accountCurrency: CurrencyCode? = nil, accountAmount: Double? = nil, destinationAccountCurrency: CurrencyCode? = nil, destinationAmount: Double? = nil, taxSnapshot: TaxSnapshot? = nil, linkedRecovery: Bool = false) -> LedgerTransaction? {
         guard !categoryID.isSystemLinked || linkedRecovery else { return nil }
         guard amount.isFinite, amount > 0, CurrencyRates.reference(currency, in: state.settings.rates) != nil, let source = state.accounts.first(where: { $0.id == accountID && $0.deletedAt == nil }) else { return nil }
         let destination = destinationAccountID.flatMap { id in state.accounts.first(where: { $0.id == id && $0.deletedAt == nil }) }
@@ -168,7 +168,7 @@ final class LedgerStore: ObservableObject {
             guard value.isFinite else { return nil }
             resolvedDestinationAmount = value
         }
-        var item = LedgerTransaction(id: UUID(), userID: state.settings.userID, type: type, accountID: source.id, destinationAccountID: type == .transfer ? destination?.id : nil, amount: amount, currency: currency, accountAmount: resolvedAccountAmount, destinationAmount: resolvedDestinationAmount, accountCurrency: source.usesCurrencyPockets ? sourcePocket : nil, destinationAccountCurrency: resolvedDestinationPocket, categoryID: type == .transfer ? .other : categoryID, occurredAt: occurredAt, note: note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty, noteAttachmentID: noteAttachmentID, exchangeRateAtTransaction: CurrencyRates.reference(currency, in: rates) ?? 1, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending)
+        var item = LedgerTransaction(id: UUID(), userID: state.settings.userID, type: type, accountID: source.id, destinationAccountID: type == .transfer ? destination?.id : nil, amount: amount, currency: currency, accountAmount: resolvedAccountAmount, destinationAmount: resolvedDestinationAmount, accountCurrency: source.usesCurrencyPockets ? sourcePocket : nil, destinationAccountCurrency: resolvedDestinationPocket, categoryID: type == .transfer ? .other : categoryID, occurredAt: occurredAt, note: note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty, noteAttachmentID: noteAttachmentID, exchangeRateAtTransaction: CurrencyRates.reference(currency, in: rates) ?? 1, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, recurringRuleID: recurringRuleID, createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending)
         item.applyTax(taxSnapshot)
         state.transactions.insert(item, at: 0)
         scheduleSave()
@@ -850,7 +850,7 @@ final class LedgerStore: ObservableObject {
             while rules[index].nextRunAt <= now && executions < 100 {
                 let rule = rules[index]
                 let amount = recurringAmount(for: rule)
-                if amount > 0 { addTransaction(type: rule.type, accountID: rule.accountID, destinationAccountID: rule.destinationAccountID, amount: amount, currency: rule.currency, categoryID: rule.categoryID, occurredAt: rule.nextRunAt, note: rule.note, accountCurrency: rule.accountCurrency, destinationAccountCurrency: rule.destinationAccountCurrency) }
+                if amount > 0 { addTransaction(type: rule.type, accountID: rule.accountID, destinationAccountID: rule.destinationAccountID, amount: amount, currency: rule.currency, categoryID: rule.categoryID, occurredAt: rule.nextRunAt, note: rule.note, recurringRuleID: rule.id, accountCurrency: rule.accountCurrency, destinationAccountCurrency: rule.destinationAccountCurrency) }
                 rules[index].nextRunAt = nextDate(after: rule.nextRunAt, interval: rule.interval, customDays: rule.customIntervalDays)
                 rules[index].updatedAt = now
                 executions += 1

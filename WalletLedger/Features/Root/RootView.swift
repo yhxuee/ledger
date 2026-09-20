@@ -81,19 +81,31 @@ private struct NewLedgerSheet: View {
 
 struct RootView: View {
     @EnvironmentObject private var store: LedgerStore
+    @EnvironmentObject private var preferences: AppPreferencesStore
     @Environment(\.scenePhase) private var scenePhase
     private let financialClock = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var section: AppSection = .overview
     @State private var selectedAccountID: UUID?
+    @State private var sessionDismissedForecastWarning = false
+    @State private var launchForecast: CashFlowForecast? = nil
+    @State private var showingForecastBudgetDetail = false
 
     var body: some View {
         ZStack { LedgerBackground(); content }
             .alert("Wallet Ledger", isPresented: Binding(get: { store.presentedError != nil }, set: { if !$0 { store.presentedError = nil } })) { Button("OK") { store.presentedError = nil } } message: { Text(store.presentedError ?? "") }
-            .overlay(alignment: .bottom) { undoToast }
+            .overlay(alignment: .bottom) { bottomOverlays }
             .onReceive(financialClock) { store.refreshDueInstallments(now: $0) }
             .onChange(of: scenePhase) { _, phase in if phase == .active { store.refreshDueInstallments() } }
             .onChange(of: store.activeBookID) { _, _ in selectedAccountID = nil }
+            .task {
+                evaluateLaunchForecast()
+            }
+            .sheet(isPresented: $showingForecastBudgetDetail) {
+                if let launchForecast {
+                    BudgetDetailView(forecast: launchForecast)
+                }
+            }
             .sheet(isPresented: Binding(get: { store.activeRoute == .addTransaction }, set: { if !$0 && store.activeRoute == .addTransaction { store.activeRoute = nil } })) {
                 TransactionEditorView()
             }
@@ -152,13 +164,41 @@ struct RootView: View {
         }
     }
 
-    @ViewBuilder private var undoToast: some View {
-        if let message = store.undoMessage {
-            HStack { Text(message).font(.subheadline.weight(.semibold)); Button("Undo") { store.undoDelete() }.font(.subheadline.bold()) }
-                .padding(.horizontal, 16).padding(.vertical, 11)
-                .ledgerGlass(interactive: true, in: Capsule())
-                .padding(.bottom, sizeClass == .compact ? 62 : 18)
+    @ViewBuilder private var bottomOverlays: some View {
+        VStack(spacing: 8) {
+            if let forecast = launchForecast, !sessionDismissedForecastWarning {
+                ForecastRiskBanner(
+                    forecast: forecast,
+                    onDismiss: {
+                        withAnimation(.snappy) {
+                            sessionDismissedForecastWarning = true
+                        }
+                    },
+                    onSelect: {
+                        showingForecastBudgetDetail = true
+                    }
+                )
+                .padding(.horizontal, 16)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            if let message = store.undoMessage {
+                HStack { Text(message).font(.subheadline.weight(.semibold)); Button("Undo") { store.undoDelete() }.font(.subheadline.bold()) }
+                    .padding(.horizontal, 16).padding(.vertical, 11)
+                    .ledgerGlass(interactive: true, in: Capsule())
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .padding(.bottom, sizeClass == .compact ? 62 : 18)
+    }
+
+    private func evaluateLaunchForecast() {
+        guard preferences.value.cashFlowForecastEnabled else { return }
+        let result = CashFlowForecastEngine.evaluate(state: store.state, preferences: preferences.value)
+        if result.eligible && !result.budgetRisks.isEmpty {
+            withAnimation(.snappy) {
+                launchForecast = result
+            }
         }
     }
 }

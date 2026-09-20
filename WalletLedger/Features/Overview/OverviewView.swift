@@ -647,9 +647,9 @@ struct OverviewMetricDetailSheet: View {
 
     private var statsCard: some View {
         HStack(spacing: 10) {
-            MetricCard("Average") { SensitiveMoneyText(amount: summary.average, currency: store.state.settings.baseCurrency, compact: true).font(.headline.bold()).minimumScaleFactor(0.6).lineLimit(1) }
-            MetricCard("Maximum") { SensitiveMoneyText(amount: summary.maximum, currency: store.state.settings.baseCurrency, compact: true).font(.headline.bold()).minimumScaleFactor(0.6).lineLimit(1) }
-            MetricCard("Minimum") { SensitiveMoneyText(amount: summary.minimum, currency: store.state.settings.baseCurrency, compact: true).font(.headline.bold()).minimumScaleFactor(0.6).lineLimit(1) }
+            CompactStatisticCard("Average", amount: summary.average, currency: store.state.settings.baseCurrency)
+            CompactStatisticCard("Maximum", amount: summary.maximum, currency: store.state.settings.baseCurrency)
+            CompactStatisticCard("Minimum", amount: summary.minimum, currency: store.state.settings.baseCurrency)
         }
     }
 

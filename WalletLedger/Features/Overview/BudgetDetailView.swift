@@ -8,6 +8,7 @@ struct BudgetDetailView: View {
     private var primaryActionColor: Color {
         LedgerPalette.primaryAction(for: colorScheme)
     }
+    var forecast: CashFlowForecast? = nil
     @State private var editing = false
     private var detail: BudgetBreakdown { LedgerCalculations.budgetBreakdown(store.state) }
     var body: some View {
@@ -22,13 +23,41 @@ struct BudgetDetailView: View {
                     }.padding(18).ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                     LazyVStack(spacing: 10) {
                         ForEach(detail.lines) { line in
+                            let risk = forecast?.budgetRisks.first { $0.lineID == line.id }
+                            let isRisky = risk != nil
                             VStack(alignment: .leading, spacing: 9) {
                                 HStack { Text(line.title).font(.headline); Spacer(); SensitiveMoneyText(amount: line.remaining, currency: line.currency).font(.subheadline.bold()) }
                                 HStack { SensitiveMoneyText(amount: line.spent, currency: line.currency).font(.caption); Text("of").font(.caption).foregroundStyle(.secondary); SensitiveMoneyText(amount: line.budget, currency: line.currency).font(.caption) }
-                                ProgressView(value: privacy.isLocked ? 0 : min(max(line.ratio, 0), 1)).tint(line.ratio > 1 ? .red : LedgerPalette.coral)
+                                if let risk {
+                                    let pct = Int((risk.exceedance * 100).rounded())
+                                    HStack(spacing: 4) {
+                                        Text("Projected:")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.red)
+                                        SensitiveMoneyText(amount: risk.projectedSpend, currency: line.currency)
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.red)
+                                        Text("· +\(pct)%")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.red)
+                                    }
+                                }
+                                ProgressView(value: privacy.isLocked ? 0 : min(max(line.ratio, 0), 1)).tint(isRisky || line.ratio > 1 ? .red : LedgerPalette.coral)
                             }.padding(16).ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                         }
                         if detail.lines.isEmpty { ContentUnavailableView("No Budget Allocations", systemImage: "chart.pie", description: Text("Use Edit to configure a monthly budget.")) }
+                    }
+                    if let forecast, forecast.eligible {
+                        VStack(spacing: 4) {
+                            Text(String(format: NSLocalizedString("Forecast based on the last %lld days", comment: ""), Int64(forecast.historyDays)))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text("Includes scheduled transactions and installments.")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.top, 4)
+                        .frame(maxWidth: .infinity)
                     }
                 }.padding()
             }

@@ -259,12 +259,7 @@ struct AnalyticsView: View {
     }
 
     private func stat(_ title: String, _ value: Double) -> some View {
-        MetricCard(title) {
-            SensitiveMoneyText(amount: value, currency: store.state.settings.baseCurrency, compact: true)
-                .font(.headline.bold())
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-        }
+        CompactStatisticCard(LocalizedStringKey(title), amount: value, currency: store.state.settings.baseCurrency)
     }
 
     private func percent(_ categoryID: LedgerCategoryID, summary: AnalyticsSummary, segmentTotal: Double) -> String {
