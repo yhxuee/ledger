@@ -588,7 +588,7 @@ struct LayoutSettingsView: View {
                             set: { val in preferences.update { $0.setOverviewMetric(at: 0, to: val) } }
                         )) {
                             ForEach(OverviewMetricKind.allCases) { kind in
-                                Text(kind.title).tag(kind)
+                                Text(LocalizedStringKey(kind.title)).tag(kind)
                             }
                         }
                     } label: {
@@ -603,7 +603,7 @@ struct LayoutSettingsView: View {
                             set: { val in preferences.update { $0.setOverviewMetric(at: 1, to: val) } }
                         )) {
                             ForEach(OverviewMetricKind.allCases) { kind in
-                                Text(kind.title).tag(kind)
+                                Text(LocalizedStringKey(kind.title)).tag(kind)
                             }
                         }
                     } label: {

@@ -127,7 +127,8 @@ struct MetricCard<Content: View>: View {
     var body: some View {
         let isSideColumn = (layout == .portraitSideColumn || compact)
         VStack(alignment: .leading, spacing: isSideColumn ? 6 : 8) {
-            Text(title.uppercased())
+            Text(LocalizedStringKey(title))
+                .textCase(.uppercase)
                 .font((isSideColumn ? Font.caption2 : .caption).weight(.semibold))
                 .foregroundStyle(.secondary)
                 .tracking(0.7)

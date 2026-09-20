@@ -86,7 +86,7 @@ enum OverviewMetricKind: String, Codable, CaseIterable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .weeklyActivity: "Weekly Activity"
-        case .budget: "Budget"
+        case .budget: "Remain"
         case .todayExpensePie: "Today Expense"
         case .weekExpensePie: "This Week Expense"
         case .sixMonthTrend: "6M Trends"

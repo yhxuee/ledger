@@ -165,20 +165,29 @@ struct VerticalOverviewHeroLayout: Layout {
         }
     }
 
+    private func overviewMetricValueFont(layout: OverviewMetricLayout) -> Font {
+        switch layout {
+        case .portraitSideColumn:
+            return .title3.bold()
+        case .horizontalGrid:
+            return .title2.bold()
+        }
+    }
+
     @ViewBuilder
     private func metricCard(for kind: OverviewMetricKind, layout: OverviewMetricLayout = .horizontalGrid) -> some View {
         let isSideColumn = (layout == .portraitSideColumn)
         switch kind {
         case .weeklyActivity:
             Button { activeDetailMetric = .weeklyActivity } label: {
-                MetricCard("Weekly Activity", compact: isSideColumn, layout: layout) {
+                MetricCard(kind.title, compact: isSideColumn, layout: layout) {
                     VStack(alignment: .leading, spacing: 6) {
                         MiniActivityChart(buckets: weeklySummary.buckets, height: nil)
                             .frame(maxWidth: .infinity)
                             .frame(minHeight: isSideColumn ? 36 : 52, maxHeight: .infinity)
                             .layoutPriority(1)
                         SensitiveMoneyText(amount: weeklySummary.total, currency: store.state.settings.baseCurrency, compact: true)
-                            .font((isSideColumn ? Font.subheadline : .headline).bold())
+                            .font(overviewMetricValueFont(layout: layout))
                             .minimumScaleFactor(0.7)
                             .lineLimit(1)
                     }
@@ -190,63 +199,24 @@ struct VerticalOverviewHeroLayout: Layout {
 
         case .budget:
             Button { showingBudgetDetail = true } label: {
-                MetricCard("Budget / Remain", compact: isSideColumn, layout: layout) {
-                    if isSideColumn {
-                        VStack(alignment: .leading, spacing: 4) {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text("BUDGET")
-                                    .font(.system(size: 8, weight: .semibold))
-                                    .foregroundStyle(.secondary)
-                                    .tracking(0.5)
-                                SensitiveMoneyText(amount: usage.budget, currency: usageCurrency, maxIntegerDigits: 6)
-                                    .font(.subheadline.bold())
-                                    .minimumScaleFactor(0.70)
-                                    .lineLimit(1)
-                            }
+                MetricCard(kind.title, compact: isSideColumn, layout: layout) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        SensitiveMoneyText(amount: usage.budget - usage.spent, currency: usageCurrency, maxIntegerDigits: 6)
+                            .font(overviewMetricValueFont(layout: layout))
+                            .minimumScaleFactor(0.7)
+                            .lineLimit(1)
 
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text("REMAIN")
-                                    .font(.system(size: 8, weight: .semibold))
-                                    .foregroundStyle(.secondary)
-                                    .tracking(0.5)
-                                SensitiveMoneyText(amount: usage.budget - usage.spent, currency: usageCurrency, maxIntegerDigits: 6)
-                                    .font(.title2.bold())
-                                    .minimumScaleFactor(0.70)
-                                    .lineLimit(1)
-                            }
+                        Spacer(minLength: 4)
 
-                            Spacer(minLength: 2)
+                        ProgressView(value: privacy.isLocked ? 0 : min(max(usage.ratio, 0), 1))
+                            .tint(usage.ratio > 1 ? .red : LedgerPalette.coral)
 
-                            ProgressView(value: privacy.isLocked ? 0 : min(max(usage.ratio, 0), 1))
-                                .tint(usage.ratio > 1 ? .red : LedgerPalette.coral)
-
-                            SensitiveValueText("\(Int(usage.ratio * 100))% of monthly budget used", maskLength: 8)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    } else {
-                        VStack(alignment: .leading, spacing: 6) {
-                            SensitiveMoneyText(amount: usage.budget - usage.spent, currency: usageCurrency, maxIntegerDigits: 6)
-                                .font(.title2.bold())
-                                .minimumScaleFactor(0.65)
-                                .lineLimit(1)
-
-                            Spacer(minLength: 4)
-
-                            ProgressView(value: privacy.isLocked ? 0 : min(max(usage.ratio, 0), 1))
-                                .tint(usage.ratio > 1 ? .red : LedgerPalette.coral)
-
-                            Spacer(minLength: 4)
-
-                            SensitiveValueText("\(Int(usage.ratio * 100))% of monthly budget used", maskLength: 8)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                        SensitiveValueText("\(Int(usage.ratio * 100))\(String(localized: "% used"))", maskLength: 8)
+                            .font(isSideColumn ? .caption2 : .caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 }
             }
             .buttonStyle(.plain)
@@ -254,14 +224,14 @@ struct VerticalOverviewHeroLayout: Layout {
 
         case .todayExpensePie:
             Button { activeDetailMetric = .todayExpensePie } label: {
-                MetricCard("Today Expense", compact: isSideColumn, layout: layout) {
+                MetricCard(kind.title, compact: isSideColumn, layout: layout) {
                     VStack(alignment: .leading, spacing: 6) {
                         MiniPieChart(segments: categorySegments(from: todaySummary), height: nil)
                             .frame(maxWidth: .infinity)
                             .frame(minHeight: isSideColumn ? 36 : 52, maxHeight: .infinity)
                             .layoutPriority(1)
                         SensitiveMoneyText(amount: todaySummary.total, currency: store.state.settings.baseCurrency, compact: true)
-                            .font((isSideColumn ? Font.subheadline : .headline).bold())
+                            .font(overviewMetricValueFont(layout: layout))
                             .minimumScaleFactor(0.7)
                             .lineLimit(1)
                     }
@@ -273,14 +243,14 @@ struct VerticalOverviewHeroLayout: Layout {
 
         case .weekExpensePie:
             Button { activeDetailMetric = .weekExpensePie } label: {
-                MetricCard("This Week Expense", compact: isSideColumn, layout: layout) {
+                MetricCard(kind.title, compact: isSideColumn, layout: layout) {
                     VStack(alignment: .leading, spacing: 6) {
                         MiniPieChart(segments: categorySegments(from: weeklySummary), height: nil)
                             .frame(maxWidth: .infinity)
                             .frame(minHeight: isSideColumn ? 36 : 52, maxHeight: .infinity)
                             .layoutPriority(1)
                         SensitiveMoneyText(amount: weeklySummary.total, currency: store.state.settings.baseCurrency, compact: true)
-                            .font((isSideColumn ? Font.subheadline : .headline).bold())
+                            .font(overviewMetricValueFont(layout: layout))
                             .minimumScaleFactor(0.7)
                             .lineLimit(1)
                     }
@@ -292,7 +262,7 @@ struct VerticalOverviewHeroLayout: Layout {
 
         case .sixMonthTrend:
             Button { activeDetailMetric = .sixMonthTrend } label: {
-                MetricCard("6M Trends", compact: isSideColumn, layout: layout) {
+                MetricCard(kind.title, compact: isSideColumn, layout: layout) {
                     VStack(alignment: .leading, spacing: 6) {
                         SixMonthTrendChart(buckets: sixMonthsSummary.buckets)
                             .chartXAxis(.hidden)
@@ -300,7 +270,7 @@ struct VerticalOverviewHeroLayout: Layout {
                             .frame(minHeight: isSideColumn ? 36 : 52, maxHeight: .infinity)
                             .layoutPriority(1)
                         SensitiveMoneyText(amount: sixMonthsSummary.total, currency: store.state.settings.baseCurrency, compact: true)
-                            .font((isSideColumn ? Font.subheadline : .headline).bold())
+                            .font(overviewMetricValueFont(layout: layout))
                             .minimumScaleFactor(0.7)
                             .lineLimit(1)
                     }
@@ -522,7 +492,7 @@ struct OverviewMetricDetailSheet: View {
                 .padding()
             }
             .background(LedgerBackground())
-            .navigationTitle(metric.title)
+            .navigationTitle(LocalizedStringKey(metric.title))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -555,7 +525,7 @@ struct OverviewMetricDetailSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading) {
-                    Text(metric.title).font(.headline)
+                    Text(LocalizedStringKey(metric.title)).font(.headline)
                     Text(summary.subtitle).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()

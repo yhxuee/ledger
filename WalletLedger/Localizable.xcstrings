@@ -3520,25 +3520,48 @@
         }
       }
     },
-    "Budget / Remain": {
+    "Remain": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Budget / Remain"
+            "value": "Remain"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "预算 / 剩余"
+            "value": "剩余"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "預算 / 剩餘"
+            "value": "剩餘"
+          }
+        }
+      }
+    },
+    "% used": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "% used"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "% 已用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "% 已用"
           }
         }
       }
