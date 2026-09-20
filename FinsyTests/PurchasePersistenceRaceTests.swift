@@ -20,11 +20,12 @@ final class PurchasePersistenceRaceTests: XCTestCase {
             id: sessionID,
             ledgerBookID: store.activeBookID,
             name: "Audio Store",
-            status: .active,
+            status: .awaitingSummary,
             sections: [],
             items: [item],
             createdAt: .now,
             startedAt: .now,
+            completedAt: .now,
             currency: account.currency,
             accountID: account.id
         )
@@ -70,9 +71,17 @@ final class PurchasePersistenceRaceTests: XCTestCase {
             try await store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)
         }
 
-        // Cooperatively await until persistence hook is reached and suspended
-        for await _ in stream1 {
-            break
+        // Cooperatively await until persistence hook is reached and suspended or finalize completes
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                var it = stream1.makeAsyncIterator()
+                _ = await it.next()
+            }
+            group.addTask {
+                _ = try? await finalizeTask.value
+            }
+            _ = await group.next()
+            group.cancelAll()
         }
 
         // While suspended, perform an unrelated mutation on the ledger
@@ -109,11 +118,12 @@ final class PurchasePersistenceRaceTests: XCTestCase {
             id: sessionID,
             ledgerBookID: store.activeBookID,
             name: "Bookstore",
-            status: .active,
+            status: .awaitingSummary,
             sections: [],
             items: [item1],
             createdAt: .now,
             startedAt: .now,
+            completedAt: .now,
             currency: account.currency,
             accountID: account.id
         )
@@ -137,9 +147,17 @@ final class PurchasePersistenceRaceTests: XCTestCase {
             try await store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)
         }
 
-        // Cooperatively await until persistence hook is reached and suspended
-        for await _ in stream2 {
-            break
+        // Cooperatively await until persistence hook is reached and suspended or finalize completes
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                var it = stream2.makeAsyncIterator()
+                _ = await it.next()
+            }
+            group.addTask {
+                _ = try? await finalizeTask.value
+            }
+            _ = await group.next()
+            group.cancelAll()
         }
 
         // While finalize is suspended, a concurrent mutation adds a second item to the session
