@@ -20,26 +20,41 @@ enum PurchaseFinalizationError: LocalizedError {
     }
 }
 
+enum StateMutationImpact: Sendable {
+    case purchaseOnly
+    case financial
+    case full
+}
+
 @MainActor
 final class LedgerStore: ObservableObject {
     static let shared = LedgerStore()
     var fxRefreshes: Set<UUID> = []
     var lastFinancialRefresh = Date.now
+    private var activeMutationImpact: StateMutationImpact?
 
     @Published private(set) var state: LedgerState {
         didSet {
-            cachedIndex = nil
-            cachedAccountViews = nil
-            cachedActiveTransactions = nil
-            financialRevision &+= 1
-            scheduleNextInstallmentRefresh()
+            let impact = activeMutationImpact ?? .financial
+            switch impact {
+            case .purchaseOnly:
+                cachedIndex = nil
+            case .financial, .full:
+                cachedIndex = nil
+                cachedAccountViews = nil
+                cachedActiveTransactions = nil
+                financialRevision &+= 1
+                scheduleNextInstallmentRefresh()
+            }
         }
     }
 
     @discardableResult
-    func mutateState<R>(_ mutation: (inout LedgerState) throws -> R) rethrows -> R {
+    func mutateState<R>(_ impact: StateMutationImpact = .financial, _ mutation: (inout LedgerState) throws -> R) rethrows -> R {
         var newState = state
         let result = try mutation(&newState)
+        activeMutationImpact = impact
+        defer { activeMutationImpact = nil }
         state = newState
         return result
     }

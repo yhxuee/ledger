@@ -409,6 +409,54 @@ final class LedgerCalculationsTests: XCTestCase {
         XCTAssertEqual(saved.plannedAmount, 40.0, accuracy: 0.001)
     }
 
+    func testPurchaseOnlyMutationDoesNotIncrementFinancialRevision() throws {
+        let state = DemoDataFactory.makeWithSingleAccount()
+        let store = LedgerStore(stateForTesting: state)
+        let initialFinancialRev = store.financialRevision
+
+        // Saving a purchase session uses .purchaseOnly
+        let session = PurchaseSession(id: UUID(), ledgerBookID: UUID(), name: "Draft List", status: .draft, sections: [], items: [], createdAt: .now, startedAt: nil, completedAt: nil, receiptAttachmentID: nil)
+        store.savePurchaseSession(session)
+        XCTAssertEqual(store.financialRevision, initialFinancialRev, "Purchase-only mutations must not bump financialRevision")
+
+        // Direct financial mutation does increment
+        store.mutateState(.financial) { state in
+            state.accounts[0].name = "Updated Account"
+        }
+        XCTAssertEqual(store.financialRevision, initialFinancialRev &+ 1, "Financial mutation must bump financialRevision")
+    }
+
+    func testStrictReferenceRateValidationForCurrencyConversion() throws {
+        var rates: [CurrencyCode: Double] = [.HKD: 1.0, .USD: 7.8]
+        XCTAssertNotNil(CurrencyRates.reference(.USD, in: rates))
+        XCTAssertNotNil(CurrencyRates.reference(.HKD, in: rates))
+
+        // When a rate is absent:
+        rates.removeValue(forKey: .USD)
+        XCTAssertNil(CurrencyRates.reference(.USD, in: rates), "Missing USD rate must return nil")
+
+        // Verify conversion guard logic:
+        let baseCurrency: CurrencyCode = .HKD
+        let foreignCurrency: CurrencyCode = .USD
+        let hasRates = CurrencyRates.reference(foreignCurrency, in: rates) != nil && CurrencyRates.reference(baseCurrency, in: rates) != nil
+        XCTAssertFalse(hasRates, "Guard condition must be false when reference rate is missing, avoiding 1:1 fallback")
+    }
+
+    func testPurchaseSessionOrderedSectionsEmptyState() throws {
+        var session = PurchaseSession(id: UUID(), ledgerBookID: UUID(), name: "List", status: .draft, sections: [], items: [], createdAt: .now, startedAt: nil, completedAt: nil, receiptAttachmentID: nil)
+        session.normalizeSections()
+        XCTAssertTrue(session.orderedSections.isEmpty, "Empty session should have no orderedSections (shows global Add Item)")
+
+        let item = PurchaseItem(id: UUID(), categoryID: .food, note: "Coffee", amount: 4.5, displayOrder: 0, isCompleted: false, completedAt: nil, linkedTransactionID: nil)
+        session.items.append(item)
+        session.normalizeSections()
+        XCTAssertFalse(session.orderedSections.isEmpty, "Session with items has orderedSections (hides global Add Item)")
+
+        session.items.removeAll()
+        session.normalizeSections()
+        XCTAssertTrue(session.orderedSections.isEmpty, "Session after deleting all items has empty orderedSections (restores global Add Item)")
+    }
+
     private func makeTransaction(type: LedgerTransactionType, source: LedgerAccount, destination: LedgerAccount? = nil, amount: Double) -> LedgerTransaction {
         .init(id: UUID(), userID: SeedData.localUserID, type: type, accountID: source.id, destinationAccountID: destination?.id, amount: amount, currency: source.currency, accountAmount: amount, destinationAmount: destination == nil ? nil : amount, categoryID: .food, occurredAt: .now, note: nil, exchangeRateAtTransaction: SeedData.rates[source.currency] ?? 1, createdAt: .now, updatedAt: .now, deletedAt: nil, version: 1, syncStatus: .pending)
     }

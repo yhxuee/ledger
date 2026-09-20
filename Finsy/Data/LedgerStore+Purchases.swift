@@ -37,7 +37,7 @@ extension LedgerStore {
         updated.ledgerBookID = activeBookID
         updated.updatedAt = .now
         updated.normalizeSections()
-        mutateState { state in
+        mutateState(.purchaseOnly) { state in
             var sessions = state.purchaseSessions ?? []
             if let index = sessions.firstIndex(where: { $0.id == updated.id }) { sessions[index] = updated } else { sessions.append(updated) }
             state.purchaseSessions = sessions
@@ -184,7 +184,7 @@ extension LedgerStore {
             changed = true
         }
         guard changed else { return false }
-        mutateState { state in
+        mutateState(.purchaseOnly) { state in
             state.purchaseSessions = sessions
         }
         do { try persistPurchaseChanges() }

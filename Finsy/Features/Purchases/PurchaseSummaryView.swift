@@ -60,8 +60,7 @@ struct PurchaseSummaryView: View {
                             .padding(16)
                             .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 
-                            if session.currency != store.state.settings.baseCurrency {
-                                let converted = LedgerCalculations.convert(session.plannedAmount, from: session.currency, to: store.state.settings.baseCurrency, rates: store.state.settings.rates)
+                            if let converted = baseCurrencyEquivalent {
                                 HStack(spacing: 4) {
                                     Text("≈")
                                     SensitiveMoneyText(amount: converted, currency: store.state.settings.baseCurrency, maxIntegerDigits: 4)
@@ -176,6 +175,13 @@ struct PurchaseSummaryView: View {
             guard let identifier = session?.receiptAttachmentID else { return }
             storedReceiptImage = await AttachmentStore.shared.loadReceipt(identifier: identifier)
         }
+    }
+    private var baseCurrencyEquivalent: Double? {
+        guard let session, session.currency != store.state.settings.baseCurrency else { return nil }
+        let rates = store.state.settings.rates
+        guard CurrencyRates.reference(session.currency, in: rates) != nil,
+              CurrencyRates.reference(store.state.settings.baseCurrency, in: rates) != nil else { return nil }
+        return LedgerCalculations.convert(session.plannedAmount, from: session.currency, to: store.state.settings.baseCurrency, rates: rates)
     }
     private func categoryName(_ id: LedgerCategoryID) -> String { store.state.categories.first(where: { $0.id == id })?.name ?? id.rawValue }
     @MainActor private func finalize() async {
