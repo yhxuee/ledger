@@ -228,6 +228,7 @@ private struct CardArtworkModifier: ViewModifier {
     let fallback: LinearGradient
     let context: CardArtworkLayoutContext
     var cardStyle: CardStyle? = nil
+    var materialStyle: AccountCardMaterialStyle = .auto
     @Environment(\.colorScheme) private var colorScheme
 
     private var isDark: Bool {
@@ -253,20 +254,18 @@ private struct CardArtworkModifier: ViewModifier {
         content
             .environment(\.cardIsDark, isDark)
             .foregroundStyle(primary, secondary)
-            .shadow(color: artwork != nil ? (isDark ? Color.black.opacity(0.30) : Color.white.opacity(0.40)) : .clear,
+            .shadow(color: isDark ? Color.black.opacity(0.32) : Color.white.opacity(0.40),
                     radius: 1.5, x: 0, y: 1)
             .backgroundPreferenceValue(CardInformationBounds.self) { anchors in
                 GeometryReader { geometry in
                     surface(size: geometry.size, regions: anchors.map { geometry[$0] })
                         .overlay {
-                            if artwork != nil {
-                                RoundedRectangle(cornerRadius: 25, style: .continuous)
-                                    .fill(.white.opacity(0.04))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 25, style: .continuous)
-                                            .stroke(.white.opacity(0.12), lineWidth: 0.8)
-                                    )
-                            }
+                            CardFinishOverlay(
+                                style: materialStyle,
+                                artwork: artwork,
+                                isDark: isDark,
+                                cornerRadius: 25
+                            )
                         }
                 }
                 .allowsHitTesting(false)
@@ -340,6 +339,7 @@ private struct AsyncCardArtworkModifier: ViewModifier {
     let fallback: LinearGradient
     let context: CardArtworkLayoutContext
     var cardStyle: CardStyle? = nil
+    var materialStyle: AccountCardMaterialStyle = .auto
     @State private var loaded: CardArtwork?
     @State private var loadedData: Data?
 
@@ -349,7 +349,8 @@ private struct AsyncCardArtworkModifier: ViewModifier {
                 artwork: loadedData == data ? loaded : CardArtwork.cached(data),
                 fallback: fallback,
                 context: context,
-                cardStyle: cardStyle))
+                cardStyle: cardStyle,
+                materialStyle: materialStyle))
             .task(id: data) {
                 let result = await CardArtwork.load(data)
                 guard !Task.isCancelled else { return }
@@ -364,11 +365,11 @@ extension View {
         anchorPreference(key: CardInformationBounds.self, value: .bounds) { [$0] }
     }
 
-    func cardArtwork(data: Data?, fallback: LinearGradient, layout: AccountCardLayout = .horizontal, cardStyle: CardStyle? = nil) -> some View {
-        modifier(AsyncCardArtworkModifier(data: data, fallback: fallback, context: layout, cardStyle: cardStyle))
+    func cardArtwork(data: Data?, fallback: LinearGradient, layout: AccountCardLayout = .horizontal, cardStyle: CardStyle? = nil, materialStyle: AccountCardMaterialStyle = .auto) -> some View {
+        modifier(AsyncCardArtworkModifier(data: data, fallback: fallback, context: layout, cardStyle: cardStyle, materialStyle: materialStyle))
     }
 
-    func cardArtwork(data: Data?, fallback: LinearGradient, context: AccountCardLayout, cardStyle: CardStyle? = nil) -> some View {
-        modifier(AsyncCardArtworkModifier(data: data, fallback: fallback, context: context, cardStyle: cardStyle))
+    func cardArtwork(data: Data?, fallback: LinearGradient, context: AccountCardLayout, cardStyle: CardStyle? = nil, materialStyle: AccountCardMaterialStyle = .auto) -> some View {
+        modifier(AsyncCardArtworkModifier(data: data, fallback: fallback, context: context, cardStyle: cardStyle, materialStyle: materialStyle))
     }
 }

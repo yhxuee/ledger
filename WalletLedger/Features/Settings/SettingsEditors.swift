@@ -373,3 +373,43 @@ struct LayoutSettingsView: View {
         .navigationTitle("Layout")
     }
 }
+
+struct AccountCardStyleSettingsView: View {
+    @EnvironmentObject private var preferences: AppPreferencesStore
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(AccountCardMaterialStyle.allCases) { style in
+                    Button {
+                        preferences.update { $0.accountCardMaterialStyle = style }
+                    } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(style.title)
+                                    .font(.body.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                Text(style.subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if preferences.value.accountCardMaterialStyle == style {
+                                Image(systemName: "checkmark")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.tint)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            } header: {
+                Text("Card Surface Style")
+            } footer: {
+                Text("Choose how account cards are finished. Auto selects Glass for transparent cards and Metal for standard and opaque cards.")
+            }
+        }
+        .navigationTitle("Style")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}

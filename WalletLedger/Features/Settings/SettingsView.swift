@@ -95,6 +95,15 @@ struct SettingsView: View {
 
             Divider()
 
+            NavigationLink {
+                AccountCardStyleSettingsView()
+            } label: {
+                SettingsLinkRow("Style", systemImage: "sparkles", detail: preferences.value.accountCardMaterialStyle.title)
+            }
+            .foregroundStyle(.primary)
+
+            Divider()
+
             LabeledContent {
                 Menu {
                     ForEach(AppDateFormat.allCases) { format in

@@ -10,6 +10,7 @@ struct AccountCardView: View {
     var portfolioAssets: Double?
     var portfolioLiabilities: Double?
     var showAccountName: Bool = true
+    @EnvironmentObject private var preferences: AppPreferencesStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 8 : (layout == .portrait ? 14 : 16)) {
@@ -67,7 +68,8 @@ struct AccountCardView: View {
         .padding(compact ? 16 : (layout == .portrait ? 20 : 22))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .cardArtwork(data: account?.account.cardImageData, fallback: background, layout: layout,
-                     cardStyle: account?.account.cardStyle ?? .init(startHex: "F2C7D8", endHex: "B9D9F1"))
+                     cardStyle: account?.account.cardStyle ?? .init(startHex: "F2C7D8", endHex: "B9D9F1"),
+                     materialStyle: preferences.value.accountCardMaterialStyle)
         .aspectRatio(layout == .portrait ? (53.98 / 85.60) : (85.60 / 53.98), contentMode: .fit)
         .accessibilityElement(children: .combine)
     }

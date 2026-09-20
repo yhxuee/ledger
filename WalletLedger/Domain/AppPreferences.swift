@@ -87,6 +87,28 @@ enum OverviewMetricKind: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum AccountCardMaterialStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case auto
+    case glass
+    case metal
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .auto: "Auto"
+        case .glass: "Glass"
+        case .metal: "Metal"
+        }
+    }
+    var subtitle: String {
+        switch self {
+        case .auto: "Choose the best finish automatically"
+        case .glass: "Clear polished glass look"
+        case .metal: "Premium metallic sheen"
+        }
+    }
+}
+
 struct AppPreferences: Codable, Hashable, Sendable {
     var schemaVersion: Int = 1
     var languageCode: String = "en"
@@ -97,9 +119,10 @@ struct AppPreferences: Codable, Hashable, Sendable {
     var transactionLayout: TransactionEditorLayout = .standard
     var overviewMetrics: [OverviewMetricKind] = [.sixMonthTrend, .weekExpensePie]
     var overviewCardLayout: AccountCardLayout = .portrait
+    var accountCardMaterialStyle: AccountCardMaterialStyle = .auto
 
     enum CodingKeys: String, CodingKey {
-        case schemaVersion, languageCode, biometricLockEnabled, swipeActionOrientation, hapticFeedbackEnabled, dateFormat, transactionLayout, overviewMetrics, overviewCardLayout
+        case schemaVersion, languageCode, biometricLockEnabled, swipeActionOrientation, hapticFeedbackEnabled, dateFormat, transactionLayout, overviewMetrics, overviewCardLayout, accountCardMaterialStyle
     }
 
     init(schemaVersion: Int = 1, languageCode: String = "en", biometricLockEnabled: Bool = false,
@@ -107,7 +130,8 @@ struct AppPreferences: Codable, Hashable, Sendable {
          hapticFeedbackEnabled: Bool = true, dateFormat: AppDateFormat = .monthDay,
          transactionLayout: TransactionEditorLayout = .standard,
          overviewMetrics: [OverviewMetricKind] = [.sixMonthTrend, .weekExpensePie],
-         overviewCardLayout: AccountCardLayout = .portrait) {
+         overviewCardLayout: AccountCardLayout = .portrait,
+         accountCardMaterialStyle: AccountCardMaterialStyle = .auto) {
         self.schemaVersion = schemaVersion
         self.languageCode = languageCode
         self.biometricLockEnabled = biometricLockEnabled
@@ -117,6 +141,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
         self.transactionLayout = transactionLayout
         self.overviewMetrics = overviewMetrics.count == 2 && Set(overviewMetrics).count == 2 ? overviewMetrics : [.sixMonthTrend, .weekExpensePie]
         self.overviewCardLayout = overviewCardLayout
+        self.accountCardMaterialStyle = accountCardMaterialStyle
     }
 
     init(from decoder: Decoder) throws {
@@ -131,6 +156,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
         let decodedMetrics = (try? values.decodeIfPresent([OverviewMetricKind].self, forKey: .overviewMetrics)) ?? [.sixMonthTrend, .weekExpensePie]
         overviewMetrics = decodedMetrics.count == 2 && Set(decodedMetrics).count == 2 ? decodedMetrics : [.sixMonthTrend, .weekExpensePie]
         overviewCardLayout = try values.decodeIfPresent(AccountCardLayout.self, forKey: .overviewCardLayout) ?? .portrait
+        accountCardMaterialStyle = try values.decodeIfPresent(AccountCardMaterialStyle.self, forKey: .accountCardMaterialStyle) ?? .auto
     }
 
     mutating func setOverviewMetric(at index: Int, to newKind: OverviewMetricKind) {
