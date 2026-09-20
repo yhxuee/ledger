@@ -552,7 +552,7 @@ private struct SettingsFileTransferModifier: ViewModifier {
             }
             .fileImporter(
                 isPresented: $showingImporter,
-                allowedContentTypes: [.fsyBackup, .legacyWalletLedgerBackup, .json, .commaSeparatedText]
+                allowedContentTypes: BackupDocument.readableContentTypes
             ) { result in
                 handleImport(result: result)
             }

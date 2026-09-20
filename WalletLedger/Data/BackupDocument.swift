@@ -5,6 +5,7 @@ import CryptoKit
 extension UTType {
     static let fsyBackup = UTType(exportedAs: "com.finsy.app.backup", conformingTo: .data)
     static let legacyLedgerBackup = UTType(importedAs: FinsyCompatibility.backupType, conformingTo: .json)
+    static let legacyWalletLedgerBackup = legacyLedgerBackup
     static let fsyPairingRequest = UTType(exportedAs: "com.finsy.app.pairing-request", conformingTo: .data)
     static let fsyKeyGrant = UTType(exportedAs: "com.finsy.app.key-grant", conformingTo: .data)
 }
