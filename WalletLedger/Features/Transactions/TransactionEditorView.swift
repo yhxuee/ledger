@@ -958,14 +958,12 @@ private struct CategoryEditorSheet: View {
                         Text("Income").tag(LedgerCategoryKind.income)
                     }
                     .pickerStyle(.segmented)
-        .disabled(isLinked)
                     TextField("Name", text: $name)
                     TextField("Description", text: $detail)
                     ColorPicker("Color", selection: $color)
                 }
                 Section("Appearance") {
                     Picker("Type", selection: $mode) { Text("Emoji").tag(0); Text("Icon").tag(1) }.pickerStyle(.segmented)
-        .disabled(isLinked)
                     if mode == 0 {
                         TextField("Emoji", text: $emoji).font(.title2)
                     } else {
