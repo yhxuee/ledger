@@ -221,7 +221,7 @@ enum CSVTransactionImporter {
 
         let envelope = LedgerBackupEnvelope(
             metadata: BackupMetadata(
-                app: "wallet-ledger-ios",
+                app: "finsy",
                 schemaVersion: BackupCodec.currentSchemaVersion,
                 exportedAt: .now,
                 userID: existingState.settings.userID,

@@ -6,14 +6,13 @@ protocol LedgerRepository: Sendable {
 }
 
 struct LocalLedgerRepository: LedgerRepository {
-    static var storageFolder: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "WalletLedger", directoryHint: .isDirectory)
-    }
+    static var storageFolder: URL { FinsyStorage.folder }
 
     func loadLibrary() throws -> LedgerLibrary? {
+        try FinsyStorage.prepare()
         let url = Self.storageFolder.appending(path: "library.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let data = try Data(contentsOf: url)
         if var current = try? BackupCodec.decoder().decode(LedgerLibrary.self, from: data), current.schemaVersion >= 2 {
             for index in current.books.indices { PurchaseRules.migrateDevelopmentSessions(in: &current.books[index].state) }
             return current
@@ -23,6 +22,7 @@ struct LocalLedgerRepository: LedgerRepository {
     }
 
     func saveLibrary(_ library: LedgerLibrary) throws {
+        try FinsyStorage.prepare()
         let url = Self.storageFolder.appending(path: "library.json")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
         try BackupCodec.encoder().encode(library).write(to: url, options: [.atomic, .completeFileProtection])

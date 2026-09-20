@@ -935,11 +935,11 @@ enum StatementPDFGenerator {
     // MARK: - Calculation Helpers
 
     private static func calculateBalance(account: LedgerAccount, upTo cutoff: Date, in state: LedgerState) -> Double {
-        ThreeMonthFinancialEngine.calculateBalance(account: account, upTo: cutoff, in: state)
+        ThreeMonthFinancialEngine.calculateBalance(account: account, upTo: cutoff, in: state, includeCutoff: false)
     }
 
     private static func calculatePocketBalance(pocket: CurrencyCode, account: LedgerAccount, upTo cutoff: Date, in state: LedgerState) -> Double {
-        ThreeMonthFinancialEngine.calculatePocketBalance(pocket: pocket, account: account, upTo: cutoff, in: state)
+        ThreeMonthFinancialEngine.calculatePocketBalance(pocket: pocket, account: account, upTo: cutoff, in: state, includeCutoff: false)
     }
 
     // MARK: - Drawing Components

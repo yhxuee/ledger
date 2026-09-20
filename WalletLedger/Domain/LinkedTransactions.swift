@@ -117,11 +117,11 @@ enum TransactionSemantics {
             case .splitSelfExpense, .reimbursementOriginal, .refundOriginal, .combinedPaymentRefund:
                 return false // Display-only or non-posting child records
             case .splitSettlement, .reimbursementIncome:
-                return transaction.isEffectivelyCompleted // Only posts when money is received
+                return transaction.isCompleted(asOf: now) // Only posts when money is received
             case .refundIncome, .combinedPaymentItem, .combinedPaymentRefundSupport:
                 return true // Real money movement / reversal
             case .installment:
-                return transaction.isEffectivelyCompleted // Posts when due or early completed
+                return transaction.isCompleted(asOf: now) // Posts when due or early completed
             }
         }
 
@@ -162,7 +162,7 @@ enum TransactionSemantics {
             case .splitSettlement, .reimbursementOriginal, .reimbursementIncome, .refundOriginal, .refundIncome:
                 return 0
             case .installment:
-                guard transaction.isEffectivelyCompleted else { return 0 }
+                guard transaction.isCompleted(asOf: now) else { return 0 }
                 return LedgerCalculations.historical(transaction, to: target, rates: state.settings.rates)
             }
         }
@@ -271,7 +271,7 @@ enum TransactionSemantics {
                 let converted = childTax * transaction.exchangeRateAtTransaction / targetRate
                 return (converted, parentCategory)
             case .installment:
-                guard transaction.isEffectivelyCompleted, transaction.isTaxExempt != true, let childTax = transaction.taxAmount, childTax > 0 else { return nil }
+                guard transaction.isCompleted(asOf: now), transaction.isTaxExempt != true, let childTax = transaction.taxAmount, childTax > 0 else { return nil }
                 let parentCategory = state.transactions.first(where: { $0.id == transaction.parentTransactionID })?.categoryID ?? transaction.categoryID
                 let converted = childTax * transaction.exchangeRateAtTransaction / targetRate
                 return (converted, parentCategory)
@@ -370,7 +370,7 @@ enum TransactionSemantics {
         case .installment:
             let installments = groupChildren.filter { $0.linkedTransactionKind == .installment }
             guard !installments.isEmpty else { return .installmentActive }
-            return installments.allSatisfy { $0.isEffectivelyCompleted } ? .installmentComplete : .installmentActive
+            return installments.allSatisfy { $0.isCompleted(asOf: now) } ? .installmentComplete : .installmentActive
 
         case .refund:
             let refundVal = refundValueInParentCurrency(parent, in: state)
@@ -406,7 +406,7 @@ enum TransactionSemantics {
 
     /// Sum of posted installment postings for refunding an installment parent.
     static func refundableInstallmentAmount(_ parent: LedgerTransaction, in state: LedgerState, now: Date = .now) -> Double {
-        let installments = children(of: parent, in: state).filter { $0.linkedTransactionKind == .installment && $0.isEffectivelyCompleted }
+        let installments = children(of: parent, in: state).filter { $0.linkedTransactionKind == .installment && $0.isCompleted(asOf: now) }
         return installments.reduce(0.0) { $0 + $1.amount }
     }
 
@@ -537,7 +537,7 @@ enum SplitSchedule {
             settlement.linkedStatus = .pending
             settlement.completedAt = nil
             settlement.amount = shareAmount
-            settlement.accountAmount = shareAmount
+            settlement.accountAmount = parent.accountAmount.flatMap { parent.amount > 0 ? ($0 * shareAmount / parent.amount) : nil }
             settlement.destinationAmount = nil
             settlement.destinationAccountID = nil
             settlement.destinationAccountCurrency = nil
@@ -592,7 +592,7 @@ enum ReimbursementSchedule {
         income.linkedStatus = .pending
         income.completedAt = nil
         income.amount = parent.amount
-        income.accountAmount = parent.amount
+        income.accountAmount = parent.accountAmount
         income.taxRate = nil
         income.taxAmount = 0
         income.taxBaseAmount = parent.amount

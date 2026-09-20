@@ -14,3 +14,4 @@ enum AccountTag {
         return String(filtered.prefix(maxLength))
     }
 }
+

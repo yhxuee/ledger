@@ -47,31 +47,19 @@ enum ThreeMonthFinancialEngine {
         return (m1, m2, m3, rangeString, partialNote)
     }
 
-    static func calculateBalance(account: LedgerAccount, upTo cutoff: Date, in state: LedgerState) -> Double {
-        let opening = account.openingBalance
-        return state.transactions.reduce(opening) { balance, transaction in
-            guard transaction.deletedAt == nil, transaction.occurredAt <= cutoff, TransactionSemantics.posts(transaction) else {
-                return balance
-            }
-            var updated = balance
-            if transaction.accountID == account.id {
-                let amount = LedgerCalculations.sourcePosting(transaction, for: account, in: state)
-                switch transaction.type {
-                case .expense, .transfer: updated -= amount
-                case .income: updated += amount
-                }
-            }
-            if transaction.type == .transfer, transaction.destinationAccountID == account.id {
-                updated += LedgerCalculations.destinationPosting(transaction, for: account, in: state)
-            }
-            return updated
+    /// Historical native balances valued using the rates supplied in this state.
+    /// No historical FX or account-state history is fabricated for older books.
+    static func calculateBalance(account: LedgerAccount, upTo cutoff: Date, in state: LedgerState, includeCutoff: Bool = true) -> Double {
+        account.normalizedPockets.reduce(0) { total, pocket in
+            let balance = calculatePocketBalance(pocket: pocket.currency, account: account, upTo: cutoff, in: state, includeCutoff: includeCutoff)
+            return total + LedgerCalculations.convert(balance, from: pocket.currency, to: account.currency, rates: state.settings.rates)
         }
     }
 
-    static func calculatePocketBalance(pocket: CurrencyCode, account: LedgerAccount, upTo cutoff: Date, in state: LedgerState) -> Double {
+    static func calculatePocketBalance(pocket: CurrencyCode, account: LedgerAccount, upTo cutoff: Date, in state: LedgerState, includeCutoff: Bool = true) -> Double {
         let opening = account.normalizedPockets.first(where: { $0.currency == pocket })?.openingBalance ?? 0
         return state.transactions.reduce(opening) { balance, transaction in
-            guard transaction.deletedAt == nil, transaction.occurredAt <= cutoff, TransactionSemantics.posts(transaction) else {
+            guard transaction.deletedAt == nil, (includeCutoff ? transaction.occurredAt <= cutoff : transaction.occurredAt < cutoff), TransactionSemantics.posts(transaction, now: cutoff) else {
                 return balance
             }
             var updated = balance
@@ -89,7 +77,7 @@ enum ThreeMonthFinancialEngine {
         }
     }
 
-    /// Net Worth (Assets - Liabilities) across all active, non-frozen accounts as of `cutoff`.
+    /// Net Worth (Assets - Liabilities) across all active, non-frozen accounts at `cutoff`, valued using the supplied current FX rates.
     static func closingNetWorth(at cutoff: Date, baseCurrency: CurrencyCode, in state: LedgerState) -> Double {
         let activeAccounts = state.accounts.filter { $0.deletedAt == nil && !$0.effectiveIsFrozen }
         var netWorth: Double = 0
@@ -215,3 +203,4 @@ enum ThreeMonthFinancialEngine {
         return (summary, windows)
     }
 }
+

@@ -12,7 +12,11 @@ final class LedgerStore: ObservableObject {
     static let shared = LedgerStore()
     private var fxRefreshes: Set<UUID> = []
     private var lastFinancialRefresh = Date.now
-    @Published private(set) var state: LedgerState
+    @Published private(set) var state: LedgerState {
+        didSet { cachedAccountViews = nil; cachedActiveTransactions = nil }
+    }
+    private var cachedAccountViews: [AccountViewModel]?
+    private var cachedActiveTransactions: [LedgerTransaction]?
     @Published private(set) var books: [LedgerBook]
     @Published private(set) var activeBookID: UUID
     @Published private(set) var currencyCatalog: [CurrencyDescriptor]
@@ -32,27 +36,35 @@ final class LedgerStore: ObservableObject {
     private var currencyCatalogUpdatedAt: Date?
     /// A dismissed bridge notice stays dismissed for the current purchase.
     private var suppressedPurchaseSyncWarning: String?
-    private let persistenceEnabled: Bool
+    private var persistenceEnabled: Bool
+    @Published private(set) var lastSyncError: String?
+    private var saveRevision: UInt64 = 0
     nonisolated private static let localRepository = LocalLedgerRepository()
 
     init() {
-        persistenceEnabled = true
-        let cachedCatalog = CurrencyCatalogCache.load()
-        currencyCatalog = CurrencyDescriptor.appCatalog(cachedCatalog?.currencies ?? [])
-        currencyCatalogUpdatedAt = cachedCatalog?.fetchedAt
-        if let library = Self.loadLibrary(), let active = library.books.first(where: { $0.id == library.activeBookID }) ?? library.books.first {
-            books = library.books
-            activeBookID = active.id
-            state = active.state
+        persistenceEnabled = false
+        currencyCatalog = CurrencyDescriptor.bundled
+        currencyCatalogUpdatedAt = nil
+        let initial = SeedData.makeProductionEmpty()
+        let fallback = LedgerBook(id: UUID(), name: "Ledger 1", state: initial, createdAt: .now, updatedAt: .now)
+        books = [fallback]; activeBookID = fallback.id; state = initial
+        do {
+            try FinsyStorage.prepare()
+            let cachedCatalog = CurrencyCatalogCache.load()
+            currencyCatalog = CurrencyDescriptor.appCatalog(cachedCatalog?.currencies ?? [])
+            currencyCatalogUpdatedAt = cachedCatalog?.fetchedAt
+            if let library = try Self.loadLibrary() {
+                guard let active = library.books.first(where: { $0.id == library.activeBookID }) ?? library.books.first else { throw BackupError.invalidFormat }
+                books = library.books; activeBookID = active.id; state = active.state
+            } else if let legacy = try Self.loadLegacyState() {
+                state = legacy; books[0].state = legacy
+            }
+            persistenceEnabled = true
             processDueRecurring()
             scheduleSave()
-        } else {
-            let initial = Self.loadLegacyState() ?? SeedData.makeProductionEmpty()
-            let book = LedgerBook(id: UUID(), name: "Ledger 1", state: initial, createdAt: .now, updatedAt: .now)
-            books = [book]
-            activeBookID = book.id
-            state = initial
-            scheduleSave()
+        } catch {
+            // Keep disk data untouched. The existing error presentation reports the failure.
+            presentedError = "The ledger could not be loaded. Existing data has been preserved. \(error.localizedDescription)"
         }
     }
 
@@ -66,8 +78,18 @@ final class LedgerStore: ObservableObject {
         currencyCatalogUpdatedAt = nil
     }
 
-    var accounts: [AccountViewModel] { LedgerCalculations.accountViews(state) }
-    var activeTransactions: [LedgerTransaction] { LedgerCalculations.activeTransactions(state).sorted { $0.occurredAt > $1.occurredAt } }
+    var accounts: [AccountViewModel] {
+        if let cachedAccountViews { return cachedAccountViews }
+        let result = LedgerCalculations.accountViews(state)
+        cachedAccountViews = result
+        return result
+    }
+    var activeTransactions: [LedgerTransaction] {
+        if let cachedActiveTransactions { return cachedActiveTransactions }
+        let result = LedgerCalculations.activeTransactions(state).sorted { $0.occurredAt > $1.occurredAt }
+        cachedActiveTransactions = result
+        return result
+    }
     var activeBookName: String { books.first(where: { $0.id == activeBookID })?.name ?? "Ledger" }
     var activeBook: LedgerBook {
         var book = books.first(where: { $0.id == activeBookID }) ?? LedgerBook(id: activeBookID, name: activeBookName, state: state, createdAt: .now, updatedAt: .now)
@@ -1010,7 +1032,7 @@ final class LedgerStore: ObservableObject {
             handleOpenedFile(url)
             return
         }
-        guard url.scheme == "finsy" || url.scheme == "walletledger" else { return }
+        guard url.scheme == "finsy" || url.scheme == FinsyCompatibility.urlScheme else { return }
         if url.host == "transaction" && (url.path == "/add" || url.pathComponents.contains("add")) {
             activeRoute = .addTransaction
             return
@@ -1154,16 +1176,19 @@ final class LedgerStore: ObservableObject {
     private func scheduleSave() {
         guard persistenceEnabled else { return }
         commitActiveBook()
-        OverviewWidgetRelay.updateSnapshot(store: self)
         saveTask?.cancel()
         let snapshot = librarySnapshot()
+        saveRevision &+= 1
+        let revision = saveRevision
         saveTask = Task {
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
-            do { try Self.writeLibrary(snapshot) }
+            OverviewWidgetRelay.updateSnapshot(store: self)
+            do { try await LedgerPersistence.shared.save(snapshot, revision: revision) }
             catch { presentedError = "Local save failed: \(error.localizedDescription)" }
             if let active = snapshot.books.first(where: { $0.id == snapshot.activeBookID }), active.effectiveStorageKind != .local {
-                try? await CloudLedgerService.shared.synchronize(book: active)
+                do { try await CloudLedgerService.shared.synchronize(book: active); lastSyncError = nil }
+                catch { lastSyncError = error.localizedDescription }
             }
         }
     }
@@ -1185,24 +1210,25 @@ final class LedgerStore: ObservableObject {
 
     nonisolated private static var storageFolder: URL { LocalLedgerRepository.storageFolder }
 
-    private static func loadLibrary() -> LedgerLibrary? {
-        guard var library = try? localRepository.loadLibrary() else { return nil }
-        guard !library.books.isEmpty else { return nil }
+    private static func loadLibrary() throws -> LedgerLibrary? {
+        guard var library = try localRepository.loadLibrary() else { return nil }
+        guard !library.books.isEmpty else { throw BackupError.invalidFormat }
         SchemaMigration.normalize(&library)
-        guard library.books.allSatisfy({ (try? BackupCodec.validate($0.state)) != nil }) else { return nil }
+        for book in library.books { try BackupCodec.validate(book.state) }
         return library
     }
 
-    private static func loadLegacyState() -> LedgerState? {
+    private static func loadLegacyState() throws -> LedgerState? {
         let url = storageFolder.appending(path: "ledger.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let data = try Data(contentsOf: url)
         var state: LedgerState
         if let current = try? BackupCodec.decoder().decode(LedgerState.self, from: data), current.schemaVersion >= 2 { state = current }
         else if let old = try? BackupCodec.decoder().decode(LedgerStateV1.self, from: data), old.schemaVersion <= 1 { state = SchemaMigration.migrate(old) }
-        else { return nil }
+        else { throw BackupError.invalidFormat }
         PurchaseRules.migrateDevelopmentSessions(in: &state)
         SchemaMigration.normalize(&state)
-        guard (try? BackupCodec.validate(state)) != nil else { return nil }
+        try BackupCodec.validate(state)
         return state
     }
 
@@ -1229,6 +1255,7 @@ extension LedgerStore {
         let previous = lastFinancialRefresh
         lastFinancialRefresh = now
         if state.transactions.contains(where: { $0.deletedAt == nil && $0.linkedTransactionKind == .installment && $0.occurredAt > previous && $0.occurredAt <= now }) {
+            cachedAccountViews = nil
             objectWillChange.send()
             OverviewWidgetRelay.updateSnapshot(store: self)
         }
@@ -1378,6 +1405,7 @@ extension LedgerStore {
               state.transactions[index].linkedTransactionKind == .reimbursementIncome else { return false }
         state.transactions[index].linkedStatus = .completed
         state.transactions[index].completedAt = now
+        state.transactions[index].occurredAt = now
         state.transactions[index].updatedAt = now
         state.transactions[index].version += 1
         state.transactions[index].syncStatus = .pending

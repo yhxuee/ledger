@@ -4,8 +4,7 @@ import UIKit
 actor AttachmentStore {
     static let shared = AttachmentStore()
     nonisolated static var folderURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "WalletLedger/Attachments", directoryHint: .isDirectory)
+        FinsyStorage.folder.appending(path: "Attachments", directoryHint: .isDirectory)
     }
     nonisolated static func url(for identifier: String) -> URL { folderURL.appending(path: identifier) }
 
@@ -18,6 +17,7 @@ actor AttachmentStore {
     }
 
     private func save(_ image: UIImage, prefix: String) throws -> String {
+        try FinsyStorage.prepare()
         let identifier = "\(prefix)-\(UUID().uuidString).jpg"
         let folder = Self.folderURL
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: nil)

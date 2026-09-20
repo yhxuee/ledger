@@ -26,6 +26,9 @@ enum LedgerPresentation {
     static func entries(transactions: [LedgerTransaction], state: LedgerState, collapsePurchases: Bool = true, now: Date = .now) -> [LedgerPresentationEntry] {
         let all = Dictionary(uniqueKeysWithValues: state.transactions.filter { $0.deletedAt == nil }.map { ($0.id, $0) })
         let sessions = Dictionary(uniqueKeysWithValues: (state.purchaseSessions ?? []).map { ($0.id, $0) })
+        let purchaseChildren = Dictionary(grouping: all.values.filter {
+            $0.purchaseSessionID != nil && $0.parentTransactionID == nil && !$0.isReversal
+        }, by: { $0.purchaseSessionID! }).mapValues { $0.sorted { $0.occurredAt < $1.occurredAt } }
         var entries: [String: LedgerPresentationEntry] = [:]
         for activity in transactions where activity.deletedAt == nil {
             if activity.linkedTransactionKind == .installment && activity.occurredAt > now { continue }
@@ -35,7 +38,7 @@ enum LedgerPresentation {
             let parent = activity.parentTransactionID.flatMap { all[$0] } ?? activity
             let entry: LedgerPresentationEntry
             if collapsePurchases, let sessionID = parent.purchaseSessionID, let session = sessions[sessionID] {
-                let children = all.values.filter { $0.purchaseSessionID == sessionID && $0.parentTransactionID == nil && !$0.isReversal }.sorted { $0.occurredAt < $1.occurredAt }
+                let children = purchaseChildren[sessionID, default: []]
                 // Preserve the original single Purchase row; subsequent linked activity gets a dated occurrence.
                 let date = activity.parentTransactionID == nil ? (children.map(\.occurredAt).max() ?? activity.occurredAt) : activity.occurredAt
                 entry = .purchase(session, children, date)

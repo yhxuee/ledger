@@ -18,7 +18,7 @@ enum BackupCodec {
     }
 
     static func envelope(for state: LedgerState) -> LedgerBackupEnvelope {
-        .init(metadata: .init(app: "wallet-ledger-ios", schemaVersion: currentSchemaVersion, exportedAt: .now, userID: state.settings.userID, accountCount: state.accounts.filter { $0.deletedAt == nil }.count, transactionCount: state.transactions.filter { $0.deletedAt == nil }.count, categoryCount: state.categories.count, baseCurrency: state.settings.baseCurrency), data: state)
+        .init(metadata: .init(app: "finsy", schemaVersion: currentSchemaVersion, exportedAt: .now, userID: state.settings.userID, accountCount: state.accounts.filter { $0.deletedAt == nil }.count, transactionCount: state.transactions.filter { $0.deletedAt == nil }.count, categoryCount: state.categories.count, baseCurrency: state.settings.baseCurrency), data: state)
     }
 
     static func encode(_ envelope: LedgerBackupEnvelope) throws -> Data { try encoder().encode(envelope) }
@@ -128,7 +128,7 @@ enum BackupCodec {
         } else {
             envelope = try LegacyWebBackup.decode(data)
         }
-        guard ["wallet-ledger-ios", "wallet-ledger-overview"].contains(envelope.metadata.app) else { throw BackupError.wrongApplication }
+        guard FinsyCompatibility.backupApps.contains(envelope.metadata.app) else { throw BackupError.wrongApplication }
         guard envelope.metadata.schemaVersion <= currentSchemaVersion else { throw BackupError.futureSchema(envelope.metadata.schemaVersion) }
         PurchaseRules.migrateDevelopmentSessions(in: &envelope.data)
         SchemaMigration.normalize(&envelope.data)
@@ -138,7 +138,7 @@ enum BackupCodec {
         envelope.metadata.categoryCount = envelope.data.categories.count
         envelope.metadata.baseCurrency = envelope.data.settings.baseCurrency
         var warnings: [String] = []
-        if envelope.metadata.app == "wallet-ledger-overview" { warnings.append("Web backup converted to the native iOS schema.") }
+        if envelope.metadata.app == FinsyCompatibility.webBackupApp { warnings.append("Web backup converted to the native iOS schema.") }
         return .init(sourceName: sourceName, envelope: envelope, warnings: warnings)
     }
 

@@ -4,7 +4,7 @@ import CryptoKit
 actor ICloudBackupService {
     static let shared = ICloudBackupService()
     private let primaryFileName = "Finsy-latest.fsy"
-    private let legacyFileName = "WalletLedger-latest.walletledger"
+    private let legacyFileName = FinsyCompatibility.backupFile
 
     var isAvailable: Bool { FileManager.default.ubiquityIdentityToken != nil }
 
@@ -17,12 +17,16 @@ actor ICloudBackupService {
 
     func restoreLatest(existingState: LedgerState? = nil) async throws -> ImportPreview {
         let primaryURL = try await backupURL(fileName: primaryFileName, createDirectory: false)
-        let legacyURL = try await backupURL(fileName: legacyFileName, createDirectory: false)
+        let previousPrimaryURL = try await backupURL(fileName: primaryFileName, createDirectory: false, legacy: true)
+        let legacyURL = try await backupURL(fileName: legacyFileName, createDirectory: false, legacy: true)
 
         let targetURL: URL
         let sourceName: String
         if FileManager.default.fileExists(atPath: primaryURL.path) {
             targetURL = primaryURL
+            sourceName = primaryFileName
+        } else if FileManager.default.fileExists(atPath: previousPrimaryURL.path) {
+            targetURL = previousPrimaryURL
             sourceName = primaryFileName
         } else if FileManager.default.fileExists(atPath: legacyURL.path) {
             targetURL = legacyURL
@@ -38,10 +42,10 @@ actor ICloudBackupService {
         return try BackupCodec.decode(data, sourceName: sourceName, existingState: existingState)
     }
 
-    private func backupURL(fileName: String, createDirectory: Bool) async throws -> URL {
+    private func backupURL(fileName: String, createDirectory: Bool, legacy: Bool = false) async throws -> URL {
         let container = FileManager.default.url(forUbiquityContainerIdentifier: nil)
         guard let container else { throw BackupError.iCloudUnavailable }
-        let folder = container.appending(path: "Documents/WalletLedger", directoryHint: .isDirectory)
+        let folder = container.appending(path: "Documents/" + (legacy ? FinsyCompatibility.storageDirectory : "finsy"), directoryHint: .isDirectory)
         if createDirectory {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: nil)
         }

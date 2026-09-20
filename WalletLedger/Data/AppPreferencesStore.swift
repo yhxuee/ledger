@@ -30,17 +30,18 @@ final class AppPreferencesStore: ObservableObject {
     }
 
     nonisolated private static var fileURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "WalletLedger", directoryHint: .isDirectory)
+        FinsyStorage.folder
             .appending(path: "app-preferences.json")
     }
 
     nonisolated static func load() -> AppPreferences? {
+        guard (try? FinsyStorage.prepare()) != nil else { return nil }
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
         return try? JSONDecoder().decode(AppPreferences.self, from: data)
     }
 
     nonisolated private static func write(_ preferences: AppPreferences) throws {
+        try FinsyStorage.prepare()
         try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
         try JSONEncoder().encode(preferences).write(to: fileURL, options: [.atomic, .completeFileProtection])
     }

@@ -4,13 +4,13 @@ import CryptoKit
 
 extension UTType {
     static let fsyBackup = UTType(exportedAs: "com.finsy.app.backup", conformingTo: .data)
-    static let legacyWalletLedgerBackup = UTType(importedAs: "org.medx.walletledger.backup", conformingTo: .json)
+    static let legacyLedgerBackup = UTType(importedAs: FinsyCompatibility.backupType, conformingTo: .json)
     static let fsyPairingRequest = UTType(exportedAs: "com.finsy.app.pairing-request", conformingTo: .data)
     static let fsyKeyGrant = UTType(exportedAs: "com.finsy.app.key-grant", conformingTo: .data)
 }
 
 struct BackupDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.fsyBackup, .legacyWalletLedgerBackup, .json, .commaSeparatedText] }
+    static var readableContentTypes: [UTType] { [.fsyBackup, .legacyLedgerBackup, .json, .commaSeparatedText] }
     static var writableContentTypes: [UTType] { [.fsyBackup] }
     var data: Data
 

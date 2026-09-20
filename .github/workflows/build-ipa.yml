@@ -3,6 +3,11 @@ name: Build Unsigned IPA
 on:
   workflow_dispatch:
     inputs:
+      run_signed:
+        description: Build signed IPA
+        required: false
+        type: boolean
+        default: false
       run_tests:
         description: Run XCTest suite
         required: false
@@ -203,6 +208,7 @@ jobs:
   # Produces a SIGNED IPA whose app and widget keep the App Group entitlement, then verifies
   # the built binaries. Skipped (with a warning) until the signing secrets are configured.
   signed-ipa:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_signed == true }}
     name: Build Signed IPA (optional)
     runs-on: macos-latest
     env:

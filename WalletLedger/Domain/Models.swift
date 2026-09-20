@@ -500,12 +500,14 @@ struct LedgerTransaction: Identifiable, Codable, Hashable, Sendable {
     var isRefunded: Bool { reversalTransactionID != nil }
     var isLockedByReversal: Bool { isReversal || isRefunded }
 
-    var isEffectivelyCompleted: Bool {
+    var isEffectivelyCompleted: Bool { isCompleted(asOf: .now) }
+
+    func isCompleted(asOf date: Date) -> Bool {
         if linkedTransactionKind == .installment {
-            return linkedStatus == .completed || occurredAt <= .now
+            return (linkedStatus == .completed && (completedAt ?? occurredAt) <= date) || occurredAt <= date
         }
         if linkedTransactionKind != nil {
-            return linkedStatus == .completed || (linkedStatus == nil && linkedTransactionKind != .installment)
+            return (linkedStatus == .completed && (completedAt ?? occurredAt) <= date) || (linkedStatus == nil && occurredAt <= date)
         }
         return true
     }

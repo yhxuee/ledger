@@ -169,8 +169,12 @@ enum CashFlowForecastEngine {
         let scheduledIncome = collectDeterministicIncome(state: state, from: now, to: endOfMonth)
 
         // 5. Global flexible series for fallback weekday seasonality
+        let flexibleByDay = Dictionary(grouping: active.filter {
+            $0.recurringRuleID == nil && $0.linkedTransactionKind != .installment &&
+            $0.occurredAt >= historyStart && $0.occurredAt < startOfToday
+        }, by: { calendar.startOfDay(for: $0.occurredAt) })
         let globalFlexibleDaily = historyDates.map { date in
-            sumFlexibleExpense(for: date, in: state, to: baseCurrency, filter: nil, now: now, calendar: calendar)
+            sumFlexibleExpense(transactions: flexibleByDay[date, default: []], in: state, to: baseCurrency, filter: nil, now: now, calendar: calendar)
         }
         let globalRobust = winsorize(globalFlexibleDaily)
         let globalWeekdayFactors = calculateWeekdayFactors(dailyValues: globalRobust, dates: historyDates, calendar: calendar)
@@ -199,7 +203,7 @@ enum CashFlowForecastEngine {
 
                 // Flexible future spend for category
                 let catDaily = historyDates.map { date in
-                    sumFlexibleExpense(for: date, in: state, to: baseCurrency, filter: { $0.categoryID == categoryID }, now: now, calendar: calendar)
+                    sumFlexibleExpense(transactions: flexibleByDay[date, default: []], in: state, to: baseCurrency, filter: { $0.categoryID == categoryID }, now: now, calendar: calendar)
                 }
                 let flexibleForCategory = forecastFlexibleExpense(
                     dailySeries: catDaily,
@@ -250,7 +254,7 @@ enum CashFlowForecastEngine {
 
                 // Flexible future spend for account
                 let accDaily = historyDates.map { date in
-                    sumFlexibleExpense(for: date, in: state, to: accountCurrency, filter: { $0.accountID == accountID }, now: now, calendar: calendar)
+                    sumFlexibleExpense(transactions: flexibleByDay[date, default: []], in: state, to: accountCurrency, filter: { $0.accountID == accountID }, now: now, calendar: calendar)
                 }
                 let flexibleForAccount = forecastFlexibleExpense(
                     dailySeries: accDaily,
@@ -308,23 +312,15 @@ enum CashFlowForecastEngine {
     // MARK: - Flexible Spending Summation
 
     private static func sumFlexibleExpense(
-        for date: Date,
+        transactions: [LedgerTransaction],
         in state: LedgerState,
         to target: CurrencyCode,
         filter: ((LedgerTransaction) -> Bool)?,
         now: Date,
         calendar: Calendar
     ) -> Double {
-        let transactions = state.transactions.filter { t in
-            t.deletedAt == nil &&
-            t.recurringRuleID == nil &&
-            t.linkedTransactionKind != .installment &&
-            calendar.isDate(t.occurredAt, inSameDayAs: date) &&
-            (filter?(t) ?? true)
-        }
-
         return transactions.reduce(0.0) { sum, t in
-            guard let eff = TransactionSemantics.expenseEffect(t, in: state, to: target, now: now), eff > 0 else { return sum }
+            guard filter?(t) ?? true, let eff = TransactionSemantics.expenseEffect(t, in: state, to: target, now: now), eff > 0 else { return sum }
             return sum + eff
         }
     }
@@ -498,7 +494,7 @@ enum CashFlowForecastEngine {
         }
 
         // 2. Pending Installment Children
-        for t in state.transactions where t.deletedAt == nil && t.linkedTransactionKind == .installment && !t.isEffectivelyCompleted {
+        for t in state.transactions where t.deletedAt == nil && t.linkedTransactionKind == .installment && !t.isCompleted(asOf: now) {
             if t.occurredAt > now && t.occurredAt <= endOfMonth {
                 items.append(
                     ScheduledItem(
