@@ -106,6 +106,18 @@ struct LedgerIndex: Sendable {
         childrenByParentID[parentID] ?? []
     }
 
+    func account(_ id: UUID) -> LedgerAccount? {
+        accountsByID[id]
+    }
+
+    func category(_ id: LedgerCategoryID) -> LedgerCategory? {
+        categoriesByID[id]
+    }
+
+    func transaction(_ id: UUID) -> LedgerTransaction? {
+        transactionsByID[id]
+    }
+
     var activeTransactionsSorted: [LedgerTransaction] {
         sortedActiveTransactions
     }

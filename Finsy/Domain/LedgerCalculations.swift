@@ -166,7 +166,7 @@ enum LedgerCalculations {
         let target = state.settings.baseCurrency
         let plan = state.settings.budgetPlan
         let calendar = Calendar.current
-        let monthly = (index?.transactions ?? activeTransactions(state)).filter { calendar.isDate($0.occurredAt, equalTo: now, toGranularity: .month) }
+        let monthly = (index?.activeTransactions ?? activeTransactions(state)).filter { calendar.isDate($0.occurredAt, equalTo: now, toGranularity: .month) }
         let accountMap = Dictionary(uniqueKeysWithValues: (index?.activeAccounts ?? activeAccounts(state)).map { ($0.id, $0) })
         let lines: [BudgetBreakdownLine]
         switch plan.mode {
@@ -217,7 +217,7 @@ enum LedgerCalculations {
         }
         guard budget > 0 else { return (0, 0, 0) }
         let calendar = Calendar.current
-        let effectiveTransactions = index?.transactions ?? activeTransactions(state)
+        let effectiveTransactions = index?.activeTransactions ?? activeTransactions(state)
         let spent = effectiveTransactions.reduce(0) { partial, transaction in
             guard transaction.accountID == account.id, (includedCategories == nil || includedCategories!.contains(transaction.categoryID)), calendar.isDate(transaction.occurredAt, equalTo: now, toGranularity: .month), let value = accountExpenseEffect(transaction, for: account, in: state, now: now, index: index) else { return partial }
             return partial + value
@@ -294,7 +294,7 @@ enum LedgerCalculations {
 
         let relevantCategories = state.categories.filter { $0.kind == (type == .income ? .income : .expense) && !$0.id.isSystemLinked }
         var totals = Dictionary(uniqueKeysWithValues: relevantCategories.map { ($0.id, 0.0) })
-        let effectiveTransactions = index?.transactions ?? activeTransactions(state)
+        let effectiveTransactions = index?.activeTransactions ?? activeTransactions(state)
         for transaction in effectiveTransactions where transaction.occurredAt >= start && transaction.occurredAt < end && (accountID == nil || transaction.accountID == accountID) && (accountIDs.isEmpty || accountIDs.contains(transaction.accountID)) {
             guard categories.isEmpty || categories.contains(transaction.categoryID) else { continue }
             guard let value = transactionEffect(transaction, in: state, to: target, type: type, now: now, index: index) else { continue }
