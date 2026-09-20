@@ -125,7 +125,7 @@ final class RecentTransactionActivityTests: XCTestCase {
             destinationAccountID: nil,
             amount: 50.0,
             currency: account.currency,
-            categoryID: .subscriptions,
+            categoryID: .utilities,
             occurredAt: .now,
             note: "Monthly subscription",
             origin: .recurring
