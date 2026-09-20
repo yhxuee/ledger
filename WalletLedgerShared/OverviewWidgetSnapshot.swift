@@ -1,15 +1,15 @@
 import AppIntents
 import Foundation
 
-public enum OverviewMetricWidgetOption: String, AppEnum, Sendable {
+enum OverviewMetricWidgetOption: String, AppEnum, Sendable {
     case weeklyActivity
     case budgetRemain
     case todayExpense
     case weekExpense
     case sixMonthTrend
 
-    public static var typeDisplayRepresentation: TypeDisplayRepresentation = "Metric"
-    public static var caseDisplayRepresentations: [OverviewMetricWidgetOption: DisplayRepresentation] = [
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Metric"
+    static let caseDisplayRepresentations: [OverviewMetricWidgetOption: DisplayRepresentation] = [
         .weeklyActivity: "Weekly Activity",
         .budgetRemain: "Budget Remain",
         .todayExpense: "Today Expense",
@@ -18,29 +18,29 @@ public enum OverviewMetricWidgetOption: String, AppEnum, Sendable {
     ]
 }
 
-public struct SelectOverviewMetricIntent: WidgetConfigurationIntent {
-    public static var title: LocalizedStringResource = "Overview Metric"
-    public static var description = IntentDescription("Select which Overview metric to display.")
+struct SelectOverviewMetricIntent: WidgetConfigurationIntent {
+    static let title: LocalizedStringResource = "Overview Metric"
+    static let description = IntentDescription("Select which Overview metric to display.")
 
     @Parameter(title: "Metric", default: .budgetRemain)
-    public var metric: OverviewMetricWidgetOption
+    var metric: OverviewMetricWidgetOption
 
-    public init() {
+    init() {
         self.metric = .budgetRemain
     }
 
-    public init(metric: OverviewMetricWidgetOption) {
+    init(metric: OverviewMetricWidgetOption) {
         self.metric = metric
     }
 }
 
-public struct OverviewWidgetCategorySegment: Codable, Sendable, Identifiable, Hashable {
-    public var id: String
-    public var name: String
-    public var colorHex: String
-    public var amount: Double
+struct OverviewWidgetCategorySegment: Codable, Sendable, Identifiable, Hashable {
+    var id: String
+    var name: String
+    var colorHex: String
+    var amount: Double
 
-    public init(id: String, name: String, colorHex: String, amount: Double) {
+    init(id: String, name: String, colorHex: String, amount: Double) {
         self.id = id
         self.name = name
         self.colorHex = colorHex
@@ -48,48 +48,48 @@ public struct OverviewWidgetCategorySegment: Codable, Sendable, Identifiable, Ha
     }
 }
 
-public struct OverviewWidgetDailyBucket: Codable, Sendable, Identifiable, Hashable {
-    public var id: String
-    public var label: String
-    public var amount: Double
+struct OverviewWidgetDailyBucket: Codable, Sendable, Identifiable, Hashable {
+    var id: String
+    var label: String
+    var amount: Double
 
-    public init(id: String, label: String, amount: Double) {
+    init(id: String, label: String, amount: Double) {
         self.id = id
         self.label = label
         self.amount = amount
     }
 }
 
-public struct OverviewWidgetMonthlyBucket: Codable, Sendable, Identifiable, Hashable {
-    public var id: String
-    public var label: String
-    public var amount: Double
+struct OverviewWidgetMonthlyBucket: Codable, Sendable, Identifiable, Hashable {
+    var id: String
+    var label: String
+    var amount: Double
 
-    public init(id: String, label: String, amount: Double) {
+    init(id: String, label: String, amount: Double) {
         self.id = id
         self.label = label
         self.amount = amount
     }
 }
 
-public struct OverviewWidgetWeeklyActivityData: Codable, Sendable, Hashable {
-    public var total: Double
-    public var buckets: [OverviewWidgetDailyBucket]
+struct OverviewWidgetWeeklyActivityData: Codable, Sendable, Hashable {
+    var total: Double
+    var buckets: [OverviewWidgetDailyBucket]
 
-    public init(total: Double, buckets: [OverviewWidgetDailyBucket]) {
+    init(total: Double, buckets: [OverviewWidgetDailyBucket]) {
         self.total = total
         self.buckets = buckets
     }
 }
 
-public struct OverviewWidgetBudgetData: Codable, Sendable, Hashable {
-    public var budget: Double
-    public var spent: Double
-    public var remaining: Double
-    public var ratio: Double
-    public var hasBudget: Bool
+struct OverviewWidgetBudgetData: Codable, Sendable, Hashable {
+    var budget: Double
+    var spent: Double
+    var remaining: Double
+    var ratio: Double
+    var hasBudget: Bool
 
-    public init(budget: Double, spent: Double, remaining: Double, ratio: Double, hasBudget: Bool) {
+    init(budget: Double, spent: Double, remaining: Double, ratio: Double, hasBudget: Bool) {
         self.budget = budget
         self.spent = spent
         self.remaining = remaining
@@ -98,37 +98,37 @@ public struct OverviewWidgetBudgetData: Codable, Sendable, Hashable {
     }
 }
 
-public struct OverviewWidgetExpenseData: Codable, Sendable, Hashable {
-    public var total: Double
-    public var segments: [OverviewWidgetCategorySegment]
+struct OverviewWidgetExpenseData: Codable, Sendable, Hashable {
+    var total: Double
+    var segments: [OverviewWidgetCategorySegment]
 
-    public init(total: Double, segments: [OverviewWidgetCategorySegment]) {
+    init(total: Double, segments: [OverviewWidgetCategorySegment]) {
         self.total = total
         self.segments = segments
     }
 }
 
-public struct OverviewWidgetTrendData: Codable, Sendable, Hashable {
-    public var total: Double
-    public var buckets: [OverviewWidgetMonthlyBucket]
+struct OverviewWidgetTrendData: Codable, Sendable, Hashable {
+    var total: Double
+    var buckets: [OverviewWidgetMonthlyBucket]
 
-    public init(total: Double, buckets: [OverviewWidgetMonthlyBucket]) {
+    init(total: Double, buckets: [OverviewWidgetMonthlyBucket]) {
         self.total = total
         self.buckets = buckets
     }
 }
 
-public struct OverviewWidgetSnapshot: Codable, Sendable, Hashable {
-    public var updatedAt: Date
-    public var currency: CurrencyCode
-    public var isPrivacyMasked: Bool
-    public var weeklyActivity: OverviewWidgetWeeklyActivityData
-    public var budgetRemain: OverviewWidgetBudgetData
-    public var todayExpense: OverviewWidgetExpenseData
-    public var weekExpense: OverviewWidgetExpenseData
-    public var sixMonthTrend: OverviewWidgetTrendData
+struct OverviewWidgetSnapshot: Codable, Sendable, Hashable {
+    var updatedAt: Date
+    var currency: CurrencyCode
+    var isPrivacyMasked: Bool
+    var weeklyActivity: OverviewWidgetWeeklyActivityData
+    var budgetRemain: OverviewWidgetBudgetData
+    var todayExpense: OverviewWidgetExpenseData
+    var weekExpense: OverviewWidgetExpenseData
+    var sixMonthTrend: OverviewWidgetTrendData
 
-    public init(
+    init(
         updatedAt: Date,
         currency: CurrencyCode,
         isPrivacyMasked: Bool,
@@ -148,7 +148,7 @@ public struct OverviewWidgetSnapshot: Codable, Sendable, Hashable {
         self.sixMonthTrend = sixMonthTrend
     }
 
-    public static var empty: OverviewWidgetSnapshot {
+    static var empty: OverviewWidgetSnapshot {
         OverviewWidgetSnapshot(
             updatedAt: .now,
             currency: .HKD,
@@ -161,7 +161,7 @@ public struct OverviewWidgetSnapshot: Codable, Sendable, Hashable {
         )
     }
 
-    public static var placeholder: OverviewWidgetSnapshot {
+    static var placeholder: OverviewWidgetSnapshot {
         OverviewWidgetSnapshot(
             updatedAt: .now,
             currency: .HKD,
@@ -198,21 +198,21 @@ public struct OverviewWidgetSnapshot: Codable, Sendable, Hashable {
     }
 }
 
-public enum OverviewWidgetSnapshotStore {
-    public static let appGroupIdentifier = "group.com.finsy.app"
-    public static let suiteKey = "overview_widget_snapshot"
+enum OverviewWidgetSnapshotStore {
+    static let appGroupIdentifier = "group.com.finsy.app"
+    static let suiteKey = "overview_widget_snapshot"
 
-    public static func userDefaults() -> UserDefaults? {
+    static func userDefaults() -> UserDefaults? {
         UserDefaults(suiteName: appGroupIdentifier)
     }
 
-    public static func write(_ snapshot: OverviewWidgetSnapshot) {
+    static func write(_ snapshot: OverviewWidgetSnapshot) {
         guard let defaults = userDefaults(),
               let data = try? JSONEncoder().encode(snapshot) else { return }
         defaults.set(data, forKey: suiteKey)
     }
 
-    public static func read() -> OverviewWidgetSnapshot {
+    static func read() -> OverviewWidgetSnapshot {
         guard let defaults = userDefaults(),
               let data = defaults.data(forKey: suiteKey),
               let snapshot = try? JSONDecoder().decode(OverviewWidgetSnapshot.self, from: data) else {
