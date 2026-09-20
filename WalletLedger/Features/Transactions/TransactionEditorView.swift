@@ -58,6 +58,7 @@ struct TransactionEditorView: View {
         _destinationID = State(initialValue: transaction?.destinationAccountID)
         _currency = State(initialValue: transaction?.currency ?? .HKD)
         let defaultCat: LedgerCategoryID = (initialType == .income) ? .salary : .food
+        _categoryID = State(initialValue: transaction?.categoryID ?? defaultCat)
         if let transaction, transaction.parentTransactionID != nil, transaction.linkedStatus == .pending {
             _occurredAt = State(initialValue: .now)
         } else {

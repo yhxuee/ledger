@@ -630,7 +630,7 @@ struct LedgerEntryRow: View {
         case .purchase(let session, let children, _):
             VStack(spacing: 0) {
                 Button {
-                    if let revealed = revealedTransactionID.wrappedValue {
+                    if revealedTransactionID.wrappedValue != nil {
                         withAnimation(.snappy) { revealedTransactionID.wrappedValue = nil }
                         return
                     }

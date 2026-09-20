@@ -174,6 +174,8 @@ enum SchemaMigration {
                             parentTransactionID: item.id,
                             linkedTransactionKind: .splitSelfExpense,
                             linkedTransactionIndex: 0,
+                            linkedStatus: .completed,
+                            completedAt: item.occurredAt,
                             createdAt: item.createdAt,
                             updatedAt: item.updatedAt,
                             deletedAt: nil,
@@ -183,9 +185,7 @@ enum SchemaMigration {
                             taxAmount: item.taxAmount.map { ($0 / Double(people) * 100).rounded() / 100 },
                             taxBaseAmount: item.taxBaseAmount.map { ($0 / Double(people) * 100).rounded() / 100 },
                             taxInputMode: item.taxInputMode,
-                            isTaxExempt: item.isTaxExempt,
-                            linkedStatus: .completed,
-                            completedAt: item.occurredAt
+                            isTaxExempt: item.isTaxExempt
                         )
                         newTransactions.append(child1)
                     }
@@ -224,6 +224,8 @@ enum SchemaMigration {
                             parentTransactionID: item.id,
                             linkedTransactionKind: .reimbursementOriginal,
                             linkedTransactionIndex: 0,
+                            linkedStatus: .completed,
+                            completedAt: item.occurredAt,
                             createdAt: item.createdAt,
                             updatedAt: item.updatedAt,
                             deletedAt: nil,
@@ -233,9 +235,7 @@ enum SchemaMigration {
                             taxAmount: item.taxAmount,
                             taxBaseAmount: item.taxBaseAmount,
                             taxInputMode: item.taxInputMode,
-                            isTaxExempt: item.isTaxExempt,
-                            linkedStatus: .completed,
-                            completedAt: item.occurredAt
+                            isTaxExempt: item.isTaxExempt
                         )
                         newTransactions.append(child1)
                     }
