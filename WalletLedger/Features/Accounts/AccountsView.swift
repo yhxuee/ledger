@@ -43,7 +43,7 @@ struct AccountsView: View {
             Section {
                 HStack(spacing: 12) {
                     statementCard(
-                        title: "Monthly Statement",
+                        title: "Finsy Statement",
                         subtitle: "Balance & postings",
                         icon: "doc.text.fill",
                         color: .blue

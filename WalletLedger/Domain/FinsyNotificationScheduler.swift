@@ -162,8 +162,8 @@ final class FinsyNotificationScheduler: NSObject, UNUserNotificationCenterDelega
             let monthName = formatter.string(from: fireDate)
 
             let content = UNMutableNotificationContent()
-            content.title = "Monthly Statement Ready"
-            content.body = "Your monthly financial statement for \(monthName) is ready to review."
+            content.title = "Finsy Statement Ready"
+            content.body = "Your Finsy Statement for \(monthName) is ready to review."
             content.sound = .default
 
             let triggerComponents = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
