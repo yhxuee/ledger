@@ -239,7 +239,7 @@ enum CashFlowForecastEngine {
 
                 let actualSpent = monthlyTransactions.reduce(0.0) { sum, t in
                     guard t.accountID == accountID,
-                          let val = TransactionSemantics.accountExpenseEffect(t, for: account, in: state, now: now) else { return sum }
+                          let val = LedgerCalculations.accountExpenseEffect(t, for: account, in: state, now: now) else { return sum }
                     return sum + val
                 }
 

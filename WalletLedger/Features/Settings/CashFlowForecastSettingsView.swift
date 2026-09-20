@@ -11,7 +11,7 @@ struct CashFlowForecastSettingsView: View {
     private var enabledBinding: Binding<Bool> {
         Binding(
             get: { preferences.value.cashFlowForecastEnabled },
-            set: { preferences.update { $0.cashFlowForecastEnabled = $1 } }
+            set: { newVal in preferences.update { $0.cashFlowForecastEnabled = newVal } }
         )
     }
 
@@ -20,7 +20,7 @@ struct CashFlowForecastSettingsView: View {
             get: { preferences.value.forecastYellowThreshold * 100.0 },
             set: { newVal in
                 let yellow = min(100.0, max(1.0, newVal.rounded())) / 100.0
-                preferences.update { prefs, _ in
+                preferences.update { prefs in
                     prefs.forecastYellowThreshold = yellow
                     if prefs.forecastRedThreshold <= yellow {
                         prefs.forecastRedThreshold = min(2.0, yellow + 0.05)
@@ -35,7 +35,7 @@ struct CashFlowForecastSettingsView: View {
             get: { preferences.value.forecastRedThreshold * 100.0 },
             set: { newVal in
                 let red = min(200.0, max(2.0, newVal.rounded())) / 100.0
-                preferences.update { prefs, _ in
+                preferences.update { prefs in
                     prefs.forecastRedThreshold = red
                     if prefs.forecastYellowThreshold >= red {
                         prefs.forecastYellowThreshold = max(0.01, red - 0.05)

@@ -28,7 +28,7 @@ struct ForecastRiskBanner: View {
     }
 
     private var accentColor: Color {
-        severity == .red ? LedgerPalette.crimson : .orange
+        severity == .red ? .red : .orange
     }
 
     var body: some View {
