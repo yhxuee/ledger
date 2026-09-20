@@ -3,14 +3,21 @@ import WidgetKit
 
 @MainActor
 enum OverviewWidgetRelay {
+    private static var lastKnownPrivacyMask: Bool?
+
     static func updateSnapshot(store: LedgerStore, preferences: AppPreferences? = nil) {
         let state = store.state
         let baseCurrency = state.settings.baseCurrency
         let isPrivacyMasked: Bool = {
             if let preferences {
+                lastKnownPrivacyMask = preferences.biometricLockEnabled
                 return preferences.biometricLockEnabled
             }
+            if let cached = lastKnownPrivacyMask {
+                return cached
+            }
             if let loaded = AppPreferencesStore.load() {
+                lastKnownPrivacyMask = loaded.biometricLockEnabled
                 return loaded.biometricLockEnabled
             }
             let existing = OverviewWidgetSnapshotStore.readResult()
@@ -69,6 +76,7 @@ enum OverviewWidgetRelay {
         }
 
         let snapshot = OverviewWidgetSnapshot(
+            schemaVersion: OverviewWidgetSnapshot.currentSchemaVersion,
             updatedAt: .now,
             currency: baseCurrency,
             isPrivacyMasked: isPrivacyMasked,
@@ -79,18 +87,36 @@ enum OverviewWidgetRelay {
             sixMonthTrend: .init(total: sixMonthsSummary.total, buckets: sixMonthsBuckets)
         )
 
-        OverviewWidgetSnapshotStore.write(snapshot)
-        WidgetCenter.shared.reloadTimelines(ofKind: "FinsyOverviewMetric")
+        let writeResult = OverviewWidgetSnapshotStore.writeAndVerify(snapshot)
+        #if DEBUG
+        OverviewWidgetSnapshotStore.logDiagnostics(process: "main-app")
+        #endif
+
+        if writeResult == .available {
+            WidgetCenter.shared.reloadTimelines(ofKind: "FinsyOverviewMetric")
+        }
     }
 
     static func updatePrivacyMask(isPrivacyMasked: Bool) {
+        lastKnownPrivacyMask = isPrivacyMasked
         let result = OverviewWidgetSnapshotStore.readResult()
         guard result.state.isAvailable else { return }
         var snapshot = result.snapshot
         guard snapshot.isPrivacyMasked != isPrivacyMasked else { return }
         snapshot.isPrivacyMasked = isPrivacyMasked
         snapshot.updatedAt = .now
-        OverviewWidgetSnapshotStore.write(snapshot)
-        WidgetCenter.shared.reloadTimelines(ofKind: "FinsyOverviewMetric")
+        let writeResult = OverviewWidgetSnapshotStore.writeAndVerify(snapshot)
+        #if DEBUG
+        OverviewWidgetSnapshotStore.logDiagnostics(process: "main-app-privacy")
+        #endif
+        if writeResult == .available {
+            WidgetCenter.shared.reloadTimelines(ofKind: "FinsyOverviewMetric")
+        }
+    }
+
+    @discardableResult
+    static func refreshWidgetData(store: LedgerStore, preferences: AppPreferences? = nil) -> OverviewWidgetBridgeDiagnostics {
+        updateSnapshot(store: store, preferences: preferences)
+        return OverviewWidgetSnapshotStore.diagnostics()
     }
 }

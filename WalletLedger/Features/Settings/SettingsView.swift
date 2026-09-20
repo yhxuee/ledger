@@ -23,6 +23,7 @@ struct SettingsView: View {
                 functionsSection
                 securitySection
                 shareAndBackupSection
+                diagnosticsSection
                 footer
             }
             .padding()
@@ -292,6 +293,17 @@ struct SettingsView: View {
         }
     }
 
+    private var diagnosticsSection: some View {
+        SettingsGlassSection("Diagnostics") {
+            NavigationLink {
+                DiagnosticsSettingsView()
+            } label: {
+                SettingsLinkRow("Diagnostics", systemImage: "wrench.and.screwdriver", detail: nil)
+            }
+            .foregroundStyle(.primary)
+        }
+    }
+
     private var footer: some View {
         Text("Finsy · Multi-Currency Double-Entry Ledger")
             .font(.footnote)
@@ -499,5 +511,157 @@ struct ImportPreviewView: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+struct DiagnosticsSettingsView: View {
+    @EnvironmentObject private var store: LedgerStore
+    @EnvironmentObject private var preferences: AppPreferencesStore
+    @State private var diagnostics: OverviewWidgetBridgeDiagnostics = OverviewWidgetSnapshotStore.diagnostics()
+    @State private var refreshMessage: String?
+    @State private var isRefreshing = false
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                widgetDataSection
+            }
+            .padding()
+        }
+        .background(LedgerBackground())
+        .navigationTitle("Diagnostics")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            diagnostics = OverviewWidgetSnapshotStore.diagnostics()
+        }
+        .alert("Widget Data", isPresented: Binding(get: { refreshMessage != nil }, set: { if !$0 { refreshMessage = nil } })) {
+            Button("OK") { refreshMessage = nil }
+        } message: {
+            Text(refreshMessage ?? "")
+        }
+    }
+
+    private var widgetDataSection: some View {
+        SettingsGlassSection("WIDGET DATA") {
+            LabeledContent {
+                Text(diagnostics.containerReachable ? "Available" : "Unavailable")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(diagnostics.containerReachable ? .green : .red)
+            } label: {
+                SettingsLabel("App Group", systemImage: "person.2.circle")
+            }
+
+            Divider()
+
+            LabeledContent {
+                Text(snapshotStatusText)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(snapshotStatusColor)
+            } label: {
+                SettingsLabel("Snapshot", systemImage: "doc.text")
+            }
+
+            Divider()
+
+            LabeledContent {
+                Text(updatedText)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.secondary)
+            } label: {
+                SettingsLabel("Updated", systemImage: "clock")
+            }
+
+            Divider()
+
+            LabeledContent {
+                Text(sizeText)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.secondary)
+            } label: {
+                SettingsLabel("Size", systemImage: "internaldrive")
+            }
+
+            Divider()
+
+            LabeledContent {
+                Text(reloadStatusText)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(reloadStatusColor)
+            } label: {
+                SettingsLabel("Widget Reload", systemImage: "arrow.triangle.2.circlepath")
+            }
+
+            Divider()
+
+            Button {
+                isRefreshing = true
+                diagnostics = OverviewWidgetRelay.refreshWidgetData(store: store, preferences: preferences.value)
+                isRefreshing = false
+                refreshMessage = diagnostics.state == .available ? "Widget data refreshed and verified." : "Widget data refresh completed with state: \(diagnostics.state)"
+            } label: {
+                HStack {
+                    SettingsLabel("Refresh Widget Data", systemImage: "arrow.clockwise")
+                    Spacer()
+                    if isRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .foregroundStyle(.primary)
+        }
+    }
+
+    private var snapshotStatusText: String {
+        switch diagnostics.state {
+        case .available:
+            return "Available"
+        case .snapshotMissing:
+            return "Missing"
+        case .containerUnavailable:
+            return "Unavailable"
+        case .snapshotIncompatible, .decodeFailed, .readFailed, .writeFailed:
+            return "Invalid"
+        }
+    }
+
+    private var snapshotStatusColor: Color {
+        switch diagnostics.state {
+        case .available:
+            return .green
+        case .snapshotMissing:
+            return .orange
+        case .containerUnavailable, .snapshotIncompatible, .decodeFailed, .readFailed, .writeFailed:
+            return .red
+        }
+    }
+
+    private var reloadStatusText: String {
+        diagnostics.containerReachable && diagnostics.state == .available ? "Available" : "Unavailable"
+    }
+
+    private var reloadStatusColor: Color {
+        diagnostics.containerReachable && diagnostics.state == .available ? .green : .secondary
+    }
+
+    private var updatedText: String {
+        guard let date = diagnostics.snapshotFileModifiedAt else {
+            return "Never"
+        }
+        if abs(date.timeIntervalSinceNow) < 60 {
+            return "just now"
+        }
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    private var sizeText: String {
+        guard let bytes = diagnostics.snapshotFileSize else {
+            return "—"
+        }
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useBytes, .useKB, .useMB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(bytes))
     }
 }

@@ -851,6 +851,7 @@ final class LedgerStore: ObservableObject {
 
     private func scheduleSave() {
         guard persistenceEnabled else { return }
+        commitActiveBook()
         OverviewWidgetRelay.updateSnapshot(store: self)
         saveTask?.cancel()
         let snapshot = librarySnapshot()

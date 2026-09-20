@@ -20,6 +20,9 @@ struct OverviewMetricTimelineProvider: AppIntentTimelineProvider {
 
     func snapshot(for configuration: SelectOverviewMetricIntent, in context: Context) async -> OverviewMetricEntry {
         let result = OverviewWidgetSnapshotStore.readResult()
+        #if DEBUG
+        OverviewWidgetSnapshotStore.logDiagnostics(process: "widget-snapshot")
+        #endif
         if context.isPreview && !result.state.isAvailable {
             return OverviewMetricEntry(date: .now, metric: configuration.metric, snapshot: .placeholder, bridgeState: .available)
         }
@@ -28,6 +31,9 @@ struct OverviewMetricTimelineProvider: AppIntentTimelineProvider {
 
     func timeline(for configuration: SelectOverviewMetricIntent, in context: Context) async -> Timeline<OverviewMetricEntry> {
         let result = OverviewWidgetSnapshotStore.readResult()
+        #if DEBUG
+        OverviewWidgetSnapshotStore.logDiagnostics(process: "widget-timeline")
+        #endif
         let entry = OverviewMetricEntry(date: .now, metric: configuration.metric, snapshot: result.snapshot, bridgeState: result.state)
         let nextUpdate = Calendar.current.date(byAdding: .minute, value: 30, to: .now) ?? .now.addingTimeInterval(1800)
         return Timeline(entries: [entry], policy: .after(nextUpdate))
@@ -104,15 +110,21 @@ private struct OverviewSmallMetricView: View {
 
     private var unavailableView: some View {
         VStack(spacing: 6) {
-            Image(systemName: entry.bridgeState == .snapshotMissing ? "arrow.clockwise" : "exclamationmark.triangle")
+            Image(systemName: entry.bridgeState.systemImage)
                 .font(.system(size: 20))
                 .foregroundStyle(.secondary)
             Text(entry.bridgeState.message ?? "Data unavailable")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.primary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 4)
+            if let subtitle = entry.bridgeState.subtitle {
+                Text(subtitle)
+                    .font(.system(size: 9, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
+        .padding(.horizontal, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -371,16 +383,18 @@ private struct OverviewMediumMetricView: View {
 
     private var unavailableView: some View {
         HStack(spacing: 12) {
-            Image(systemName: entry.bridgeState == .snapshotMissing ? "arrow.clockwise" : "exclamationmark.triangle")
+            Image(systemName: entry.bridgeState.systemImage)
                 .font(.system(size: 26))
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 3) {
                 Text(entry.bridgeState.message ?? "Data unavailable")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.primary)
-                Text(entry.bridgeState == .snapshotMissing ? "Launch Finsy to sync your overview metrics." : "Could not load overview metrics snapshot.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                if let subtitle = entry.bridgeState.subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
