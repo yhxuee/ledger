@@ -1435,7 +1435,7 @@ extension LedgerStore {
               let idx2 = state.transactions.firstIndex(where: { $0.id == second.id }) else { return nil }
         undoState = state
         let now = Date.now
-        let parentCurrency = state.settings.primaryCurrency
+        let parentCurrency = first.currency == second.currency ? first.currency : state.settings.baseCurrency
         let amount1 = LedgerCalculations.convert(first.recognizedExpenseAmount, from: first.currency, to: parentCurrency, rates: state.settings.rates)
         let amount2 = LedgerCalculations.convert(second.recognizedExpenseAmount, from: second.currency, to: parentCurrency, rates: state.settings.rates)
         let parentID = UUID()

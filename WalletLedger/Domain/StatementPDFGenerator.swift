@@ -1,42 +1,42 @@
 import UIKit
 
-public enum StatementType: String, CaseIterable, Identifiable, Sendable {
+enum StatementType: String, CaseIterable, Identifiable, Sendable {
     case monthly = "Monthly Statement"
     case tax = "Tax Statement"
 
-    public var id: String { rawValue }
+    var id: String { rawValue }
 }
 
-public enum StatementPDFGenerator {
+enum StatementPDFGenerator {
     // Standard A4 dimensions in points (72 pt/inch)
-    public static let pageWidth: CGFloat = 595.2
-    public static let pageHeight: CGFloat = 841.8
-    public static let pageRect = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
-    public static let margin: CGFloat = 36
-    public static let contentWidth: CGFloat = pageWidth - (margin * 2)
-    public static let footerHeight: CGFloat = 46
+    static let pageWidth: CGFloat = 595.2
+    static let pageHeight: CGFloat = 841.8
+    static let pageRect = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
+    static let margin: CGFloat = 36
+    static let contentWidth: CGFloat = pageWidth - (margin * 2)
+    static let footerHeight: CGFloat = 46
 
     private static let mandatoryDisclaimer = "Disclaimer: Finsy is a personal bookkeeping tool and is NOT a bank, financial institution, or licensed tax advisor. This statement is generated solely from user-entered records for informational and personal budgeting purposes only."
 
-    public struct AccountMonthlySummary: Sendable {
-        public let account: LedgerAccount
-        public let openingBalance: Double
-        public let totalInflow: Double
-        public let totalOutflow: Double
-        public let closingBalance: Double
+    struct AccountMonthlySummary: Sendable {
+        let account: LedgerAccount
+        let openingBalance: Double
+        let totalInflow: Double
+        let totalOutflow: Double
+        let closingBalance: Double
     }
 
-    public struct TaxItem: Sendable {
-        public let transaction: LedgerTransaction
-        public let categoryName: String
-        public let taxAmount: Double
-        public let taxBase: Double
-        public let rate: Double
+    struct TaxItem: Sendable {
+        let transaction: LedgerTransaction
+        let categoryName: String
+        let taxAmount: Double
+        let taxBase: Double
+        let rate: Double
     }
 
-    // MARK: - Public Entry Points
+    // MARK: - Entry Points
 
-    public static func generateMonthlyStatement(monthDate: Date, accounts: [LedgerAccount], in state: LedgerState) throws -> URL {
+    static func generateMonthlyStatement(monthDate: Date, accounts: [LedgerAccount], in state: LedgerState) throws -> URL {
         let calendar = Calendar.current
         guard let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: monthDate)),
               let endOfMonth = calendar.date(byAdding: DateComponents(month: 1, day: -1, hour: 23, minute: 59, second: 59), to: startOfMonth) else {
@@ -138,7 +138,7 @@ public enum StatementPDFGenerator {
         return tempURL
     }
 
-    public static func generateTaxStatement(monthDate: Date, accounts: [LedgerAccount], in state: LedgerState) throws -> URL {
+    static func generateTaxStatement(monthDate: Date, accounts: [LedgerAccount], in state: LedgerState) throws -> URL {
         let calendar = Calendar.current
         guard let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: monthDate)),
               let endOfMonth = calendar.date(byAdding: DateComponents(month: 1, day: -1, hour: 23, minute: 59, second: 59), to: startOfMonth) else {
@@ -588,11 +588,11 @@ public enum StatementPDFGenerator {
     }
 }
 
-public enum StatementError: LocalizedError {
+enum StatementError: LocalizedError {
     case invalidDateRange
     case generationFailed
 
-    public var errorDescription: String? {
+    var errorDescription: String? {
         switch self {
         case .invalidDateRange: "Invalid date range for monthly statement."
         case .generationFailed: "Failed to render PDF document."

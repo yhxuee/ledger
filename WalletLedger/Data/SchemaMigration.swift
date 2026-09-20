@@ -253,6 +253,9 @@ enum SchemaMigration {
                     let generated = RefundSchedule.generate(parent: item, now: item.occurredAt)
                     newTransactions.append(contentsOf: generated)
                 }
+
+            case .installment, .combinedPayment:
+                break
             }
         }
 

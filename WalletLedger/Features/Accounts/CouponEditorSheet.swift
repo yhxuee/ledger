@@ -74,8 +74,8 @@ struct CouponEditorSheet: View {
                         let coupon = WalletCoupon(
                             id: existingCoupon?.id ?? UUID(),
                             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-                            faceValue: faceValue,
                             currency: currency,
+                            faceValue: faceValue,
                             expirationDate: expirationDate,
                             reminderEnabled: reminderEnabled,
                             usedAt: existingCoupon?.usedAt,

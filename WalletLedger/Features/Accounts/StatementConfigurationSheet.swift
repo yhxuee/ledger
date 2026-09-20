@@ -6,7 +6,7 @@ struct ShareSheetItem: Identifiable {
     let url: URL
 }
 
-struct ShareActivitySheet: UIViewControllerRepresentable {
+private struct StatementShareSheet: UIViewControllerRepresentable {
     let activityItems: [Any]
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
@@ -139,7 +139,7 @@ struct StatementConfigurationSheet: View {
                 }
             }
             .sheet(item: $shareItem) { item in
-                ShareActivitySheet(activityItems: [item.url])
+                StatementShareSheet(activityItems: [item.url])
             }
             .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }

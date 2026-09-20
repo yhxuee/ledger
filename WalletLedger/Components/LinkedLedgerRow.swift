@@ -483,7 +483,8 @@ struct LinkedLedgerRow: View {
                     ]
                 }
                 return []
-            case .splitSelfExpense, .reimbursementOriginal, .reimbursementIncome, .refundOriginal, .refundIncome:
+            case .splitSelfExpense, .reimbursementOriginal, .reimbursementIncome, .refundOriginal, .refundIncome,
+                 .combinedPaymentItem, .combinedPaymentRefund, .combinedPaymentRefundSupport:
                 return []
             }
         }
