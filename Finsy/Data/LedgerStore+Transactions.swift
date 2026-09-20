@@ -4,6 +4,13 @@ extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
+public enum TransactionCreationOrigin: Sendable {
+    case user
+    case purchase
+    case recurring
+    case system
+}
+
 extension LedgerStore {
     /// Resolves a requested currency pocket against an account.
     /// Single-currency accounts only ever post to their primary currency; a multi-currency
@@ -60,14 +67,6 @@ extension LedgerStore {
         return item
     }
 
-public enum TransactionCreationOrigin: Sendable {
-    case user
-    case purchase
-    case recurring
-    case system
-}
-
-extension LedgerStore {
     @discardableResult
     func addTransaction(
         type: LedgerTransactionType,
