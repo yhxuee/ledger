@@ -196,6 +196,11 @@ enum PurchaseSharedStateStore {
             try FileManager.default.removeItem(at: url)
         }
     }
+
+    static func remove(sessionID: UUID) {
+        guard let url = url(sessionID: sessionID) else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
 }
 
 enum PurchaseSharedStateError: LocalizedError {

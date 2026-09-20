@@ -9,40 +9,20 @@ struct PurchaseModeView: View {
     }
     @State private var creating = false
     @State private var selected: PurchaseSession?
+
+    private var visibleSessions: [PurchaseSession] {
+        store.purchaseSessions
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                ForEach(store.purchaseSessions) { session in
-                    Button { selected = session } label: {
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(session.name.isEmpty ? "Untitled Purchase" : session.name)
-                                    .font(.headline)
-                                    .lineLimit(1)
-                                Text(session.status.title)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer(minLength: 8)
-                            SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency, maxIntegerDigits: 4)
-                                .font(.subheadline.bold())
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.85)
-                            Image(systemName: "chevron.right")
-                                .font(.caption.bold())
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .frame(maxWidth: .infinity)
-                        .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                ForEach(visibleSessions) { session in
+                    purchaseSessionRow(session)
                 }
-                if store.purchaseSessions.isEmpty {
+                .onDelete(perform: deletePurchaseRows)
+
+                if visibleSessions.isEmpty {
                     ContentUnavailableView("No Purchase Lists", systemImage: "cart", description: Text("Create a reusable shopping-style purchase list."))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
@@ -76,6 +56,54 @@ struct PurchaseModeView: View {
             }
             .sheet(isPresented: $creating) { PurchaseSessionEditorView(session: nil) }
             .sheet(item: $selected) { PurchaseSessionFlowView(sessionID: $0.id) }
+        }
+    }
+
+    @ViewBuilder
+    private func purchaseSessionRow(_ session: PurchaseSession) -> some View {
+        Button { selected = session } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(session.name.isEmpty ? "Untitled Purchase" : session.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Text(session.status.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                SensitiveMoneyText(amount: session.plannedAmount, currency: session.currency, maxIntegerDigits: 4)
+                    .font(.subheadline.bold())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                Image(systemName: "chevron.right")
+                    .font(.caption.bold())
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity)
+            .ledgerGlass(
+                interactive: false,
+                in: RoundedRectangle(
+                    cornerRadius: 20,
+                    style: .continuous
+                )
+            )
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+    }
+
+    private func deletePurchaseRows(at offsets: IndexSet) {
+        let sessions = visibleSessions
+        let ids = offsets.compactMap { index in
+            sessions.indices.contains(index) ? sessions[index].id : nil
+        }
+        for id in ids {
+            store.deletePurchaseSession(id)
         }
     }
 }

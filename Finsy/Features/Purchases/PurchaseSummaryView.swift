@@ -146,7 +146,7 @@ struct PurchaseSummaryView: View {
                         }
                     }
 
-                    if readOnly {
+                    if readOnly && WalletPassManager.shared.isIssuerConfigured {
                         Section {
                             Button {
                                 Task { await addReceiptToWallet() }

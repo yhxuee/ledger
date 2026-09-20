@@ -1,17 +1,40 @@
 import Foundation
 import PassKit
 
+public struct WalletPassConfiguration: Sendable {
+    public static let issuerURLKey = "FINSY_WALLET_PASS_ISSUER_URL"
+
+    public static var issuerURL: URL? {
+        if let envString = ProcessInfo.processInfo.environment[issuerURLKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !envString.isEmpty,
+           let url = URL(string: envString) {
+            return url
+        }
+        if let bundleString = Bundle.main.object(forInfoDictionaryKey: issuerURLKey) as? String,
+           let url = URL(string: bundleString.trimmingCharacters(in: .whitespacesAndNewlines)),
+           !bundleString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return url
+        }
+        return nil
+    }
+}
+
 protocol WalletPassIssuer: Sendable {
+    var isConfigured: Bool { get }
     func issueAccountPass(snapshot: AccountPassSnapshot) async throws -> PKPass
     func issuePurchaseReceiptPass(snapshot: PurchaseReceiptPassSnapshot) async throws -> PKPass
     func issueTaxReceiptPass(snapshot: TaxReceiptPassSnapshot) async throws -> PKPass
 }
 
 final class NetworkWalletPassIssuer: WalletPassIssuer {
-    private let signingEndpoint: URL?
+    let signingEndpoint: URL?
     private let session: URLSession
 
-    init(signingEndpoint: URL? = nil, session: URLSession = .shared) {
+    var isConfigured: Bool {
+        signingEndpoint != nil
+    }
+
+    init(signingEndpoint: URL? = WalletPassConfiguration.issuerURL, session: URLSession = .shared) {
         self.signingEndpoint = signingEndpoint
         self.session = session
     }
@@ -54,6 +77,7 @@ final class NetworkWalletPassIssuer: WalletPassIssuer {
 
 #if DEBUG
 final class MockWalletPassIssuer: WalletPassIssuer, @unchecked Sendable {
+    var isConfigured: Bool = true
     var mockPassToReturn: PKPass?
     var lastAccountSnapshot: AccountPassSnapshot?
     var lastPurchaseSnapshot: PurchaseReceiptPassSnapshot?

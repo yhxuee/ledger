@@ -20,6 +20,10 @@ public struct UndoRecentTransactionIntent: LiveActivityIntent {
 
     public func perform() async throws -> some IntentResult {
         guard let id = UUID(uuidString: transactionIDString) else { return .result() }
+        guard let snapshot = RecentTransactionSharedStore.loadSnapshot(id: id) else { return .result() }
+        guard Date.now <= snapshot.expiresAt else { return .result() }
+        guard !snapshot.isUndone && !snapshot.isRefunded else { return .result() }
+
         RecentTransactionSharedStore.markUndone(id: id)
 
         // Update Live Activity UI immediately
@@ -31,7 +35,11 @@ public struct UndoRecentTransactionIntent: LiveActivityIntent {
             await activity.end(finalContent, dismissalPolicy: .after(Date.now.addingTimeInterval(1.5)))
         }
 
-        NotificationCenter.default.post(name: .didRequestRecentTransactionUndo, object: id)
+        NotificationCenter.default.post(
+            name: .didRequestRecentTransactionUndo,
+            object: id,
+            userInfo: ["ledgerBookID": snapshot.ledgerBookID, "operationID": snapshot.operationID]
+        )
         return .result()
     }
 }
@@ -54,6 +62,11 @@ public struct RefundRecentTransactionIntent: LiveActivityIntent {
 
     public func perform() async throws -> some IntentResult {
         guard let id = UUID(uuidString: transactionIDString) else { return .result() }
+        guard let snapshot = RecentTransactionSharedStore.loadSnapshot(id: id) else { return .result() }
+        guard Date.now <= snapshot.expiresAt else { return .result() }
+        guard !snapshot.isUndone && !snapshot.isRefunded else { return .result() }
+        guard snapshot.isRefundable else { return .result() }
+
         RecentTransactionSharedStore.markRefunded(id: id)
 
         // Update Live Activity UI immediately
@@ -65,7 +78,11 @@ public struct RefundRecentTransactionIntent: LiveActivityIntent {
             await activity.end(finalContent, dismissalPolicy: .after(Date.now.addingTimeInterval(1.5)))
         }
 
-        NotificationCenter.default.post(name: .didRequestRecentTransactionRefund, object: id)
+        NotificationCenter.default.post(
+            name: .didRequestRecentTransactionRefund,
+            object: id,
+            userInfo: ["ledgerBookID": snapshot.ledgerBookID, "operationID": snapshot.operationID]
+        )
         return .result()
     }
 }

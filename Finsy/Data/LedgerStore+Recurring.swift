@@ -49,7 +49,7 @@ extension LedgerStore {
             while rules[index].nextRunAt <= now && executions < 100 {
                 let rule = rules[index]
                 let amount = recurringAmount(for: rule)
-                if amount > 0 { addTransaction(type: rule.type, accountID: rule.accountID, destinationAccountID: rule.destinationAccountID, amount: amount, currency: rule.currency, categoryID: rule.categoryID, occurredAt: rule.nextRunAt, note: rule.note, recurringRuleID: rule.id, accountCurrency: rule.accountCurrency, destinationAccountCurrency: rule.destinationAccountCurrency) }
+                if amount > 0 { addTransaction(type: rule.type, accountID: rule.accountID, destinationAccountID: rule.destinationAccountID, amount: amount, currency: rule.currency, categoryID: rule.categoryID, occurredAt: rule.nextRunAt, note: rule.note, recurringRuleID: rule.id, accountCurrency: rule.accountCurrency, destinationAccountCurrency: rule.destinationAccountCurrency, origin: .recurring) }
                 rules[index].nextRunAt = nextDate(after: rule.nextRunAt, interval: rule.interval, customDays: rule.customIntervalDays)
                 rules[index].updatedAt = now
                 executions += 1

@@ -31,9 +31,28 @@ struct WalletSettingsView: View {
                         Text(walletManager.isAccountPassInstalled() ? "Pass Installed in Apple Wallet" : "Pass Not Added")
                             .font(.caption)
                             .foregroundStyle(walletManager.isAccountPassInstalled() ? Color.green : Color.secondary)
+                        if let refreshed = preferences.value.walletPassLastRefreshedAt {
+                            Text("Last Refreshed: \(refreshed.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .padding(.vertical, 4)
+            }
+
+            if !walletManager.isIssuerConfigured {
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Wallet Pass Issuer Not Configured", systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.orange)
+                        Text("Apple Wallet pass signing requires a server-side endpoint configured with FINSY_WALLET_PASS_ISSUER_URL. Pass issuing and updates are currently disabled.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
             }
 
             Section("Pass Source") {
@@ -92,7 +111,7 @@ struct WalletSettingsView: View {
                             }
                         }
                     }
-                    .disabled(isRefreshing)
+                    .disabled(isRefreshing || !walletManager.isIssuerConfigured)
                 } else {
                     Button {
                         Task { await addPassToWallet() }
@@ -105,7 +124,7 @@ struct WalletSettingsView: View {
                             }
                         }
                     }
-                    .disabled(isRefreshing)
+                    .disabled(isRefreshing || !walletManager.isIssuerConfigured)
                 }
             } footer: {
                 Text("Account Pass is static and refreshed manually. It does not use background push updates or bank transaction reading.")
@@ -202,6 +221,7 @@ struct WalletSettingsView: View {
             let pass = try await walletManager.issuer.issueAccountPass(snapshot: snapshot)
             passToPresent = pass
             showingAddPassSheet = true
+            preferences.update { $0.walletPassLastRefreshedAt = .now }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -224,6 +244,7 @@ struct WalletSettingsView: View {
         do {
             let pass = try await walletManager.issuer.issueAccountPass(snapshot: snapshot)
             let replaced = walletManager.replaceAccountPass(with: pass)
+            preferences.update { $0.walletPassLastRefreshedAt = .now }
             if replaced {
                 statusMessage = "Apple Wallet Account Pass has been updated with your latest ledger balance."
             } else {

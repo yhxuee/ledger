@@ -78,6 +78,8 @@ final class LedgerStore: ObservableObject {
     /// Nonfatal Purchase Mode infrastructure notice (App Group bridge / Live Activity).
     /// Never used for business-logic failures and never presented as a modal alert.
     @Published var purchaseSyncWarning: String?
+    /// Nonfatal Recent Transaction Live Activity notice.
+    @Published var recentActivityWarning: String?
     @Published var undoMessage: String?
     @Published var routedPurchaseID: UUID?
     @Published var activeRoute: AppRoute?

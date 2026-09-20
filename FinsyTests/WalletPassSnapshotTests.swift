@@ -121,4 +121,17 @@ final class WalletPassSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.totalExpenseTax, 10.0, accuracy: 0.0001, "Tax pass must include only expense tax, strictly ignoring income tax")
         XCTAssertEqual(snapshot.totalTaxableExpense, 100.0, accuracy: 0.0001)
     }
+
+    func testWalletPassConfigurationAndIssuerState() {
+        XCTAssertEqual(WalletPassConfiguration.issuerURLKey, "FINSY_WALLET_PASS_ISSUER_URL")
+
+        let networkIssuer = NetworkWalletPassIssuer(signingEndpoint: nil)
+        XCTAssertFalse(networkIssuer.isConfigured)
+
+        let mockIssuer = MockWalletPassIssuer()
+        XCTAssertTrue(mockIssuer.isConfigured)
+
+        let configuredNetworkIssuer = NetworkWalletPassIssuer(signingEndpoint: URL(string: "https://example.com/pass"))
+        XCTAssertTrue(configuredNetworkIssuer.isConfigured)
+    }
 }

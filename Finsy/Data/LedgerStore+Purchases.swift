@@ -44,6 +44,73 @@ extension LedgerStore {
         }
         scheduleSave()
     }
+
+    @discardableResult
+    func deletePurchaseSession(
+        _ sessionID: UUID,
+        now: Date = .now
+    ) -> Bool {
+        guard let session = (state.purchaseSessions ?? []).first(where: { $0.id == sessionID && $0.status != .cancelled }) else {
+            return false
+        }
+        let receiptAttachmentID = session.receiptAttachmentID
+
+        var affectedIDs = Set(
+            state.transactions
+                .filter { $0.purchaseSessionID == sessionID }
+                .map(\.id)
+        )
+
+        var changed = true
+        while changed {
+            changed = false
+            for transaction in state.transactions {
+                let related =
+                    transaction.reversalOfTransactionID.map {
+                        affectedIDs.contains($0)
+                    } == true
+                    ||
+                    transaction.reversalTransactionID.map {
+                        affectedIDs.contains($0)
+                    } == true
+
+                if related,
+                   affectedIDs.insert(transaction.id).inserted {
+                    changed = true
+                }
+            }
+        }
+
+        mutateState(.financial) { state in
+            if var sessions = state.purchaseSessions, let idx = sessions.firstIndex(where: { $0.id == sessionID }) {
+                sessions[idx].status = .cancelled
+                sessions[idx].updatedAt = now
+                sessions[idx].receiptAttachmentID = nil
+                state.purchaseSessions = sessions
+            }
+
+            for idx in 0..<state.transactions.count {
+                if affectedIDs.contains(state.transactions[idx].id) && state.transactions[idx].deletedAt == nil {
+                    markDeleted(in: &state, at: idx, date: now)
+                }
+            }
+        }
+
+        scheduleSave()
+
+        Task {
+            await PurchaseLiveActivityController.shared.end(sessionID: sessionID)
+        }
+        PurchaseSharedStateStore.remove(sessionID: sessionID)
+
+        if let attachmentID = receiptAttachmentID {
+            Task {
+                try? await AttachmentStore.shared.delete(identifier: attachmentID)
+            }
+        }
+
+        return true
+    }
 }
 
 struct PurchasePersistenceFingerprint: Equatable, Sendable {

@@ -60,8 +60,37 @@ extension LedgerStore {
         return item
     }
 
+public enum TransactionCreationOrigin: Sendable {
+    case user
+    case purchase
+    case recurring
+    case system
+}
+
+extension LedgerStore {
     @discardableResult
-    func addTransaction(type: LedgerTransactionType, accountID: UUID, destinationAccountID: UUID?, amount: Double, currency: CurrencyCode, categoryID: LedgerCategoryID, occurredAt: Date, note: String?, noteAttachmentID: String? = nil, purchaseSessionID: UUID? = nil, purchaseItemID: UUID? = nil, recurringRuleID: UUID? = nil, accountCurrency: CurrencyCode? = nil, accountAmount: Double? = nil, destinationAccountCurrency: CurrencyCode? = nil, destinationAmount: Double? = nil, taxSnapshot: TaxSnapshot? = nil, couponSnapshot: CouponTransactionSnapshot? = nil, linkedRecovery: Bool = false) -> LedgerTransaction? {
+    func addTransaction(
+        type: LedgerTransactionType,
+        accountID: UUID,
+        destinationAccountID: UUID?,
+        amount: Double,
+        currency: CurrencyCode,
+        categoryID: LedgerCategoryID,
+        occurredAt: Date,
+        note: String?,
+        noteAttachmentID: String? = nil,
+        purchaseSessionID: UUID? = nil,
+        purchaseItemID: UUID? = nil,
+        recurringRuleID: UUID? = nil,
+        accountCurrency: CurrencyCode? = nil,
+        accountAmount: Double? = nil,
+        destinationAccountCurrency: CurrencyCode? = nil,
+        destinationAmount: Double? = nil,
+        taxSnapshot: TaxSnapshot? = nil,
+        couponSnapshot: CouponTransactionSnapshot? = nil,
+        linkedRecovery: Bool = false,
+        origin: TransactionCreationOrigin = .user
+    ) -> LedgerTransaction? {
         guard let item = try? buildTransaction(type: type, accountID: accountID, destinationAccountID: destinationAccountID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: noteAttachmentID, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, recurringRuleID: recurringRuleID, accountCurrency: accountCurrency, accountAmount: accountAmount, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: destinationAmount, taxSnapshot: taxSnapshot, couponSnapshot: couponSnapshot, linkedRecovery: linkedRecovery, in: state) else { return nil }
         mutateState { state in
             state.transactions.insert(item, at: 0)
@@ -85,7 +114,30 @@ extension LedgerStore {
         let recordedItem = item
         let acc = state.accounts.first(where: { $0.id == recordedItem.accountID })
         let cat = state.categories.first(where: { $0.id == recordedItem.categoryID })
-        Task { await RecentTransactionActivityCoordinator.shared.didRecordTransaction(recordedItem, account: acc, category: cat) }
+
+        if origin == .user {
+            Task {
+                do {
+                    _ = try await self.persistDurableAsync()
+                    let outcome = await RecentTransactionActivityCoordinator.shared.didRecordTransaction(
+                        recordedItem,
+                        account: acc,
+                        category: cat,
+                        ledgerBookID: self.activeBookID
+                    )
+                    switch outcome {
+                    case .requestFailed(_, let code, let message):
+                        self.recentActivityWarning = "The transaction was saved, but its Live Activity could not start (\(code): \(message))."
+                    case .activitiesDisabled:
+                        self.recentActivityWarning = "Live Activities are disabled for Finsy."
+                    case .started, .skippedPurchaseTransaction:
+                        break
+                    }
+                } catch {
+                    // Persistence failed; do not start activity
+                }
+            }
+        }
         return item
     }
 

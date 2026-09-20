@@ -116,21 +116,23 @@ struct TaxAnalyticsPage: View {
                     onExport: exportReceipt
                 )
 
-                Button {
-                    Task { await addTaxReceiptToWallet() }
-                } label: {
-                    HStack {
-                        Label("Add Tax Receipt to Apple Wallet", systemImage: "wallet.pass")
-                        if generatingWalletPass {
-                            Spacer()
-                            ProgressView()
+                if WalletPassManager.shared.isIssuerConfigured {
+                    Button {
+                        Task { await addTaxReceiptToWallet() }
+                    } label: {
+                        HStack {
+                            Label("Add Tax Receipt to Apple Wallet", systemImage: "wallet.pass")
+                            if generatingWalletPass {
+                                Spacer()
+                                ProgressView()
+                            }
                         }
+                        .frame(maxWidth: .infinity)
                     }
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .disabled(generatingWalletPass || privacy.isLocked || summaries.isEmpty)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .disabled(generatingWalletPass || privacy.isLocked || summaries.isEmpty)
             }
             .padding()
         }

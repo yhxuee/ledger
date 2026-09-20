@@ -20,6 +20,10 @@ final class WalletPassManager: ObservableObject {
         PKPassLibrary.isPassLibraryAvailable()
     }
 
+    var isIssuerConfigured: Bool {
+        issuer.isConfigured
+    }
+
     func isAccountPassInstalled() -> Bool {
         guard isPassLibraryAvailable else { return false }
         return passLibrary.pass(withPassTypeIdentifier: Self.accountPassTypeIdentifier, serialNumber: Self.accountPassSerialNumber) != nil

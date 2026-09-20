@@ -2,31 +2,42 @@ import Foundation
 
 /// Snapshot stored in App Group storage for fast cross-process access by widgets and AppIntents.
 public struct RecentTransactionActionSnapshot: Codable, Sendable, Identifiable, Hashable {
-    public var id: UUID // transactionID
+    public var operationID: UUID
+    public var ledgerBookID: UUID
+    public var transactionID: UUID
     public var title: String
     public var amountText: String
     public var occurredAt: Date
+    public var createdAt: Date
     public var expiresAt: Date
     public var isRefundable: Bool
     public var accountName: String
     public var isUndone: Bool
     public var isRefunded: Bool
 
+    public var id: UUID { transactionID }
+
     public init(
-        id: UUID,
+        operationID: UUID = UUID(),
+        ledgerBookID: UUID = UUID(),
+        transactionID: UUID,
         title: String,
         amountText: String,
         occurredAt: Date,
+        createdAt: Date = .now,
         expiresAt: Date,
         isRefundable: Bool,
         accountName: String,
         isUndone: Bool = false,
         isRefunded: Bool = false
     ) {
-        self.id = id
+        self.operationID = operationID
+        self.ledgerBookID = ledgerBookID
+        self.transactionID = transactionID
         self.title = title
         self.amountText = amountText
         self.occurredAt = occurredAt
+        self.createdAt = createdAt
         self.expiresAt = expiresAt
         self.isRefundable = isRefundable
         self.accountName = accountName
@@ -43,6 +54,10 @@ public enum RecentTransactionSharedStore {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)
     }
 
+    public static var userDefaults: UserDefaults {
+        UserDefaults(suiteName: appGroupIdentifier) ?? .standard
+    }
+
     public static func saveSnapshot(_ snapshot: RecentTransactionActionSnapshot) {
         var all = loadSnapshots()
         all.removeAll(where: { $0.id == snapshot.id || $0.expiresAt < Date.now })
@@ -51,8 +66,7 @@ public enum RecentTransactionSharedStore {
     }
 
     public static func loadSnapshots() -> [RecentTransactionActionSnapshot] {
-        guard let userDefaults = UserDefaults(suiteName: appGroupIdentifier),
-              let data = userDefaults.data(forKey: key),
+        guard let data = userDefaults.data(forKey: key),
               let list = try? JSONDecoder().decode([RecentTransactionActionSnapshot].self, from: data) else {
             return []
         }
@@ -80,8 +94,7 @@ public enum RecentTransactionSharedStore {
     }
 
     private static func persist(_ snapshots: [RecentTransactionActionSnapshot]) {
-        if let userDefaults = UserDefaults(suiteName: appGroupIdentifier),
-           let data = try? JSONEncoder().encode(snapshots) {
+        if let data = try? JSONEncoder().encode(snapshots) {
             userDefaults.set(data, forKey: key)
         }
     }

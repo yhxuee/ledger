@@ -184,6 +184,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
     var statementThemeColorHex: String = "3A78C2"
     var walletAccountPassSource: WalletAccountPassSource = .allAccounts
     var walletPassLocations: [WalletRelevantLocation] = []
+    var walletPassLastRefreshedAt: Date? = nil
 
     enum CodingKeys: String, CodingKey {
         case splitActionOnRightSwipe, reimbursementActionOnRightSwipe
@@ -191,7 +192,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
         case cashFlowForecastEnabled, forecastYellowThreshold, forecastRedThreshold
         case recordingReminderSlots, monthlyStatementReminderEnabled, monthlyStatementReminderHour, monthlyStatementReminderMinute
         case statementThemeColorHex
-        case walletAccountPassSource, walletPassLocations
+        case walletAccountPassSource, walletPassLocations, walletPassLastRefreshedAt
     }
 
     init(schemaVersion: Int = 1, languageCode: String = "en", biometricLockEnabled: Bool = false,
@@ -209,9 +210,10 @@ struct AppPreferences: Codable, Hashable, Sendable {
          monthlyStatementReminderEnabled: Bool = false,
          monthlyStatementReminderHour: Int = 20,
          monthlyStatementReminderMinute: Int = 0,
-         statementThemeColorHex: String = "3A78C2",
-         walletAccountPassSource: WalletAccountPassSource = .allAccounts,
-         walletPassLocations: [WalletRelevantLocation] = []) {
+          statementThemeColorHex: String = "3A78C2",
+          walletAccountPassSource: WalletAccountPassSource = .allAccounts,
+          walletPassLocations: [WalletRelevantLocation] = [],
+          walletPassLastRefreshedAt: Date? = nil) {
         self.schemaVersion = schemaVersion
         self.languageCode = languageCode
         self.biometricLockEnabled = biometricLockEnabled
@@ -233,6 +235,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
         self.statementThemeColorHex = statementThemeColorHex
         self.walletAccountPassSource = walletAccountPassSource
         self.walletPassLocations = Array(walletPassLocations.prefix(10))
+        self.walletPassLastRefreshedAt = walletPassLastRefreshedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -270,6 +273,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
         statementThemeColorHex = try values.decodeIfPresent(String.self, forKey: .statementThemeColorHex) ?? "3A78C2"
         walletAccountPassSource = try values.decodeIfPresent(WalletAccountPassSource.self, forKey: .walletAccountPassSource) ?? .allAccounts
         walletPassLocations = Array((try values.decodeIfPresent([WalletRelevantLocation].self, forKey: .walletPassLocations) ?? []).prefix(10))
+        walletPassLastRefreshedAt = try values.decodeIfPresent(Date.self, forKey: .walletPassLastRefreshedAt)
     }
 
     mutating func setOverviewMetric(at index: Int, to newKind: OverviewMetricKind) {
