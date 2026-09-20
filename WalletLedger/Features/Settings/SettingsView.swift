@@ -141,6 +141,12 @@ struct SettingsView: View {
             } label: {
                 SettingsLabel("Date Format", systemImage: "calendar")
             }
+
+            Divider()
+
+            ColorPicker(selection: statementColorBinding, supportsOpacity: false) {
+                SettingsLabel("Statement Color", systemImage: "paintpalette")
+            }
         }
     }
 
@@ -368,6 +374,18 @@ struct SettingsView: View {
     }
     private var dateFormatBinding: Binding<AppDateFormat> {
         Binding(get: { preferences.value.dateFormat }, set: { value in preferences.update { $0.dateFormat = value } })
+    }
+    private var statementColorBinding: Binding<Color> {
+        Binding(
+            get: {
+                Color(hex: preferences.value.statementThemeColorHex)
+            },
+            set: { newColor in
+                preferences.update {
+                    $0.statementThemeColorHex = newColor.rgbHex
+                }
+            }
+        )
     }
     private var remindersBinding: Binding<Bool> {
         Binding(get: { store.state.settings.backupReminders }, set: { value in store.updateSettings { $0.backupReminders = value } })

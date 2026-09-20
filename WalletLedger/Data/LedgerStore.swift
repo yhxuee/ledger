@@ -525,6 +525,7 @@ final class LedgerStore: ObservableObject {
     /// ledger delta so the requested balance is what the user sees.
     func saveAccount(_ draft: LedgerAccount, desiredBalance: Double, desiredPocketBalances: [CurrencyCode: Double] = [:]) {
         var account = draft
+        account.logo = AccountTag.sanitize(account.logo.isEmpty ? account.name : account.logo)
         // Stocks settle in the market currency, so normalise before any balance arithmetic.
         if account.type == .stocks {
             let market = account.stockMetadata?.market ?? .US

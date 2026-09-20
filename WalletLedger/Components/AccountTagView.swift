@@ -29,7 +29,7 @@ struct AccountTagView: View {
         Text(tag)
             .font(font)
             .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
+            .minimumScaleFactor(0.75)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .foregroundStyle(textColor)

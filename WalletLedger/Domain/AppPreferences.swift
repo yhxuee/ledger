@@ -176,12 +176,14 @@ struct AppPreferences: Codable, Hashable, Sendable {
     var monthlyStatementReminderEnabled: Bool = false
     var monthlyStatementReminderHour: Int = 20
     var monthlyStatementReminderMinute: Int = 0
+    var statementThemeColorHex: String = "3A78C2"
 
     enum CodingKeys: String, CodingKey {
         case splitActionOnRightSwipe, reimbursementActionOnRightSwipe
         case schemaVersion, languageCode, biometricLockEnabled, swipeActionOrientation, transactionSwipeActions, hapticFeedbackEnabled, dateFormat, transactionLayout, overviewMetrics, overviewCardLayout, accountCardMaterialStyle
         case cashFlowForecastEnabled, forecastYellowThreshold, forecastRedThreshold
         case recordingReminderSlots, monthlyStatementReminderEnabled, monthlyStatementReminderHour, monthlyStatementReminderMinute
+        case statementThemeColorHex
     }
 
     init(schemaVersion: Int = 1, languageCode: String = "en", biometricLockEnabled: Bool = false,
@@ -198,7 +200,8 @@ struct AppPreferences: Codable, Hashable, Sendable {
          recordingReminderSlots: [RecordingReminderSlot] = defaultReminderSlots,
          monthlyStatementReminderEnabled: Bool = false,
          monthlyStatementReminderHour: Int = 20,
-         monthlyStatementReminderMinute: Int = 0) {
+         monthlyStatementReminderMinute: Int = 0,
+         statementThemeColorHex: String = "3A78C2") {
         self.schemaVersion = schemaVersion
         self.languageCode = languageCode
         self.biometricLockEnabled = biometricLockEnabled
@@ -217,6 +220,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
         self.monthlyStatementReminderEnabled = monthlyStatementReminderEnabled
         self.monthlyStatementReminderHour = monthlyStatementReminderHour
         self.monthlyStatementReminderMinute = monthlyStatementReminderMinute
+        self.statementThemeColorHex = statementThemeColorHex
     }
 
     init(from decoder: Decoder) throws {
@@ -251,6 +255,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
         monthlyStatementReminderEnabled = try values.decodeIfPresent(Bool.self, forKey: .monthlyStatementReminderEnabled) ?? false
         monthlyStatementReminderHour = try values.decodeIfPresent(Int.self, forKey: .monthlyStatementReminderHour) ?? 20
         monthlyStatementReminderMinute = try values.decodeIfPresent(Int.self, forKey: .monthlyStatementReminderMinute) ?? 0
+        statementThemeColorHex = try values.decodeIfPresent(String.self, forKey: .statementThemeColorHex) ?? "3A78C2"
     }
 
     mutating func setOverviewMetric(at index: Int, to newKind: OverviewMetricKind) {

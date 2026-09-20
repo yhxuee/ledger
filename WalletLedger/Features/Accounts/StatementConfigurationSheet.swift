@@ -196,6 +196,7 @@ struct StatementConfigurationSheet: View {
                         monthDate: selectedMonth,
                         accounts: accounts,
                         allAccountsSelected: isAllSelected,
+                        themeColorHex: preferences.value.statementThemeColorHex,
                         in: store.state
                     )
                 case .tax:
@@ -203,6 +204,7 @@ struct StatementConfigurationSheet: View {
                         monthDate: selectedMonth,
                         accounts: accounts,
                         allAccountsSelected: isAllSelected,
+                        themeColorHex: preferences.value.statementThemeColorHex,
                         in: store.state
                     )
                 }

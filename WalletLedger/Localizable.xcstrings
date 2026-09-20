@@ -6135,25 +6135,25 @@
         }
       }
     },
-    "Monthly Statement": {
+    "Finsy Statement": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Monthly Statement"
+            "value": "Finsy Statement"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "月度账单"
+            "value": "Finsy 账单"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "月度賬單"
+            "value": "Finsy 賬單"
           }
         }
       }

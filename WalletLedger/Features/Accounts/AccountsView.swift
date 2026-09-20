@@ -134,6 +134,7 @@ struct AccountsView: View {
                     }
                 }
             }
+            threeMonthMetricsSection
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -214,7 +215,12 @@ struct AccountsView: View {
     private func accountRowContent(_ item: AccountViewModel) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 14) {
-                Text(item.account.logo).font(.caption.bold()).frame(width: 42, height: 42).background(LinearGradient(colors: [Color(hex: item.account.cardStyle.startHex), Color(hex: item.account.cardStyle.endHex)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 12))
+                Text(item.account.logo)
+                    .font(.caption2.bold())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+                    .frame(width: 44, height: 42)
+                    .background(LinearGradient(colors: [Color(hex: item.account.cardStyle.startHex), Color(hex: item.account.cardStyle.endHex)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(item.account.name).font(.headline).lineLimit(1)
@@ -244,6 +250,51 @@ struct AccountsView: View {
         .padding(15)
         .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .opacity(item.account.effectiveIsFrozen ? 0.7 : 1.0)
+    }
+
+    private var threeMonthSummary: ThreeMonthFinancialSummary {
+        ThreeMonthFinancialEngine.calculate(for: .now, in: store.state, baseCurrency: store.state.settings.baseCurrency, now: .now).summary
+    }
+
+    private var threeMonthMetricsSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("PAST 3 MONTHS")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .tracking(0.6)
+                    .padding(.horizontal, 4)
+
+                HStack(spacing: 10) {
+                    compactMetricCard(title: "Average Net Worth", amount: threeMonthSummary.averageNetWorth)
+                    compactMetricCard(title: "Average Spending", amount: threeMonthSummary.averageSpending)
+                    compactMetricCard(title: "Average Turnover", amount: threeMonthSummary.averageTurnover)
+                }
+            }
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 16, trailing: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+        }
+    }
+
+    private func compactMetricCard(title: String, amount: Double) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            SensitiveMoneyText(amount: amount, currency: store.state.settings.baseCurrency, maxIntegerDigits: 6)
+                .font(.subheadline.weight(.bold).monospacedDigit())
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 76)
+        .ledgerGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
@@ -418,7 +469,11 @@ private struct AccountEditorView: View {
                 Section { AccountCardView(account: .init(account: account, balance: account.type == .stocks ? (account.stockMetadata?.value ?? 0) : desiredBalance), baseCurrency: account.currency, compact: true).listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
                 Section("Account") {
                     TextField("Name", text: $account.name)
-                    TextField("Tag", text: $account.logo).textInputAutocapitalization(.characters).onChange(of: account.logo) { _, value in account.logo = String(value.prefix(4)).uppercased() }
+                    TextField("Tag", text: $account.logo)
+                        .textInputAutocapitalization(.characters)
+                        .onChange(of: account.logo) { _, value in
+                            account.logo = AccountTag.sanitize(value)
+                        }
                     Picker("Type", selection: $account.type) { ForEach(AccountType.allCases) { Text(LocalizedStringKey($0.displayTitle)).tag($0) } }
                         .onChange(of: account.type) { _, value in
                             if value == .loan, account.loanMetadata == nil { account.loanMetadata = .init(annualPercentageRate: 0, interestInterval: nil, customIntervalDays: 30, linkedRecurringRuleID: nil) }
@@ -671,7 +726,7 @@ private struct AccountEditorView: View {
     private func save() {
         if account.type == .stocks { commitStockSymbol() }
         account.name = account.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        account.logo = account.logo.isEmpty ? String(account.name.prefix(3)).uppercased() : account.logo
+        account.logo = AccountTag.sanitize(account.logo.isEmpty ? account.name : account.logo)
         if account.type == .loan {
             ensureLoanMetadata()
             account.loanMetadata?.interestInterval = interestEnabled ? loanInterval.wrappedValue : nil

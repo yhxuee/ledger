@@ -239,6 +239,52 @@ enum StatementPostingResolver {
     }
 }
 
+enum StatementTheme {
+    static let defaultHex = "3A78C2"
+
+    /// Preserves user-chosen hue while enforcing high print contrast against white paper.
+    static func printAccent(from hex: String) -> UIColor {
+        let clean = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var value: UInt64 = 0
+        Scanner(string: clean).scanHexInt64(&value)
+        let r, g, b: CGFloat
+        switch clean.count {
+        case 8:
+            r = CGFloat((value >> 16) & 0xff) / 255.0
+            g = CGFloat((value >> 8) & 0xff) / 255.0
+            b = CGFloat(value & 0xff) / 255.0
+        case 6:
+            r = CGFloat((value >> 16) & 0xff) / 255.0
+            g = CGFloat((value >> 8) & 0xff) / 255.0
+            b = CGFloat(value & 0xff) / 255.0
+        default:
+            return UIColor(red: 0.23, green: 0.47, blue: 0.76, alpha: 1.0)
+        }
+
+        let baseColor = UIColor(red: r, green: g, blue: b, alpha: 1.0)
+        var hue: CGFloat = 0, sat: CGFloat = 0, bri: CGFloat = 0, alpha: CGFloat = 0
+        guard baseColor.getHue(&hue, saturation: &sat, brightness: &bri, alpha: &alpha) else {
+            return baseColor
+        }
+
+        // Relative luminance: 0.2126*R + 0.7152*G + 0.0722*B
+        let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        var safeBri = bri
+        var safeSat = sat
+        if lum > 0.45 {
+            safeBri = min(bri, 0.58)
+            if safeSat < 0.35 && lum > 0.85 {
+                safeSat = 0.20
+                safeBri = 0.35
+            } else {
+                safeSat = max(sat, 0.50)
+            }
+        }
+
+        return UIColor(hue: hue, saturation: safeSat, brightness: safeBri, alpha: 1.0)
+    }
+}
+
 enum StatementPDFGenerator {
     // Standard A4 dimensions in points (72 pt/inch)
     static let portraitWidth: CGFloat = 595.2
@@ -278,13 +324,6 @@ enum StatementPDFGenerator {
         let rate: Double
         let taxAmount: Double
         let status: String
-    }
-
-    struct MonthPeriod: Sendable {
-        let monthStart: Date
-        let monthEnd: Date
-        let label: String
-        let isCurrentPartial: Bool
     }
 
     // MARK: - Date Helpers
@@ -342,30 +381,7 @@ enum StatementPDFGenerator {
         calendar: Calendar,
         now: Date
     ) -> (m1: MonthPeriod, m2: MonthPeriod, m3: MonthPeriod, rangeString: String, currentPartialNote: String?) {
-        let monthFormatter = DateFormatter()
-        monthFormatter.dateFormat = "MMM yyyy"
-
-        let isM3Partial = calendar.isDate(startOfMonth, equalTo: now, toGranularity: .month)
-        let m3 = MonthPeriod(monthStart: startOfMonth, monthEnd: cutoffEnd, label: monthFormatter.string(from: startOfMonth), isCurrentPartial: isM3Partial)
-
-        let m2Start = calendar.date(byAdding: .month, value: -1, to: startOfMonth)!
-        let m2End = calendar.date(byAdding: DateComponents(month: 1, second: -1), to: m2Start)!
-        let m2 = MonthPeriod(monthStart: m2Start, monthEnd: m2End, label: monthFormatter.string(from: m2Start), isCurrentPartial: false)
-
-        let m1Start = calendar.date(byAdding: .month, value: -2, to: startOfMonth)!
-        let m1End = calendar.date(byAdding: DateComponents(month: 1, second: -1), to: m1Start)!
-        let m1 = MonthPeriod(monthStart: m1Start, monthEnd: m1End, label: monthFormatter.string(from: m1Start), isCurrentPartial: false)
-
-        let rangeString = "\(monthFormatter.string(from: m1Start)) – \(monthFormatter.string(from: startOfMonth))"
-
-        var partialNote: String? = nil
-        if isM3Partial {
-            let fullDF = DateFormatter()
-            fullDF.dateStyle = .long
-            partialNote = "Current-month figures are based on records through \(fullDF.string(from: cutoffEnd))."
-        }
-
-        return (m1, m2, m3, rangeString, partialNote)
+        ThreeMonthFinancialEngine.computeThreeMonthWindows(startOfMonth: startOfMonth, cutoffEnd: cutoffEnd, calendar: calendar, now: now)
     }
 
     // MARK: - Entry Points
@@ -374,6 +390,7 @@ enum StatementPDFGenerator {
         monthDate: Date,
         accounts: [LedgerAccount],
         allAccountsSelected: Bool = false,
+        themeColorHex: String = StatementTheme.defaultHex,
         in state: LedgerState,
         now: Date = .now
     ) throws -> URL {
@@ -396,6 +413,7 @@ enum StatementPDFGenerator {
                 startOfMonth: startOfMonth,
                 cutoffEnd: cutoffEnd,
                 periodString: periodString,
+                themeColorHex: themeColorHex,
                 in: state,
                 now: now
             )
@@ -408,6 +426,7 @@ enum StatementPDFGenerator {
             startOfMonth: startOfMonth,
             cutoffEnd: cutoffEnd,
             periodString: periodString,
+            themeColorHex: themeColorHex,
             in: state,
             now: now
         )
@@ -421,11 +440,13 @@ enum StatementPDFGenerator {
         startOfMonth: Date,
         cutoffEnd: Date,
         periodString: String,
+        themeColorHex: String,
         in state: LedgerState,
         now: Date
     ) throws -> URL {
         let calendar = Calendar.current
         let baseCurrency = state.settings.baseCurrency
+        let accentColor = StatementTheme.printAccent(from: themeColorHex)
         let accountIDs = Set(accounts.map(\.id))
 
         // Collect transactions
@@ -470,13 +491,13 @@ enum StatementPDFGenerator {
         let contentWidth = portraitWidth - (margin * 2)
 
         // General Statement columns (7 columns):
-        // Date (12%), Account (15%), Category (13%), Description (25%), Currency (8%), FX Rate (10%), Amount (17%)
+        // Date (12%), Account (15%), Category (13%), Description (27%), CURR (6%), FX Rate (10%), Amount (17%)
         let colWidths: [CGFloat] = [
             contentWidth * 0.12, // Date (~63pt)
             contentWidth * 0.15, // Account (~78pt)
             contentWidth * 0.13, // Category (~68pt)
-            contentWidth * 0.25, // Description (~131pt)
-            contentWidth * 0.08, // Currency (~42pt)
+            contentWidth * 0.27, // Description (~141pt)
+            contentWidth * 0.06, // CURR (~31pt)
             contentWidth * 0.10, // FX Rate (~52pt)
             contentWidth * 0.17  // Amount (~89pt)
         ]
@@ -503,6 +524,7 @@ enum StatementPDFGenerator {
                     accountsText: accountsText,
                     date: now,
                     pageWidth: portraitWidth,
+                    accentColor: accentColor,
                     yOffset: &yOffset
                 )
                 pageIndex += 1
@@ -523,7 +545,7 @@ enum StatementPDFGenerator {
 
             // 2. Transaction Records Table (7 columns)
             drawSectionTitle("Transaction Records (\(postings.count))", yOffset: &yOffset)
-            drawGeneralTransactionTableHeader(baseCurrency: baseCurrency, contentWidth: contentWidth, colWidths: colWidths, yOffset: &yOffset)
+            drawGeneralTransactionTableHeader(baseCurrency: baseCurrency, accentColor: accentColor, contentWidth: contentWidth, colWidths: colWidths, yOffset: &yOffset)
 
             for (idx, posting) in postings.enumerated() {
                 let descHeight = measureDescriptionHeight(text: posting.userDescription, width: colWidths[3] - 6)
@@ -532,7 +554,7 @@ enum StatementPDFGenerator {
                 if yOffset + estimatedRowHeight > portraitHeight - margin - footerHeight {
                     startNewPage()
                     drawSectionTitle("Transaction Records (Continued)", yOffset: &yOffset)
-                    drawGeneralTransactionTableHeader(baseCurrency: baseCurrency, contentWidth: contentWidth, colWidths: colWidths, yOffset: &yOffset)
+                    drawGeneralTransactionTableHeader(baseCurrency: baseCurrency, accentColor: accentColor, contentWidth: contentWidth, colWidths: colWidths, yOffset: &yOffset)
                 }
 
                 drawGeneralTransactionRow(
@@ -559,6 +581,7 @@ enum StatementPDFGenerator {
                 pageWidth: portraitWidth,
                 pageHeight: portraitHeight,
                 pageNumber: pageIndex,
+                accentColor: accentColor,
                 state: state,
                 now: now
             )
@@ -580,11 +603,13 @@ enum StatementPDFGenerator {
         startOfMonth: Date,
         cutoffEnd: Date,
         periodString: String,
+        themeColorHex: String,
         in state: LedgerState,
         now: Date
     ) throws -> URL {
         let calendar = Calendar.current
         let baseCurrency = state.settings.baseCurrency
+        let accentColor = StatementTheme.printAccent(from: themeColorHex)
         let accountIDs: Set<UUID> = [account.id]
 
         let allTransactions = state.transactions.filter {
@@ -609,12 +634,12 @@ enum StatementPDFGenerator {
         let contentWidth = portraitWidth - (margin * 2)
 
         // Multi-currency pocket columns (5 columns):
-        // Date (14%), Category (20%), Description (34%), Currency (10%), Amount (22%)
+        // Date (14%), Category (20%), Description (36%), CURR (8%), Amount (22%)
         let colWidths: [CGFloat] = [
             contentWidth * 0.14, // Date (~73pt)
             contentWidth * 0.20, // Category (~105pt)
-            contentWidth * 0.34, // Description (~178pt)
-            contentWidth * 0.10, // Currency (~52pt)
+            contentWidth * 0.36, // Description (~189pt)
+            contentWidth * 0.08, // CURR (~42pt)
             contentWidth * 0.22  // Amount (~115pt)
         ]
 
@@ -640,6 +665,7 @@ enum StatementPDFGenerator {
                     accountsText: accountsText,
                     date: now,
                     pageWidth: portraitWidth,
+                    accentColor: accentColor,
                     yOffset: &yOffset
                 )
                 pageIndex += 1
@@ -684,7 +710,7 @@ enum StatementPDFGenerator {
                     "No transactions recorded for this pocket in this period.".draw(at: CGPoint(x: margin, y: yOffset), withAttributes: emptyAttrs)
                     yOffset += 24
                 } else {
-                    drawMultiCurrencyTransactionTableHeader(pocketCurrency: pocketCurrency, contentWidth: contentWidth, colWidths: colWidths, yOffset: &yOffset)
+                    drawMultiCurrencyTransactionTableHeader(pocketCurrency: pocketCurrency, accentColor: accentColor, contentWidth: contentWidth, colWidths: colWidths, yOffset: &yOffset)
 
                     for (idx, posting) in pocketPostings.enumerated() {
                         let descHeight = measureDescriptionHeight(text: posting.userDescription, width: colWidths[2] - 6)
@@ -693,7 +719,7 @@ enum StatementPDFGenerator {
                         if yOffset + estimatedRowHeight > portraitHeight - margin - footerHeight {
                             startNewPage()
                             drawSectionTitle("\(pocketCurrency.rawValue) Pocket (Continued)", yOffset: &yOffset)
-                            drawMultiCurrencyTransactionTableHeader(pocketCurrency: pocketCurrency, contentWidth: contentWidth, colWidths: colWidths, yOffset: &yOffset)
+                            drawMultiCurrencyTransactionTableHeader(pocketCurrency: pocketCurrency, accentColor: accentColor, contentWidth: contentWidth, colWidths: colWidths, yOffset: &yOffset)
                         }
 
                         drawMultiCurrencyTransactionRow(
@@ -726,6 +752,7 @@ enum StatementPDFGenerator {
                 pageWidth: portraitWidth,
                 pageHeight: portraitHeight,
                 pageNumber: pageIndex,
+                accentColor: accentColor,
                 state: state,
                 now: now
             )
@@ -746,6 +773,7 @@ enum StatementPDFGenerator {
         monthDate: Date,
         accounts: [LedgerAccount],
         allAccountsSelected: Bool = false,
+        themeColorHex: String = StatementTheme.defaultHex,
         in state: LedgerState,
         now: Date = .now
     ) throws -> URL {
@@ -762,6 +790,7 @@ enum StatementPDFGenerator {
         }
         let accountIDs = Set(safeAccounts.map(\.id))
         let targetCurrency = state.settings.baseCurrency
+        let accentColor = StatementTheme.printAccent(from: themeColorHex)
 
         var taxItems: [TaxItem] = []
         var categoryTotals: [String: (base: Double, tax: Double, count: Int)] = [:]
@@ -841,13 +870,14 @@ enum StatementPDFGenerator {
 
                 yOffset = margin
                 drawHeader(
-                    title: "FINSY MONTHLY TAX STATEMENT",
+                    title: "FINSY TAX STATEMENT",
                     periodString: periodString,
                     baseCurrency: targetCurrency,
                     accountPrimaryCurrency: nil,
                     accountsText: accountsText,
                     date: now,
                     pageWidth: landscapeWidth,
+                    accentColor: accentColor,
                     yOffset: &yOffset
                 )
                 pageIndex += 1
@@ -870,7 +900,7 @@ enum StatementPDFGenerator {
 
             // 2. Tax Recognized Records Table (Landscape, 9 columns)
             drawSectionTitle("Tax-Recognized Records (\(taxItems.count))", yOffset: &yOffset)
-            drawTaxTableHeader(contentWidth: contentWidth, yOffset: &yOffset)
+            drawTaxTableHeader(accentColor: accentColor, contentWidth: contentWidth, yOffset: &yOffset)
 
             for (idx, item) in taxItems.enumerated() {
                 let note = item.note
@@ -878,7 +908,7 @@ enum StatementPDFGenerator {
                 if yOffset + estimatedRowHeight > landscapeHeight - margin - footerHeight {
                     startNewPage()
                     drawSectionTitle("Tax-Recognized Records (Continued)", yOffset: &yOffset)
-                    drawTaxTableHeader(contentWidth: contentWidth, yOffset: &yOffset)
+                    drawTaxTableHeader(accentColor: accentColor, contentWidth: contentWidth, yOffset: &yOffset)
                 }
                 drawTaxRow(
                     item: item,
@@ -905,124 +935,11 @@ enum StatementPDFGenerator {
     // MARK: - Calculation Helpers
 
     private static func calculateBalance(account: LedgerAccount, upTo cutoff: Date, in state: LedgerState) -> Double {
-        let opening = account.openingBalance
-        return state.transactions.reduce(opening) { balance, transaction in
-            guard transaction.deletedAt == nil, transaction.occurredAt < cutoff, TransactionSemantics.posts(transaction) else {
-                return balance
-            }
-            var updated = balance
-            if transaction.accountID == account.id {
-                let amount = LedgerCalculations.sourcePosting(transaction, for: account, in: state)
-                switch transaction.type {
-                case .expense, .transfer: updated -= amount
-                case .income: updated += amount
-                }
-            }
-            if transaction.type == .transfer, transaction.destinationAccountID == account.id {
-                updated += LedgerCalculations.destinationPosting(transaction, for: account, in: state)
-            }
-            return updated
-        }
+        ThreeMonthFinancialEngine.calculateBalance(account: account, upTo: cutoff, in: state)
     }
 
     private static func calculatePocketBalance(pocket: CurrencyCode, account: LedgerAccount, upTo cutoff: Date, in state: LedgerState) -> Double {
-        let opening = account.normalizedPockets.first(where: { $0.currency == pocket })?.openingBalance ?? 0
-        return state.transactions.reduce(opening) { balance, transaction in
-            guard transaction.deletedAt == nil, transaction.occurredAt < cutoff, TransactionSemantics.posts(transaction) else {
-                return balance
-            }
-            var updated = balance
-            if transaction.accountID == account.id, LedgerCalculations.sourcePocket(transaction, for: account) == pocket {
-                let amount = LedgerCalculations.sourcePosting(transaction, for: account, in: state)
-                switch transaction.type {
-                case .expense, .transfer: updated -= amount
-                case .income: updated += amount
-                }
-            }
-            if transaction.type == .transfer, transaction.destinationAccountID == account.id, LedgerCalculations.destinationPocket(transaction, for: account) == pocket {
-                updated += LedgerCalculations.destinationPosting(transaction, for: account, in: state)
-            }
-            return updated
-        }
-    }
-
-    // MARK: - 3-Month Whole-Ledger Metrics Calculations
-
-    private static func totalActiveAssets(at cutoff: Date, baseCurrency: CurrencyCode, in state: LedgerState) -> Double {
-        let activeAccounts = state.accounts.filter { $0.deletedAt == nil && !$0.effectiveIsFrozen }
-        var assetsTotal: Double = 0
-
-        for account in activeAccounts {
-            if account.type == .stocks, let stock = account.stockMetadata {
-                let val = (stock.latestPriceAt != nil && stock.latestPriceAt! <= cutoff) ? stock.value : stock.costBasis
-                let converted = LedgerCalculations.convert(val, from: account.currency, to: baseCurrency, rates: state.settings.rates)
-                if converted > 0 { assetsTotal += converted }
-            } else if account.usesCurrencyPockets {
-                var accountTotalBase: Double = 0
-                for pocket in account.normalizedPockets {
-                    let pBal = calculatePocketBalance(pocket: pocket.currency, account: account, upTo: cutoff, in: state)
-                    accountTotalBase += LedgerCalculations.convert(pBal, from: pocket.currency, to: baseCurrency, rates: state.settings.rates)
-                }
-                if accountTotalBase > 0 { assetsTotal += accountTotalBase }
-            } else {
-                let bal = calculateBalance(account: account, upTo: cutoff, in: state)
-                let converted = LedgerCalculations.convert(bal, from: account.currency, to: baseCurrency, rates: state.settings.rates)
-                if converted > 0 { assetsTotal += converted }
-            }
-        }
-
-        return assetsTotal
-    }
-
-    private static func monthlyRecognizedIncome(from: Date, to: Date, baseCurrency: CurrencyCode, in state: LedgerState, now: Date) -> Double {
-        let txs = state.transactions.filter {
-            $0.deletedAt == nil && $0.occurredAt >= from && $0.occurredAt <= to
-        }
-        return txs.compactMap { TransactionSemantics.incomeEffect($0, in: state, to: baseCurrency, now: now) }.reduce(0.0, +)
-    }
-
-    private static func monthlyRecognizedExpense(from: Date, to: Date, baseCurrency: CurrencyCode, in state: LedgerState, now: Date) -> Double {
-        let txs = state.transactions.filter {
-            $0.deletedAt == nil && $0.occurredAt >= from && $0.occurredAt <= to
-        }
-        return txs.compactMap { TransactionSemantics.expenseEffect($0, in: state, to: baseCurrency, now: now) }.reduce(0.0, +)
-    }
-
-    private static func monthlyExternalTurnover(from: Date, to: Date, baseCurrency: CurrencyCode, in state: LedgerState) -> Double {
-        let ownedAccountIDs = Set(state.accounts.filter { $0.deletedAt == nil }.map(\.id))
-        let txs = state.transactions.filter {
-            $0.deletedAt == nil && $0.occurredAt >= from && $0.occurredAt <= to && TransactionSemantics.posts($0)
-        }
-
-        var turnover: Double = 0
-        for t in txs {
-            if t.type == .transfer {
-                let srcOwned = ownedAccountIDs.contains(t.accountID)
-                let destOwned = t.destinationAccountID.map { ownedAccountIDs.contains($0) } ?? false
-                // Internal transfer between own accounts: excluded from turnover
-                if srcOwned && destOwned {
-                    continue
-                } else if srcOwned, let sourceAccount = state.accounts.first(where: { $0.id == t.accountID }) {
-                    let posted = LedgerCalculations.sourcePosting(t, for: sourceAccount, in: state)
-                    let pocket = LedgerCalculations.sourcePocket(t, for: sourceAccount)
-                    turnover += LedgerCalculations.convert(posted, from: pocket, to: baseCurrency, rates: state.settings.rates)
-                } else if destOwned, let destID = t.destinationAccountID, let destAccount = state.accounts.first(where: { $0.id == destID }) {
-                    let posted = LedgerCalculations.destinationPosting(t, for: destAccount, in: state)
-                    let pocket = LedgerCalculations.destinationPocket(t, for: destAccount)
-                    turnover += LedgerCalculations.convert(posted, from: pocket, to: baseCurrency, rates: state.settings.rates)
-                }
-            } else if t.type == .expense, let sourceAccount = state.accounts.first(where: { $0.id == t.accountID }) {
-                let posted = LedgerCalculations.sourcePosting(t, for: sourceAccount, in: state)
-                let pocket = LedgerCalculations.sourcePocket(t, for: sourceAccount)
-                turnover += LedgerCalculations.convert(posted, from: pocket, to: baseCurrency, rates: state.settings.rates)
-            } else if t.type == .income, let sourceAccount = state.accounts.first(where: { $0.id == t.accountID }) {
-                let posted = LedgerCalculations.sourcePosting(t, for: sourceAccount, in: state)
-                let pocket = LedgerCalculations.sourcePocket(t, for: sourceAccount)
-                turnover += LedgerCalculations.convert(posted, from: pocket, to: baseCurrency, rates: state.settings.rates)
-            }
-        }
-
-        return turnover
+        ThreeMonthFinancialEngine.calculatePocketBalance(pocket: pocket, account: account, upTo: cutoff, in: state)
     }
 
     // MARK: - Drawing Components
@@ -1035,6 +952,7 @@ enum StatementPDFGenerator {
         accountsText: String,
         date: Date,
         pageWidth: CGFloat,
+        accentColor: UIColor,
         yOffset: inout CGFloat
     ) {
         let titleAttrs: [NSAttributedString.Key: Any] = [
@@ -1095,8 +1013,9 @@ enum StatementPDFGenerator {
 
         yOffset += accHeight + 8
 
-        // Divider
-        drawHLine(y: yOffset, width: pageWidth - (margin * 2))
+        // Accent title rule
+        accentColor.setFill()
+        UIRectFill(CGRect(x: margin, y: yOffset, width: pageWidth - (margin * 2), height: 1.0))
         yOffset += 12
     }
 
@@ -1227,11 +1146,12 @@ enum StatementPDFGenerator {
 
     private static func drawGeneralTransactionTableHeader(
         baseCurrency: CurrencyCode,
+        accentColor: UIColor,
         contentWidth: CGFloat,
         colWidths: [CGFloat],
         yOffset: inout CGFloat
     ) {
-        let headers = ["DATE", "ACCOUNT", "CATEGORY", "DESCRIPTION", "CURRENCY", "FX RATE", "AMOUNT \(baseCurrency.rawValue)"]
+        let headers = ["DATE", "ACCOUNT", "CATEGORY", "DESCRIPTION", "CURR", "FX RATE", "AMOUNT \(baseCurrency.rawValue)"]
         let headerAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 9.5, weight: .bold),
             .foregroundColor: secondaryTextColor
@@ -1248,7 +1168,8 @@ enum StatementPDFGenerator {
             x += colWidths[i]
         }
         yOffset += 18
-        drawHLine(y: yOffset, width: contentWidth)
+        accentColor.withAlphaComponent(0.6).setFill()
+        UIRectFill(CGRect(x: margin, y: yOffset, width: contentWidth, height: 0.75))
         yOffset += 4
     }
 
@@ -1392,11 +1313,12 @@ enum StatementPDFGenerator {
 
     private static func drawMultiCurrencyTransactionTableHeader(
         pocketCurrency: CurrencyCode,
+        accentColor: UIColor,
         contentWidth: CGFloat,
         colWidths: [CGFloat],
         yOffset: inout CGFloat
     ) {
-        let headers = ["DATE", "CATEGORY", "DESCRIPTION", "CURRENCY", "AMOUNT \(pocketCurrency.rawValue)"]
+        let headers = ["DATE", "CATEGORY", "DESCRIPTION", "CURR", "AMOUNT \(pocketCurrency.rawValue)"]
         let headerAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 9.5, weight: .bold),
             .foregroundColor: secondaryTextColor
@@ -1413,7 +1335,8 @@ enum StatementPDFGenerator {
             x += colWidths[i]
         }
         yOffset += 18
-        drawHLine(y: yOffset, width: contentWidth)
+        accentColor.withAlphaComponent(0.6).setFill()
+        UIRectFill(CGRect(x: margin, y: yOffset, width: contentWidth, height: 0.75))
         yOffset += 4
     }
 
@@ -1504,12 +1427,13 @@ enum StatementPDFGenerator {
         pageWidth: CGFloat,
         pageHeight: CGFloat,
         pageNumber: Int,
+        accentColor: UIColor,
         state: LedgerState,
         now: Date
     ) {
         let calendar = Calendar.current
         let baseCurrency = state.settings.baseCurrency
-        let windows = computeThreeMonthWindows(startOfMonth: startOfMonth, cutoffEnd: cutoffEnd, calendar: calendar, now: now)
+        let (summary, windows) = ThreeMonthFinancialEngine.calculate(for: startOfMonth, in: state, baseCurrency: baseCurrency, now: now)
 
         var yOffset: CGFloat = margin
 
@@ -1547,35 +1471,16 @@ enum StatementPDFGenerator {
         }
 
         yOffset += 4
-        drawHLine(y: yOffset, width: pageWidth - (margin * 2))
+        // Accent rule
+        accentColor.setFill()
+        UIRectFill(CGRect(x: margin, y: yOffset, width: pageWidth - (margin * 2), height: 1.0))
         yOffset += 24
 
-        // Calculations across 3 months
-        let m1Assets = totalActiveAssets(at: windows.m1.monthEnd, baseCurrency: baseCurrency, in: state)
-        let m2Assets = totalActiveAssets(at: windows.m2.monthEnd, baseCurrency: baseCurrency, in: state)
-        let m3Assets = totalActiveAssets(at: windows.m3.monthEnd, baseCurrency: baseCurrency, in: state)
-        let avgAssets = (m1Assets + m2Assets + m3Assets) / 3.0
-
-        let m1Income = monthlyRecognizedIncome(from: windows.m1.monthStart, to: windows.m1.monthEnd, baseCurrency: baseCurrency, in: state, now: now)
-        let m2Income = monthlyRecognizedIncome(from: windows.m2.monthStart, to: windows.m2.monthEnd, baseCurrency: baseCurrency, in: state, now: now)
-        let m3Income = monthlyRecognizedIncome(from: windows.m3.monthStart, to: windows.m3.monthEnd, baseCurrency: baseCurrency, in: state, now: now)
-        let avgIncome = (m1Income + m2Income + m3Income) / 3.0
-
-        let m1Expense = monthlyRecognizedExpense(from: windows.m1.monthStart, to: windows.m1.monthEnd, baseCurrency: baseCurrency, in: state, now: now)
-        let m2Expense = monthlyRecognizedExpense(from: windows.m2.monthStart, to: windows.m2.monthEnd, baseCurrency: baseCurrency, in: state, now: now)
-        let m3Expense = monthlyRecognizedExpense(from: windows.m3.monthStart, to: windows.m3.monthEnd, baseCurrency: baseCurrency, in: state, now: now)
-        let avgExpense = (m1Expense + m2Expense + m3Expense) / 3.0
-
-        let m1Turnover = monthlyExternalTurnover(from: windows.m1.monthStart, to: windows.m1.monthEnd, baseCurrency: baseCurrency, in: state)
-        let m2Turnover = monthlyExternalTurnover(from: windows.m2.monthStart, to: windows.m2.monthEnd, baseCurrency: baseCurrency, in: state)
-        let m3Turnover = monthlyExternalTurnover(from: windows.m3.monthStart, to: windows.m3.monthEnd, baseCurrency: baseCurrency, in: state)
-        let avgTurnover = (m1Turnover + m2Turnover + m3Turnover) / 3.0
-
         let metrics: [(title: String, amount: Double)] = [
-            ("Average Total Assets", avgAssets),
-            ("Average Monthly Income", avgIncome),
-            ("Average Monthly Spending", avgExpense),
-            ("Average Monthly Turnover", avgTurnover)
+            ("Average Net Worth", summary.averageNetWorth),
+            ("Average Monthly Income", summary.averageIncome),
+            ("Average Monthly Spending", summary.averageSpending),
+            ("Average Monthly Turnover", summary.averageTurnover)
         ]
 
         // 2x2 Metric Cards
@@ -1603,8 +1508,8 @@ enum StatementPDFGenerator {
             let path = UIBezierPath(roundedRect: cardRect, cornerRadius: 8)
             tableHeaderBgColor.setFill()
             path.fill()
-            ruleColor.setStroke()
-            path.lineWidth = 0.5
+            accentColor.withAlphaComponent(0.35).setStroke()
+            path.lineWidth = 0.8
             path.stroke()
 
             metric.title.draw(at: CGPoint(x: cardX + 14, y: cardY + 14), withAttributes: cardTitleAttrs)
@@ -1632,7 +1537,7 @@ enum StatementPDFGenerator {
         ]
 
         let footnotesText = """
-        • Average Total Assets is based on month-end asset values across active accounts.
+        • Average Net Worth is based on month-end asset values minus liabilities across active accounts.
         • Monthly Income and Spending use Finsy's recognized analytics semantics.
         • Monthly Turnover represents external cash movement and excludes transfers between your own Finsy accounts.
         • Historical investment values may use book value where historical market quotes are unavailable.
@@ -1732,7 +1637,7 @@ enum StatementPDFGenerator {
         drawHLine(y: yOffset, width: contentWidth)
     }
 
-    private static func drawTaxTableHeader(contentWidth: CGFloat, yOffset: inout CGFloat) {
+    private static func drawTaxTableHeader(accentColor: UIColor, contentWidth: CGFloat, yOffset: inout CGFloat) {
         let colWidths: [CGFloat] = [
             contentWidth * 0.09,
             contentWidth * 0.12,
@@ -1761,7 +1666,8 @@ enum StatementPDFGenerator {
             x += colWidths[i]
         }
         yOffset += 18
-        drawHLine(y: yOffset, width: contentWidth)
+        accentColor.withAlphaComponent(0.6).setFill()
+        UIRectFill(CGRect(x: margin, y: yOffset, width: contentWidth, height: 0.75))
         yOffset += 4
     }
 

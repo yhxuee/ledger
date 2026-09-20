@@ -127,7 +127,7 @@ struct RootView: View {
                         Button { selectedAccountID = nil; section = .overview } label: { Label("Net Worth", systemImage: "square.grid.2x2") }
                         ForEach(store.accounts) { item in
                             Button { selectedAccountID = item.id; section = .overview } label: {
-                                HStack { Text(item.account.logo).font(.caption.bold()).frame(width: 32); VStack(alignment: .leading) { Text(item.account.name).lineLimit(1); SensitiveMoneyText(amount: item.balance, currency: item.account.currency).font(.caption).foregroundStyle(.secondary) } }
+                                HStack { Text(item.account.logo).font(.caption2.bold()).lineLimit(1).minimumScaleFactor(0.65).frame(width: 40); VStack(alignment: .leading) { Text(item.account.name).lineLimit(1); SensitiveMoneyText(amount: item.balance, currency: item.account.currency).font(.caption).foregroundStyle(.secondary) } }
                             }
                         }
                     }
