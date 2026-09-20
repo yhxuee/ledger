@@ -371,6 +371,8 @@ struct LedgerTransaction: Identifiable, Codable, Hashable, Sendable {
     var parentTransactionID: UUID? = nil
     var linkedTransactionKind: LinkedTransactionKind? = nil
     var linkedTransactionIndex: Int? = nil
+    var linkedStatus: LinkedTransactionStatus? = nil
+    var completedAt: Date? = nil
     var splitMetadata: SplitTransactionMetadata? = nil
     var installmentMetadata: InstallmentPlanMetadata? = nil
     var createdAt: Date
@@ -388,6 +390,16 @@ struct LedgerTransaction: Identifiable, Codable, Hashable, Sendable {
     var isReversal: Bool { reversalOfTransactionID != nil }
     var isRefunded: Bool { reversalTransactionID != nil }
     var isLockedByReversal: Bool { isReversal || isRefunded }
+
+    var isEffectivelyCompleted: Bool {
+        if linkedTransactionKind == .installment {
+            return linkedStatus == .completed || occurredAt <= .now
+        }
+        if linkedTransactionKind != nil {
+            return linkedStatus == .completed || (linkedStatus == nil && linkedTransactionKind != .installment)
+        }
+        return true
+    }
 
     /// `amount + currency` is the original transaction denomination. The account-side postings
     /// below are the actual amounts that move money in the accounts.

@@ -58,8 +58,11 @@ struct TransactionEditorView: View {
         _destinationID = State(initialValue: transaction?.destinationAccountID)
         _currency = State(initialValue: transaction?.currency ?? .HKD)
         let defaultCat: LedgerCategoryID = (initialType == .income) ? .salary : .food
-        _categoryID = State(initialValue: transaction?.categoryID ?? defaultCat)
-        _occurredAt = State(initialValue: transaction?.occurredAt ?? .now)
+        if let transaction, transaction.parentTransactionID != nil, transaction.linkedStatus == .pending {
+            _occurredAt = State(initialValue: .now)
+        } else {
+            _occurredAt = State(initialValue: transaction?.occurredAt ?? .now)
+        }
         _note = State(initialValue: transaction?.note ?? "")
         _taxRate = State(initialValue: initialType == .transfer ? nil : transaction?.taxRate)
         _taxInputMode = State(initialValue: initialType == .transfer ? .finalAmount : (transaction?.taxInputMode ?? .finalAmount))
@@ -920,13 +923,7 @@ struct TransactionEditorView: View {
                   store.ensureCurrencyPocket(accountID: accountID, currency: currency),
                   store.ensureCurrencyPocket(accountID: accountID, currency: target) else { return }
         }
-        if isLinkedDraft, let draft = original, let parentID = draft.parentTransactionID {
-            guard store.addRecovery(parentID: parentID, kind: .reimbursement, accountID: accountID,
-                amount: amount, currency: currency, occurredAt: occurredAt, note: note,
-                accountCurrency: sourceAccountCurrency, accountAmount: sourcePostingValue, noteAttachmentID: savedAttachmentID) else {
-                store.presentedError = "The reimbursement could not be saved."; return
-            }
-        } else if var original {
+        if var original {
             original.type = type; original.accountID = accountID; original.destinationAccountID = type == .transfer ? destinationID : nil
             original.amount = amount; original.currency = currency; original.categoryID = type == .transfer ? .other : categoryID
             original.occurredAt = occurredAt; original.note = note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : note

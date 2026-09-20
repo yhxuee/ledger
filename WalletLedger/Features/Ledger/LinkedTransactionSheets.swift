@@ -64,29 +64,35 @@ struct LinkedSetupSheet: View {
 }
 
 struct SplitSettlementSheet: View {
-    struct Slot: Identifiable {
-        var id: Int
-        var selected = false
-        var amount: String
-        var currency: CurrencyCode
-    }
     @EnvironmentObject private var store: LedgerStore
     @Environment(\.dismiss) private var dismiss
     let parent: LedgerTransaction
-    @State private var accountID: UUID?
-    @State private var slots: [Slot] = []
+    @State private var selectedChildIDs: Set<UUID> = []
     @State private var error = false
+
+    var pendingSettlements: [LedgerTransaction] {
+        TransactionSemantics.children(of: parent, in: store.state)
+            .filter { $0.linkedTransactionKind == .splitSettlement && $0.linkedStatus == .pending }
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                AccountSelectorMenu(accounts: store.accounts.map(\.account), selection: $accountID, title: "Receiving Account")
-                ForEach($slots) { $slot in
-                    VStack {
-                        Toggle("Person \(slot.id + 1)", isOn: $slot.selected)
-                        HStack {
-                            TransactionCurrencyPicker(selection: $slot.currency)
-                            TextField("Amount", text: $slot.amount).keyboardType(.decimalPad)
+                if pendingSettlements.isEmpty {
+                    Text("All settlements are completed.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(pendingSettlements) { child in
+                        Toggle(isOn: Binding(
+                            get: { selectedChildIDs.contains(child.id) },
+                            set: { if $0 { selectedChildIDs.insert(child.id) } else { selectedChildIDs.remove(child.id) } }
+                        )) {
+                            HStack {
+                                Text(child.note ?? "Settlement")
+                                Spacer()
+                                Text(child.currency.symbol + String(format: "%.2f", child.amount))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -96,28 +102,16 @@ struct SplitSettlementSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Settle") { save() }
-                        .disabled(accountID == nil || !slots.contains(where: \.selected) || slots.filter(\.selected).contains(where: { (Double($0.amount) ?? 0) <= 0 }))
-                }
-            }
-            .onAppear {
-                accountID = parent.accountID
-                slots = TransactionSemantics.outstandingSlots(parent, in: store.state).map {
-                    Slot(id: $0, amount: String(format: "%.2f", parent.amount / Double(parent.splitMetadata?.participantCount ?? 2)), currency: parent.currency)
+                    Button("Settle") {
+                        for id in selectedChildIDs {
+                            _ = store.completeSettlement(id)
+                        }
+                        dismiss()
+                    }
+                    .disabled(selectedChildIDs.isEmpty)
                 }
             }
         }
         .presentationDetents([.medium, .large])
-    }
-
-    private func save() {
-        guard let accountID else { return }
-        for slot in slots where slot.selected {
-            guard let amount = Double(slot.amount), store.addRecovery(parentID: parent.id, kind: .splitSettlement, slot: slot.id,
-                accountID: accountID, amount: amount, currency: slot.currency,
-                accountCurrency: store.state.accounts.first(where: { $0.id == accountID })?.defaultPocket(for: slot.currency)) else { error = true; return }
-            slots.removeAll { $0.id == slot.id }
-        }
-        dismiss()
     }
 }

@@ -109,6 +109,156 @@ enum SchemaMigration {
             if let primary = pockets.first(where: { $0.currency == account.currency }) { account.openingBalance = primary.openingBalance }
             state.accounts[index] = account
         }
+        normalizeLinkedGroups(&state)
+    }
+
+    private static func normalizeLinkedGroups(_ state: inout LedgerState) {
+        let allTransactions = state.transactions
+        var newTransactions: [LedgerTransaction] = []
+
+        for index in state.transactions.indices {
+            let item = state.transactions[index]
+            guard item.deletedAt == nil else { continue }
+
+            // Installment child backfill
+            if item.parentTransactionID != nil, item.linkedTransactionKind == .installment {
+                if state.transactions[index].linkedStatus == nil {
+                    state.transactions[index].linkedStatus = item.occurredAt <= .now ? .completed : .pending
+                    if state.transactions[index].linkedStatus == .completed && state.transactions[index].completedAt == nil {
+                        state.transactions[index].completedAt = item.occurredAt
+                    }
+                }
+            }
+
+            // Group parents backfill
+            guard let mode = item.groupMode else { continue }
+            let children = allTransactions.filter { $0.parentTransactionID == item.id && $0.deletedAt == nil }
+
+            switch mode {
+            case .split:
+                if children.isEmpty {
+                    let people = item.splitMetadata?.participantCount ?? 2
+                    if let generated = SplitSchedule.generate(parent: item, people: people, now: item.occurredAt) {
+                        newTransactions.append(contentsOf: generated)
+                    }
+                } else {
+                    // Ensure existing children have linkedStatus set
+                    for childIndex in state.transactions.indices where state.transactions[childIndex].parentTransactionID == item.id {
+                        if state.transactions[childIndex].linkedStatus == nil {
+                            state.transactions[childIndex].linkedStatus = .completed
+                            if state.transactions[childIndex].completedAt == nil {
+                                state.transactions[childIndex].completedAt = state.transactions[childIndex].occurredAt
+                            }
+                        }
+                    }
+                    // If splitSelfExpense is missing, add it
+                    if !children.contains(where: { $0.linkedTransactionKind == .splitSelfExpense }) {
+                        let people = item.splitMetadata?.participantCount ?? 2
+                        let myShare = (item.amount / Double(people) * 100).rounded() / 100
+                        let child1 = LedgerTransaction(
+                            id: UUID(),
+                            userID: item.userID,
+                            type: .expense,
+                            accountID: item.accountID,
+                            destinationAccountID: nil,
+                            amount: myShare,
+                            currency: item.currency,
+                            accountAmount: item.accountAmount.map { ($0 / Double(people) * 100).rounded() / 100 },
+                            destinationAmount: nil,
+                            accountCurrency: item.accountCurrency,
+                            destinationAccountCurrency: nil,
+                            categoryID: item.categoryID,
+                            occurredAt: item.occurredAt,
+                            note: "\(item.note ?? "Split") (My share)",
+                            exchangeRateAtTransaction: item.exchangeRateAtTransaction,
+                            parentTransactionID: item.id,
+                            linkedTransactionKind: .splitSelfExpense,
+                            linkedTransactionIndex: 0,
+                            createdAt: item.createdAt,
+                            updatedAt: item.updatedAt,
+                            deletedAt: nil,
+                            version: 1,
+                            syncStatus: .pending,
+                            taxRate: item.taxRate,
+                            taxAmount: item.taxAmount.map { ($0 / Double(people) * 100).rounded() / 100 },
+                            taxBaseAmount: item.taxBaseAmount.map { ($0 / Double(people) * 100).rounded() / 100 },
+                            taxInputMode: item.taxInputMode,
+                            isTaxExempt: item.isTaxExempt,
+                            linkedStatus: .completed,
+                            completedAt: item.occurredAt
+                        )
+                        newTransactions.append(child1)
+                    }
+                }
+
+            case .reimbursement:
+                if children.isEmpty {
+                    let generated = ReimbursementSchedule.generate(parent: item, now: item.occurredAt)
+                    newTransactions.append(contentsOf: generated)
+                } else {
+                    for childIndex in state.transactions.indices where state.transactions[childIndex].parentTransactionID == item.id {
+                        if state.transactions[childIndex].linkedStatus == nil {
+                            state.transactions[childIndex].linkedStatus = .completed
+                            if state.transactions[childIndex].completedAt == nil {
+                                state.transactions[childIndex].completedAt = state.transactions[childIndex].occurredAt
+                            }
+                        }
+                    }
+                    if !children.contains(where: { $0.linkedTransactionKind == .reimbursementOriginal }) {
+                        let child1 = LedgerTransaction(
+                            id: UUID(),
+                            userID: item.userID,
+                            type: .expense,
+                            accountID: item.accountID,
+                            destinationAccountID: nil,
+                            amount: item.amount,
+                            currency: item.currency,
+                            accountAmount: item.accountAmount,
+                            destinationAmount: nil,
+                            accountCurrency: item.accountCurrency,
+                            destinationAccountCurrency: nil,
+                            categoryID: item.categoryID,
+                            occurredAt: item.occurredAt,
+                            note: "\(item.note ?? "Reimbursement") (Original)",
+                            exchangeRateAtTransaction: item.exchangeRateAtTransaction,
+                            parentTransactionID: item.id,
+                            linkedTransactionKind: .reimbursementOriginal,
+                            linkedTransactionIndex: 0,
+                            createdAt: item.createdAt,
+                            updatedAt: item.updatedAt,
+                            deletedAt: nil,
+                            version: 1,
+                            syncStatus: .pending,
+                            taxRate: item.taxRate,
+                            taxAmount: item.taxAmount,
+                            taxBaseAmount: item.taxBaseAmount,
+                            taxInputMode: item.taxInputMode,
+                            isTaxExempt: item.isTaxExempt,
+                            linkedStatus: .completed,
+                            completedAt: item.occurredAt
+                        )
+                        newTransactions.append(child1)
+                    }
+                }
+
+            case .installment:
+                if children.isEmpty, let plan = item.installmentMetadata {
+                    if let generated = InstallmentSchedule.generate(parent: item, plan: plan, now: item.occurredAt) {
+                        newTransactions.append(contentsOf: generated)
+                    }
+                }
+
+            case .refund:
+                if children.isEmpty {
+                    let generated = RefundSchedule.generate(parent: item, now: item.occurredAt)
+                    newTransactions.append(contentsOf: generated)
+                }
+            }
+        }
+
+        if !newTransactions.isEmpty {
+            state.transactions.append(contentsOf: newTransactions)
+        }
     }
 
     static func normalize(_ library: inout LedgerLibrary) {

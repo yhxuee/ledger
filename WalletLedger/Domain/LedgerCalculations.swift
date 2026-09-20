@@ -19,25 +19,31 @@ enum LedgerCalculations {
         return result.isFinite ? result : 0
     }
 
+    static func convertHistorical(_ amount: Double, rate: Double, to target: CurrencyCode, rates: [CurrencyCode: Double]) -> Double {
+        guard amount.isFinite else { return 0 }
+        let snapshotRate = validRate(rate)
+        let result = amount * snapshotRate / validRate(CurrencyRates.reference(target, in: rates))
+        return result.isFinite ? result : 0
+    }
+
     private static func validRate(_ value: Double?) -> Double {
         guard let value, value.isFinite, value > 0 else { return 1 }
         return value
     }
 
     static func transactionEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, type: LedgerTransactionType, now: Date = .now) -> Double? {
-        guard type == .expense || type == .income else { return nil }
-        let scale = TransactionSemantics.analyticsScale(transaction, now: now)
-        guard scale > 0 else { return nil }
-        if let originalID = transaction.reversalOfTransactionID {
-            guard let original = state.transactions.first(where: { $0.id == originalID }), original.type == type else { return nil }
-            return -historical(transaction, to: target, rates: state.settings.rates)
+        switch type {
+        case .expense:
+            return TransactionSemantics.expenseEffect(transaction, in: state, to: target, now: now)
+        case .income:
+            return TransactionSemantics.incomeEffect(transaction, in: state, to: target, now: now)
+        case .transfer:
+            return nil
         }
-        guard transaction.type == type else { return nil }
-        return historical(transaction, to: target, rates: state.settings.rates) * scale
     }
 
     static func expenseEffect(_ transaction: LedgerTransaction, in state: LedgerState, to target: CurrencyCode, now: Date = .now) -> Double? {
-        transactionEffect(transaction, in: state, to: target, type: .expense, now: now)
+        TransactionSemantics.expenseEffect(transaction, in: state, to: target, now: now)
     }
 
     /// Pocket a source posting lands in. Single-currency accounts always use their primary currency.
@@ -99,19 +105,9 @@ enum LedgerCalculations {
     }
 
     /// Account-side expense effect, expressed in the account's primary currency.
-    /// Uses the actual posting (`accountAmount`) instead of re-pricing the original amount.
     static func accountExpenseEffect(_ transaction: LedgerTransaction, for account: LedgerAccount, in state: LedgerState, now: Date = .now) -> Double? {
         guard transaction.accountID == account.id else { return nil }
-        let scale = TransactionSemantics.analyticsScale(transaction, now: now)
-        guard scale > 0 else { return nil }
-        let posted = sourcePosting(transaction, for: account, in: state)
-        let primaryValue = convert(posted, from: sourcePocket(transaction, for: account), to: account.currency, rates: state.settings.rates)
-        if let originalID = transaction.reversalOfTransactionID {
-            guard let original = state.transactions.first(where: { $0.id == originalID }), original.type == .expense else { return nil }
-            return -primaryValue
-        }
-        guard transaction.type == .expense else { return nil }
-        return primaryValue * scale
+        return TransactionSemantics.expenseEffect(transaction, in: state, to: account.currency, now: now)
     }
 
     static func accountViews(_ state: LedgerState) -> [AccountViewModel] {

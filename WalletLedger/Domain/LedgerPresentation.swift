@@ -29,10 +29,13 @@ enum LedgerPresentation {
         var entries: [String: LedgerPresentationEntry] = [:]
         for activity in transactions where activity.deletedAt == nil {
             if activity.linkedTransactionKind == .installment && activity.occurredAt > now { continue }
+            if activity.isReversal && (activity.purchaseSessionID != nil || (activity.reversalOfTransactionID.flatMap { all[$0] }?.purchaseSessionID != nil)) {
+                continue
+            }
             let parent = activity.parentTransactionID.flatMap { all[$0] } ?? activity
             let entry: LedgerPresentationEntry
             if collapsePurchases, let sessionID = parent.purchaseSessionID, let session = sessions[sessionID] {
-                let children = all.values.filter { $0.purchaseSessionID == sessionID && $0.parentTransactionID == nil }.sorted { $0.occurredAt < $1.occurredAt }
+                let children = all.values.filter { $0.purchaseSessionID == sessionID && $0.parentTransactionID == nil && !$0.isReversal }.sorted { $0.occurredAt < $1.occurredAt }
                 // Preserve the original single Purchase row; subsequent linked activity gets a dated occurrence.
                 let date = activity.parentTransactionID == nil ? (children.map(\.occurredAt).max() ?? activity.occurredAt) : activity.occurredAt
                 entry = .purchase(session, children, date)

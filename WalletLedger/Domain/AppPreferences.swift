@@ -13,6 +13,31 @@ enum SwipeActionOrientation: String, Codable, CaseIterable, Identifiable, Sendab
     }
 }
 
+enum TransactionSwipeAction: String, Codable, CaseIterable, Identifiable, Sendable {
+    case reimburse
+    case refund
+    case delete
+    case split
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .reimburse: "Reimburse"
+        case .refund: "Refund"
+        case .delete: "Delete"
+        case .split: "Split"
+        }
+    }
+    var systemImage: String {
+        switch self {
+        case .reimburse: "arrow.uturn.backward.circle"
+        case .refund: "arrow.uturn.backward"
+        case .delete: "trash"
+        case .split: "person.2"
+        }
+    }
+}
+
 enum AppDateFormat: String, Codable, CaseIterable, Identifiable, Sendable {
     case monthDay
     case dayMonth
@@ -117,10 +142,13 @@ enum AccountCardMaterialStyle: String, Codable, CaseIterable, Identifiable, Send
 }
 
 struct AppPreferences: Codable, Hashable, Sendable {
+    static let defaultSwipeActions: [TransactionSwipeAction] = [.reimburse, .refund, .delete, .split]
+
     var schemaVersion: Int = 1
     var languageCode: String = "en"
     var biometricLockEnabled: Bool = false
     var swipeActionOrientation: SwipeActionOrientation = .refundLeadingDeleteTrailing
+    var transactionSwipeActions: [TransactionSwipeAction] = defaultSwipeActions
     var splitActionOnRightSwipe: Bool = true
     var reimbursementActionOnRightSwipe: Bool = true
     var hapticFeedbackEnabled: Bool = true
@@ -132,11 +160,12 @@ struct AppPreferences: Codable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case splitActionOnRightSwipe, reimbursementActionOnRightSwipe
-        case schemaVersion, languageCode, biometricLockEnabled, swipeActionOrientation, hapticFeedbackEnabled, dateFormat, transactionLayout, overviewMetrics, overviewCardLayout, accountCardMaterialStyle
+        case schemaVersion, languageCode, biometricLockEnabled, swipeActionOrientation, transactionSwipeActions, hapticFeedbackEnabled, dateFormat, transactionLayout, overviewMetrics, overviewCardLayout, accountCardMaterialStyle
     }
 
     init(schemaVersion: Int = 1, languageCode: String = "en", biometricLockEnabled: Bool = false,
          swipeActionOrientation: SwipeActionOrientation = .refundLeadingDeleteTrailing,
+         transactionSwipeActions: [TransactionSwipeAction] = defaultSwipeActions,
          hapticFeedbackEnabled: Bool = true, dateFormat: AppDateFormat = .monthDay,
          transactionLayout: TransactionEditorLayout = .standard,
          overviewMetrics: [OverviewMetricKind] = [.sixMonthTrend, .weekExpensePie],
@@ -146,6 +175,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
         self.languageCode = languageCode
         self.biometricLockEnabled = biometricLockEnabled
         self.swipeActionOrientation = swipeActionOrientation
+        self.transactionSwipeActions = transactionSwipeActions.count == 4 && Set(transactionSwipeActions).count == 4 ? transactionSwipeActions : Self.defaultSwipeActions
         self.hapticFeedbackEnabled = hapticFeedbackEnabled
         self.dateFormat = dateFormat
         self.transactionLayout = transactionLayout
@@ -162,6 +192,12 @@ struct AppPreferences: Codable, Hashable, Sendable {
         languageCode = try values.decodeIfPresent(String.self, forKey: .languageCode) ?? "en"
         biometricLockEnabled = try values.decodeIfPresent(Bool.self, forKey: .biometricLockEnabled) ?? false
         swipeActionOrientation = try values.decodeIfPresent(SwipeActionOrientation.self, forKey: .swipeActionOrientation) ?? .refundLeadingDeleteTrailing
+        if let decodedActions = try? values.decodeIfPresent([TransactionSwipeAction].self, forKey: .transactionSwipeActions),
+           decodedActions.count == 4, Set(decodedActions).count == 4 {
+            transactionSwipeActions = decodedActions
+        } else {
+            transactionSwipeActions = Self.defaultSwipeActions
+        }
         hapticFeedbackEnabled = try values.decodeIfPresent(Bool.self, forKey: .hapticFeedbackEnabled) ?? true
         dateFormat = try values.decodeIfPresent(AppDateFormat.self, forKey: .dateFormat) ?? .monthDay
         transactionLayout = try values.decodeIfPresent(TransactionEditorLayout.self, forKey: .transactionLayout) ?? .standard

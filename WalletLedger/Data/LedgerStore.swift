@@ -195,17 +195,42 @@ final class LedgerStore: ObservableObject {
         updated.groupMode = original.groupMode
         updated.splitMetadata = original.splitMetadata
         updated.installmentMetadata = original.installmentMetadata
-        if original.linkedTransactionKind == .splitSettlement || original.linkedTransactionKind == .reimbursement {
-            updated.applyTax(TaxCalculations.resolve(entered: item.amount, type: .income, rate: 0, mode: .finalAmount, exempt: true))
+        updated.linkedStatus = original.linkedStatus
+        updated.completedAt = original.completedAt
+
+        // Automatic completion on edit/save for pending child records:
+        if original.linkedTransactionKind == .splitSettlement && original.linkedStatus == .pending {
+            updated.linkedStatus = .completed
+            updated.completedAt = .now
+        } else if original.linkedTransactionKind == .reimbursementIncome && original.linkedStatus == .pending {
+            updated.linkedStatus = .completed
+            updated.completedAt = .now
+        } else if original.linkedTransactionKind == .installment && !original.isEffectivelyCompleted {
+            updated.linkedStatus = .completed
+            updated.completedAt = .now
         }
-        if original.linkedTransactionKind == .installment {
+
+        // Split child tax proportion recalculation
+        if original.linkedTransactionKind == .splitSelfExpense,
+           let parentID = original.parentTransactionID,
+           let parent = state.transactions.first(where: { $0.id == parentID }),
+           parent.amount > 0 {
+            let originalTax = parent.taxAmount ?? 0
+            let ratio = min(1.0, max(0.0, item.amount / parent.amount))
+            updated.taxAmount = TaxCalculations.rounded(originalTax * ratio)
+            if let originalBase = parent.taxBaseAmount {
+                updated.taxBaseAmount = TaxCalculations.rounded(originalBase * ratio)
+            }
+        } else if original.linkedTransactionKind == .splitSettlement || original.linkedTransactionKind == .reimbursementIncome || original.linkedTransactionKind == .refundIncome {
+            updated.applyTax(TaxCalculations.resolve(entered: item.amount, type: .income, rate: 0, mode: .finalAmount, exempt: true))
+        } else if original.linkedTransactionKind == .installment {
             updated.taxRate = original.taxRate; updated.taxAmount = original.taxAmount
             updated.taxBaseAmount = original.taxBaseAmount; updated.taxInputMode = original.taxInputMode; updated.isTaxExempt = original.isTaxExempt
+        } else if updated.type == .transfer {
+            updated.applyTax(nil)
         }
-        if updated.type == .transfer { updated.applyTax(nil) }
+
         updated.accountCurrency = source.usesCurrencyPockets ? sourcePocket : nil
-        // A supplied account amount that differs from the stored one is a manual override and is
-        // authoritative. An untouched value follows an amount edit (previous behaviour).
         if keepsFX, item.accountAmount == original.accountAmount, let existing = original.accountAmount {
             updated.accountAmount = existing * scale
         } else if let supplied = item.accountAmount, supplied.isFinite {
@@ -238,15 +263,21 @@ final class LedgerStore: ObservableObject {
     }
 
     func deleteTransaction(_ item: LedgerTransaction) {
+        // Group children never support Delete, except Purchase children
+        guard item.parentTransactionID == nil || item.purchaseSessionID != nil else { return }
         guard let index = state.transactions.firstIndex(where: { $0.id == item.id }) else { return }
         let now = Date.now
         undoState = nil
         undoTransactions = [state.transactions[index]]
-        guard item.linkedTransactionKind != .installment else { return }
-        for childIndex in state.transactions.indices where state.transactions[childIndex].parentTransactionID == item.id && state.transactions[childIndex].deletedAt == nil {
-            undoTransactions.append(state.transactions[childIndex])
-            markDeleted(at: childIndex, date: now)
+
+        // Soft-delete entire group if this is a group parent
+        if item.groupMode != nil {
+            for childIndex in state.transactions.indices where state.transactions[childIndex].parentTransactionID == item.id && state.transactions[childIndex].deletedAt == nil {
+                undoTransactions.append(state.transactions[childIndex])
+                markDeleted(at: childIndex, date: now)
+            }
         }
+
         if let originalID = state.transactions[index].reversalOfTransactionID,
            let originalIndex = state.transactions.firstIndex(where: { $0.id == originalID }) {
             undoTransactions.append(state.transactions[originalIndex])
@@ -284,10 +315,28 @@ final class LedgerStore: ObservableObject {
 
     @discardableResult
     func refundTransaction(_ original: LedgerTransaction) -> LedgerTransaction? {
-        guard original.deletedAt == nil, !original.isReversal, original.reversalTransactionID == nil,
-              let originalIndex = state.transactions.firstIndex(where: { $0.id == original.id && $0.deletedAt == nil }),
-              !state.transactions.contains(where: { $0.reversalOfTransactionID == original.id && $0.deletedAt == nil }) else { return nil }
+        guard original.deletedAt == nil, !original.isReversal, original.reversalTransactionID == nil else { return nil }
+
+        // Purchase child refund exception: hidden reversal, no refund group
+        if original.purchaseSessionID != nil {
+            return refundPurchaseChild(original)
+        }
+
+        // Installment parent refund: refunds only posted amount so far
+        if original.groupMode == .installment {
+            return refundInstallmentParent(original)
+        }
+
+        // Normal standalone expense: convert into Refund group parent with 2 children
+        if TransactionSemantics.eligible(original) {
+            _ = convertExpenseToRefundGroup(original)
+            return nil
+        }
+
+        // Standalone income or transfer: reversal workflow
         let now = Date.now
+        guard let originalIndex = state.transactions.firstIndex(where: { $0.id == original.id && $0.deletedAt == nil }),
+              !state.transactions.contains(where: { $0.reversalOfTransactionID == original.id && $0.deletedAt == nil }) else { return nil }
         guard let reversal = RefundEngine.makeReversal(of: original, in: state, now: now) else { return nil }
         state.transactions[originalIndex].reversalTransactionID = reversal.id
         state.transactions[originalIndex].updatedAt = now
@@ -969,63 +1018,219 @@ extension LedgerStore {
     }
 
     @discardableResult
-    func configureLinked(_ id: UUID, mode: TransactionGroupMode, people: Int = 2, plan: InstallmentPlanMetadata? = nil) -> Bool {
-        guard let index = state.transactions.firstIndex(where: { $0.id == id }) else { return false }
+    func configureSplit(parentID: UUID, people: Int = 2, now: Date = .now) -> Bool {
+        guard (2...50).contains(people) else { return false }
+        guard let index = state.transactions.firstIndex(where: { $0.id == parentID && $0.deletedAt == nil }) else { return false }
         let parent = state.transactions[index]
-        guard TransactionSemantics.eligible(parent) || (parent.groupMode == mode && parent.deletedAt == nil && !parent.isLockedByReversal) else { return false }
-        let children = TransactionSemantics.children(of: parent, in: state)
-        if mode == .split {
-            guard (2...50).contains(people), children.allSatisfy({ ($0.linkedTransactionIndex ?? 0) < people }) else { return false }
-            state.transactions[index].splitMetadata = .init(participantCount: people)
-        } else if mode == .installment {
-            guard state.accounts.first(where: { $0.id == parent.accountID && $0.deletedAt == nil })?.type == .credit,
-                  let plan, let generated = InstallmentSchedule.generate(parent: parent, plan: plan) else { return false }
-            // Plan editing explicitly replaces the persisted schedule as one operation.
-            for childIndex in state.transactions.indices where state.transactions[childIndex].parentTransactionID == id && state.transactions[childIndex].deletedAt == nil {
-                markDeleted(at: childIndex, date: .now)
+        guard TransactionSemantics.eligible(parent) || (parent.groupMode == .split && !parent.isLockedByReversal) else { return false }
+        guard let generated = SplitSchedule.generate(parent: parent, people: people, now: now) else { return false }
+
+        let existingChildren = TransactionSemantics.children(of: parent, in: state)
+        let completedSettlements = existingChildren.filter { $0.linkedTransactionKind == .splitSettlement && $0.linkedStatus == .completed }
+        guard completedSettlements.count < people else { return false }
+
+        for child in existingChildren {
+            if let childIndex = state.transactions.firstIndex(where: { $0.id == child.id }) {
+                markDeleted(at: childIndex, date: now)
             }
-            state.transactions.append(contentsOf: generated)
-            state.transactions[index].installmentMetadata = plan
         }
-        state.transactions[index].groupMode = mode
-        state.transactions[index].updatedAt = .now; state.transactions[index].version += 1; state.transactions[index].syncStatus = .pending
+
+        state.transactions[index].groupMode = .split
+        state.transactions[index].splitMetadata = .init(participantCount: people)
+        state.transactions[index].installmentMetadata = nil
+        state.transactions[index].updatedAt = now
+        state.transactions[index].version += 1
+        state.transactions[index].syncStatus = .pending
+        state.transactions.append(contentsOf: generated)
         scheduleSave()
         return true
-    }
-
-    func reimbursementDraft(for parent: LedgerTransaction) -> LedgerTransaction {
-        var draft = parent
-        draft.id = UUID(); draft.type = .income; draft.categoryID = .reimbursement
-        draft.amount = TransactionSemantics.remainingReimbursement(parent, in: state)
-        draft.accountAmount = nil; draft.destinationAccountID = nil; draft.destinationAmount = nil
-        draft.groupMode = nil; draft.splitMetadata = nil; draft.installmentMetadata = nil
-        draft.purchaseSessionID = nil; draft.purchaseItemID = nil
-        draft.parentTransactionID = parent.id; draft.linkedTransactionKind = .reimbursement; draft.linkedTransactionIndex = nil
-        draft.note = nil; draft.noteAttachmentID = nil; draft.occurredAt = .now
-        draft.exchangeRateAtTransaction = CurrencyRates.reference(draft.currency, in: state.settings.rates) ?? parent.exchangeRateAtTransaction
-        draft.applyTax(TaxCalculations.resolve(entered: draft.amount, type: .income, rate: 0, mode: .finalAmount, exempt: true))
-        return draft
     }
 
     @discardableResult
-    func addRecovery(parentID: UUID, kind: LinkedTransactionKind, slot: Int? = nil, accountID: UUID,
-                     amount: Double, currency: CurrencyCode, occurredAt: Date = .now, note: String? = nil,
-                     accountCurrency: CurrencyCode? = nil, accountAmount: Double? = nil, noteAttachmentID: String? = nil) -> Bool {
-        guard let parent = state.transactions.first(where: { $0.id == parentID && $0.deletedAt == nil }) else { return false }
-        if kind == .splitSettlement {
-            guard parent.groupMode == .split, let slot, TransactionSemantics.outstandingSlots(parent, in: state).contains(slot) else { return false }
-        } else {
-            guard kind == .reimbursement, parent.groupMode == .reimbursement else { return false }
+    func configureReimbursement(parentID: UUID, now: Date = .now) -> Bool {
+        guard let index = state.transactions.firstIndex(where: { $0.id == parentID && $0.deletedAt == nil }) else { return false }
+        let parent = state.transactions[index]
+        guard TransactionSemantics.eligible(parent) || (parent.groupMode == .reimbursement && !parent.isLockedByReversal) else { return false }
+        let generated = ReimbursementSchedule.generate(parent: parent, now: now)
+
+        let existingChildren = TransactionSemantics.children(of: parent, in: state)
+        for child in existingChildren {
+            if let childIndex = state.transactions.firstIndex(where: { $0.id == child.id }) {
+                markDeleted(at: childIndex, date: now)
+            }
         }
-        guard let child = addTransaction(type: .income, accountID: accountID, destinationAccountID: nil,
-            amount: amount, currency: currency, categoryID: kind == .splitSettlement ? .settlement : .reimbursement,
-            occurredAt: occurredAt, note: note, noteAttachmentID: noteAttachmentID, accountCurrency: accountCurrency,
-            accountAmount: accountAmount, taxSnapshot: TaxCalculations.resolve(entered: amount, type: .income, rate: 0, mode: .finalAmount, exempt: true), linkedRecovery: true),
-            let index = state.transactions.firstIndex(where: { $0.id == child.id }) else { return false }
-        state.transactions[index].parentTransactionID = parentID
-        state.transactions[index].linkedTransactionKind = kind
-        state.transactions[index].linkedTransactionIndex = slot
+
+        state.transactions[index].groupMode = .reimbursement
+        state.transactions[index].splitMetadata = nil
+        state.transactions[index].installmentMetadata = nil
+        state.transactions[index].updatedAt = now
+        state.transactions[index].version += 1
+        state.transactions[index].syncStatus = .pending
+        state.transactions.append(contentsOf: generated)
         scheduleSave()
         return true
+    }
+
+    @discardableResult
+    func configureInstallment(parentID: UUID, plan: InstallmentPlanMetadata, now: Date = .now) -> Bool {
+        guard let index = state.transactions.firstIndex(where: { $0.id == parentID && $0.deletedAt == nil }) else { return false }
+        let parent = state.transactions[index]
+        guard state.accounts.first(where: { $0.id == parent.accountID && $0.deletedAt == nil })?.type == .credit else { return false }
+        guard TransactionSemantics.eligible(parent) || (parent.groupMode == .installment && !parent.isLockedByReversal) else { return false }
+        guard let generated = InstallmentSchedule.generate(parent: parent, plan: plan, now: now) else { return false }
+
+        let existingChildren = TransactionSemantics.children(of: parent, in: state)
+        for child in existingChildren {
+            if let childIndex = state.transactions.firstIndex(where: { $0.id == child.id }) {
+                markDeleted(at: childIndex, date: now)
+            }
+        }
+
+        state.transactions[index].groupMode = .installment
+        state.transactions[index].installmentMetadata = plan
+        state.transactions[index].splitMetadata = nil
+        state.transactions[index].updatedAt = now
+        state.transactions[index].version += 1
+        state.transactions[index].syncStatus = .pending
+        state.transactions.append(contentsOf: generated)
+        scheduleSave()
+        return true
+    }
+
+    @discardableResult
+    func convertExpenseToRefundGroup(_ original: LedgerTransaction, now: Date = .now) -> Bool {
+        guard let index = state.transactions.firstIndex(where: { $0.id == original.id && $0.deletedAt == nil }) else { return false }
+        let parent = state.transactions[index]
+        guard TransactionSemantics.eligible(parent) else { return false }
+        let generated = RefundSchedule.generate(parent: parent, now: now)
+
+        state.transactions[index].groupMode = .refund
+        state.transactions[index].splitMetadata = nil
+        state.transactions[index].installmentMetadata = nil
+        state.transactions[index].updatedAt = now
+        state.transactions[index].version += 1
+        state.transactions[index].syncStatus = .pending
+        state.transactions.append(contentsOf: generated)
+        scheduleSave()
+        return true
+    }
+
+    @discardableResult
+    func completeSettlement(_ childID: UUID, now: Date = .now) -> Bool {
+        guard let index = state.transactions.firstIndex(where: { $0.id == childID && $0.deletedAt == nil }),
+              state.transactions[index].linkedTransactionKind == .splitSettlement else { return false }
+        state.transactions[index].linkedStatus = .completed
+        state.transactions[index].completedAt = now
+        state.transactions[index].occurredAt = now
+        state.transactions[index].updatedAt = now
+        state.transactions[index].version += 1
+        state.transactions[index].syncStatus = .pending
+        scheduleSave()
+        return true
+    }
+
+    @discardableResult
+    func payInstallmentEarly(_ childID: UUID, now: Date = .now) -> Bool {
+        guard let index = state.transactions.firstIndex(where: { $0.id == childID && $0.deletedAt == nil }),
+              state.transactions[index].linkedTransactionKind == .installment else { return false }
+        state.transactions[index].linkedStatus = .completed
+        state.transactions[index].completedAt = now
+        state.transactions[index].occurredAt = now
+        state.transactions[index].updatedAt = now
+        state.transactions[index].version += 1
+        state.transactions[index].syncStatus = .pending
+        scheduleSave()
+        return true
+    }
+
+    @discardableResult
+    func completeReimbursement(_ childID: UUID, now: Date = .now) -> Bool {
+        guard let index = state.transactions.firstIndex(where: { $0.id == childID && $0.deletedAt == nil }),
+              state.transactions[index].linkedTransactionKind == .reimbursementIncome else { return false }
+        state.transactions[index].linkedStatus = .completed
+        state.transactions[index].completedAt = now
+        state.transactions[index].updatedAt = now
+        state.transactions[index].version += 1
+        state.transactions[index].syncStatus = .pending
+        scheduleSave()
+        return true
+    }
+
+    @discardableResult
+    func refundPurchaseChild(_ child: LedgerTransaction, now: Date = .now) -> LedgerTransaction? {
+        guard let index = state.transactions.firstIndex(where: { $0.id == child.id && $0.deletedAt == nil }),
+              !child.isReversal, child.reversalTransactionID == nil else { return nil }
+        guard let reversal = RefundEngine.makeReversal(of: child, in: state, now: now) else { return nil }
+        state.transactions[index].reversalTransactionID = reversal.id
+        state.transactions[index].updatedAt = now
+        state.transactions[index].version += 1
+        state.transactions[index].syncStatus = .pending
+        state.transactions.insert(reversal, at: 0)
+        scheduleSave()
+        return reversal
+    }
+
+    @discardableResult
+    func refundInstallmentParent(_ parent: LedgerTransaction, now: Date = .now) -> LedgerTransaction? {
+        guard parent.groupMode == .installment, parent.deletedAt == nil else { return nil }
+        let refundable = TransactionSemantics.refundableInstallmentAmount(parent, in: state, now: now)
+        guard refundable > 0.001 else { return nil }
+        guard let source = state.accounts.first(where: { $0.id == parent.accountID && $0.deletedAt == nil }) else { return nil }
+        let sourcePocket = LedgerCalculations.sourcePocket(parent, for: source)
+        let exactSourceAmount = LedgerCalculations.convert(refundable, from: parent.currency, to: sourcePocket, rates: state.settings.rates)
+
+        let reversal = LedgerTransaction(
+            id: UUID(),
+            userID: parent.userID,
+            type: .income,
+            accountID: parent.accountID,
+            destinationAccountID: nil,
+            amount: refundable,
+            currency: parent.currency,
+            accountAmount: exactSourceAmount,
+            destinationAmount: nil,
+            accountCurrency: parent.accountCurrency,
+            destinationAccountCurrency: nil,
+            categoryID: .refund,
+            occurredAt: now,
+            note: "REFUND Installment (\(parent.note ?? "Expense"))",
+            exchangeRateAtTransaction: parent.exchangeRateAtTransaction,
+            reversalOfTransactionID: parent.id,
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: nil,
+            version: 1,
+            syncStatus: .pending,
+            taxRate: nil,
+            taxAmount: 0,
+            taxBaseAmount: refundable,
+            taxInputMode: .finalAmount,
+            isTaxExempt: true
+        )
+        if let index = state.transactions.firstIndex(where: { $0.id == parent.id }) {
+            state.transactions[index].reversalTransactionID = reversal.id
+            state.transactions[index].updatedAt = now
+            state.transactions[index].version += 1
+            state.transactions[index].syncStatus = .pending
+        }
+        state.transactions.insert(reversal, at: 0)
+        scheduleSave()
+        return reversal
+    }
+
+    @discardableResult
+    func configureLinked(_ id: UUID, mode: TransactionGroupMode, people: Int = 2, plan: InstallmentPlanMetadata? = nil) -> Bool {
+        switch mode {
+        case .split:
+            return configureSplit(parentID: id, people: people)
+        case .reimbursement:
+            return configureReimbursement(parentID: id)
+        case .installment:
+            guard let plan else { return false }
+            return configureInstallment(parentID: id, plan: plan)
+        case .refund:
+            guard let parent = state.transactions.first(where: { $0.id == id }) else { return false }
+            return convertExpenseToRefundGroup(parent)
+        }
     }
 }

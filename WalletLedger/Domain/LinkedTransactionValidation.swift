@@ -11,44 +11,71 @@ enum LinkedTransactionValidation {
                 switch mode {
                 case .split:
                     guard let metadata = item.splitMetadata, (2...50).contains(metadata.participantCount), item.installmentMetadata == nil else { throw BackupError.invalidValue("split metadata") }
+                    if item.deletedAt == nil {
+                        let children = TransactionSemantics.children(of: item, in: state)
+                        guard children.count == metadata.participantCount else { throw BackupError.invalidValue("split schedule count") }
+                    }
                 case .reimbursement:
                     guard item.splitMetadata == nil, item.installmentMetadata == nil else { throw BackupError.invalidValue("reimbursement metadata") }
+                    if item.deletedAt == nil {
+                        let children = TransactionSemantics.children(of: item, in: state)
+                        guard children.count == 2 else { throw BackupError.invalidValue("reimbursement schedule count") }
+                    }
                 case .installment:
                     guard let plan = item.installmentMetadata, item.splitMetadata == nil,
                           (2...360).contains(plan.count), (1...3650).contains(plan.intervalDays), plan.fee.isFinite, plan.fee >= 0 else { throw BackupError.invalidValue("installment plan") }
                     if item.deletedAt == nil {
                         let children = TransactionSemantics.children(of: item, in: state)
-                        guard children.count == plan.count else { throw BackupError.invalidValue("installment schedule") }
+                        guard children.count == plan.count else { throw BackupError.invalidValue("installment schedule count") }
+                    }
+                case .refund:
+                    guard item.splitMetadata == nil, item.installmentMetadata == nil else { throw BackupError.invalidValue("refund metadata") }
+                    if item.deletedAt == nil {
+                        let children = TransactionSemantics.children(of: item, in: state)
+                        guard children.count == 2 else { throw BackupError.invalidValue("refund schedule count") }
                     }
                 }
             } else if item.splitMetadata != nil || item.installmentMetadata != nil {
                 throw BackupError.invalidValue("orphan group metadata")
             }
+
             guard let parentID = item.parentTransactionID else {
                 guard item.linkedTransactionKind == nil, item.linkedTransactionIndex == nil,
                       !item.categoryID.isSystemLinked else { throw BackupError.invalidValue("orphan linked transaction") }
                 continue
             }
+
             guard let parent = transactions[parentID], parentID != item.id, parent.parentTransactionID == nil,
                   parent.groupMode != nil, let kind = item.linkedTransactionKind, !item.isLockedByReversal,
                   item.deletedAt != nil || parent.deletedAt == nil,
                   item.purchaseSessionID == nil else { throw BackupError.invalidValue("linked relationship") }
+
             switch kind {
+            case .splitSelfExpense:
+                guard parent.groupMode == .split, item.type == .expense, item.categoryID == parent.categoryID,
+                      item.linkedTransactionIndex == 0 else { throw BackupError.invalidValue("split self expense") }
             case .splitSettlement:
                 guard parent.groupMode == .split, item.type == .income, item.categoryID == .settlement,
                       let index = item.linkedTransactionIndex, index > 0,
                       item.deletedAt != nil || index < (parent.splitMetadata?.participantCount ?? 0) else { throw BackupError.invalidValue("settlement slot") }
-            case .reimbursement:
+            case .reimbursementOriginal:
+                guard parent.groupMode == .reimbursement, item.type == .expense, item.categoryID == parent.categoryID,
+                      item.linkedTransactionIndex == 0 else { throw BackupError.invalidValue("reimbursement original") }
+            case .reimbursementIncome:
                 guard parent.groupMode == .reimbursement, item.type == .income, item.categoryID == .reimbursement,
-                      item.linkedTransactionIndex == nil else { throw BackupError.invalidValue("reimbursement child") }
+                      item.linkedTransactionIndex == 1 else { throw BackupError.invalidValue("reimbursement income") }
             case .installment:
                 guard parent.groupMode == .installment, item.type == .expense,
                       item.categoryID == parent.categoryID, let index = item.linkedTransactionIndex, index > 0,
                       item.deletedAt != nil || index <= (parent.installmentMetadata?.count ?? 0) else { throw BackupError.invalidValue("installment child") }
+            case .refundOriginal:
+                guard parent.groupMode == .refund, item.type == .expense, item.categoryID == parent.categoryID,
+                      item.linkedTransactionIndex == 0 else { throw BackupError.invalidValue("refund original") }
+            case .refundIncome:
+                guard parent.groupMode == .refund, item.type == .income, item.categoryID == .refund,
+                      item.linkedTransactionIndex == 1 else { throw BackupError.invalidValue("refund income") }
             }
-            if kind != .installment {
-                guard item.isTaxExempt == true, item.taxAmount == 0 else { throw BackupError.invalidValue("recovery tax") }
-            }
+
             if item.deletedAt == nil, let index = item.linkedTransactionIndex {
                 guard slots.insert("\(parentID)-\(index)").inserted else { throw BackupError.invalidValue("duplicate linked slot") }
             }

@@ -22,7 +22,7 @@ enum PurchaseLedgerEntry: Identifiable, Hashable, Sendable {
 enum PurchaseLedgerPresentation {
     /// Show original purchase units; current base-currency settings do not redenominate a purchase.
     static func displayedTotal(_ transactions: [LedgerTransaction], session: PurchaseSession, rates: [CurrencyCode: Double]) -> Double {
-        transactions.filter { $0.deletedAt == nil }.reduce(0) { total, transaction in
+        transactions.filter { $0.deletedAt == nil && !$0.isRefunded && !$0.isReversal }.reduce(0) { total, transaction in
             total + (transaction.currency == session.currency
                 ? transaction.amount
                 : LedgerCalculations.historical(transaction, to: session.currency, rates: rates))
@@ -35,14 +35,18 @@ enum PurchaseLedgerPresentation {
         sessions: [PurchaseSession],
         collapsePurchases: Bool
     ) -> [PurchaseLedgerEntry] {
-        guard collapsePurchases else { return transactions.map(PurchaseLedgerEntry.transaction) }
+        guard collapsePurchases else {
+            return transactions.filter { !$0.isReversal }.map(PurchaseLedgerEntry.transaction)
+        }
         let sessionsByID = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
         let grouped = Dictionary(grouping: transactions.compactMap { transaction -> LedgerTransaction? in
-            transaction.purchaseSessionID == nil ? nil : transaction
+            guard transaction.purchaseSessionID != nil, !transaction.isReversal else { return nil }
+            return transaction
         }) { $0.purchaseSessionID! }
         var emitted = Set<UUID>()
         var result: [PurchaseLedgerEntry] = []
         for transaction in transactions.sorted(by: { $0.occurredAt > $1.occurredAt }) {
+            guard !transaction.isReversal else { continue }
             guard let sessionID = transaction.purchaseSessionID,
                   let session = sessionsByID[sessionID],
                   let children = grouped[sessionID] else {

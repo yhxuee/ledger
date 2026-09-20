@@ -11,6 +11,7 @@ struct OverviewView: View {
     @State private var editingTransaction: LedgerTransaction?
     @State private var showingBudgetDetail = false
     @State private var activeDetailMetric: OverviewMetricKind? = nil
+    @State private var revealedTransactionID: UUID? = nil
 
     private var selected: AccountViewModel? { selectedAccountID.flatMap { id in store.accounts.first { $0.id == id } } }
     private var transactions: [LedgerTransaction] { LedgerCalculations.transactions(store.state, accountID: selectedAccountID) }
@@ -318,6 +319,16 @@ struct VerticalOverviewHeroLayout: Layout {
                 }
                 if transactions.isEmpty { ContentUnavailableView("No Transactions", systemImage: "tray", description: Text("Add the first entry for this account.")) }
             }
+            .environment(\.revealedTransactionID, $revealedTransactionID)
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    if revealedTransactionID != nil {
+                        withAnimation(.snappy) {
+                            revealedTransactionID = nil
+                        }
+                    }
+                }
+            )
             .ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
     }

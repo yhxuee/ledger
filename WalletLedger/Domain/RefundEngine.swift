@@ -2,7 +2,8 @@ import Foundation
 
 enum RefundEngine {
     static func makeReversal(of original: LedgerTransaction, in state: LedgerState, now: Date = .now) -> LedgerTransaction? {
-        guard original.deletedAt == nil, !original.isReversal, original.groupMode == nil, original.parentTransactionID == nil,
+        guard original.deletedAt == nil, !original.isReversal, original.groupMode == nil,
+              (original.parentTransactionID == nil || original.linkedTransactionKind == .splitSettlement || original.linkedTransactionKind == .reimbursementIncome || (original.linkedTransactionKind == .installment && original.occurredAt <= now)),
               let source = state.accounts.first(where: { $0.id == original.accountID && $0.deletedAt == nil }) else { return nil }
         let categoryName = state.categories.first(where: { $0.id == original.categoryID })?.name ?? "Transaction"
         let trimmedNote = original.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -19,6 +20,11 @@ enum RefundEngine {
             reversal.taxBaseAmount = original.taxBaseAmount
             reversal.taxInputMode = original.taxInputMode
             reversal.isTaxExempt = original.isTaxExempt
+            if let parentID = original.parentTransactionID {
+                reversal.parentTransactionID = parentID
+                reversal.linkedTransactionKind = original.linkedTransactionKind
+                reversal.linkedTransactionIndex = original.linkedTransactionIndex
+            }
             return reversal
         case .transfer:
             guard let destinationID = original.destinationAccountID,

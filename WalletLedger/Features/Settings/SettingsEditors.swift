@@ -268,35 +268,87 @@ struct BudgetEditorView: View {
 struct SwipeActionsEditorView: View {
     @EnvironmentObject private var preferences: AppPreferencesStore
 
+    private var currentActions: [TransactionSwipeAction] {
+        let actions = preferences.value.transactionSwipeActions
+        return actions.count == 4 && Set(actions).count == 4 ? actions : AppPreferences.defaultSwipeActions
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                SettingsGlassSection("Swipe Actions", footer: "Leading means swiping right. Trailing means swiping left.") {
+                SettingsGlassSection(
+                    "Swipe Action Order",
+                    footer: "Order: [1] Far Left [2] Near Left — ROW — [3] Near Right [4] Far Right.\nSwiping right reveals Near Left then Far Left. Swiping left reveals Near Right then Far Right."
+                ) {
                     VStack(spacing: 0) {
-                        ForEach(Array(SwipeActionOrientation.allCases.enumerated()), id: \.element.id) { index, option in
-                            Button {
-                                preferences.update { $0.swipeActionOrientation = option }
-                            } label: {
-                                HStack {
-                                    Text(option.title)
-                                        .foregroundStyle(.primary)
-                                    Spacer()
-                                    if preferences.value.swipeActionOrientation == option {
-                                        Image(systemName: "checkmark")
-                                            .fontWeight(.semibold)
-                                            .foregroundStyle(.tint)
-                                    }
-                                }
-                                .padding(.vertical, 6)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
+                        ForEach(0..<4, id: \.self) { index in
+                            let action = currentActions[index]
+                            HStack(spacing: 12) {
+                                Image(systemName: action.systemImage)
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(actionColor(action))
+                                    .frame(width: 28)
 
-                            if index < SwipeActionOrientation.allCases.count - 1 {
-                                Divider().padding(.vertical, 4)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(action.title)
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                    Text(slotDescription(for: index))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+
+                                HStack(spacing: 6) {
+                                    Button {
+                                        move(from: index, to: index - 1)
+                                    } label: {
+                                        Image(systemName: "chevron.up")
+                                            .font(.caption.weight(.bold))
+                                            .foregroundStyle(index > 0 ? .primary : .tertiary)
+                                            .frame(width: 28, height: 28)
+                                            .background(Color.primary.opacity(0.06), in: Circle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(index == 0)
+
+                                    Button {
+                                        move(from: index, to: index + 1)
+                                    } label: {
+                                        Image(systemName: "chevron.down")
+                                            .font(.caption.weight(.bold))
+                                            .foregroundStyle(index < 3 ? .primary : .tertiary)
+                                            .frame(width: 28, height: 28)
+                                            .background(Color.primary.opacity(0.06), in: Circle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(index == 3)
+                                }
+                            }
+                            .padding(.vertical, 8)
+
+                            if index < 3 {
+                                Divider().padding(.vertical, 2)
                             }
                         }
                     }
+                }
+
+                SettingsGlassSection {
+                    Button {
+                        preferences.update { $0.transactionSwipeActions = AppPreferences.defaultSwipeActions }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text("Reset to Default Order")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.tint)
+                            Spacer()
+                        }
+                        .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding()
@@ -304,6 +356,35 @@ struct SwipeActionsEditorView: View {
         .background(LedgerBackground())
         .navigationTitle("Swipe Actions")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func slotDescription(for index: Int) -> String {
+        switch index {
+        case 0: "Slot 1 · Far Left (Swipe Right)"
+        case 1: "Slot 2 · Near Left (Swipe Right)"
+        case 2: "Slot 3 · Near Right (Swipe Left)"
+        case 3: "Slot 4 · Far Right (Swipe Left)"
+        default: ""
+        }
+    }
+
+    private func actionColor(_ action: TransactionSwipeAction) -> Color {
+        switch action {
+        case .reimburse: .purple
+        case .refund: .blue
+        case .delete: .red
+        case .split: .teal
+        }
+    }
+
+    private func move(from source: Int, to destination: Int) {
+        guard source >= 0, source < 4, destination >= 0, destination < 4, source != destination else { return }
+        var current = currentActions
+        let item = current.remove(at: source)
+        current.insert(item, at: destination)
+        if current.count == 4 && Set(current).count == 4 {
+            preferences.update { $0.transactionSwipeActions = current }
+        }
     }
 }
 

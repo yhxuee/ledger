@@ -28,7 +28,8 @@ enum SeedData {
     static var categories: [LedgerCategory] {
         expenseCategories + incomeCategories + [
             .init(id: .settlement, name: "Settlement", detail: "Split recovery", symbol: "arrow.left.arrow.right.circle.fill", colorHex: "777777", kind: .income),
-            .init(id: .reimbursement, name: "Reimbursement", detail: "Expense recovery", symbol: "arrow.uturn.backward.circle.fill", colorHex: "777777", kind: .income)
+            .init(id: .reimbursement, name: "Reimbursement", detail: "Expense recovery", symbol: "arrow.uturn.backward.circle.fill", colorHex: "777777", kind: .income),
+            .init(id: .refund, name: "Refund", detail: "Expense refund", symbol: "arrow.uturn.backward.circle.fill", colorHex: "777777", kind: .income)
         ]
     }
 

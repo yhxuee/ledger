@@ -13,6 +13,7 @@ struct LedgerView: View {
     @State private var showingCalendar = false
     @State private var calendarDay = Date.now
     @State private var hasCalendarDay = false
+    @State private var revealedTransactionID: UUID? = nil
 
     private var filtered: [LedgerTransaction] {
         store.activeTransactions.filter { item in
@@ -92,6 +93,16 @@ struct LedgerView: View {
             }
             .padding(.bottom, 16)
         }
+        .environment(\.revealedTransactionID, $revealedTransactionID)
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                if revealedTransactionID != nil {
+                    withAnimation(.snappy) {
+                        revealedTransactionID = nil
+                    }
+                }
+            }
+        )
         .background(LedgerBackground())
         .navigationTitle("Ledger")
         .toolbar {

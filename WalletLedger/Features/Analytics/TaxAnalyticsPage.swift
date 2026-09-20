@@ -65,14 +65,13 @@ struct TaxAnalyticsPage: View {
         var totals: [LedgerCategoryID: Double] = [:]
 
         for transaction in store.state.transactions {
-            guard transaction.type == .expense || transaction.type == .income,
-                  transaction.occurredAt >= bounds.start, transaction.occurredAt < bounds.end,
-                  categories.isEmpty || categories.contains(transaction.categoryID),
+            guard transaction.occurredAt >= bounds.start, transaction.occurredAt < bounds.end,
                   accountIDs.isEmpty || accountIDs.contains(transaction.accountID),
-                  let taxEffect = LedgerCalculations.taxEffect(transaction, in: store.state, to: store.state.settings.baseCurrency)
+                  let taxResult = TransactionSemantics.taxEffect(transaction, in: store.state, to: store.state.settings.baseCurrency),
+                  categories.isEmpty || categories.contains(taxResult.categoryID)
             else { continue }
 
-            totals[transaction.categoryID, default: 0] += taxEffect
+            totals[taxResult.categoryID, default: 0] += taxResult.amount
         }
 
         return totals.compactMap { (categoryID, total) -> TaxCategorySummary? in
