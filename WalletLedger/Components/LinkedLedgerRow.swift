@@ -16,16 +16,17 @@ struct SwipeActionItem: Identifiable {
     var title: String
     var systemImage: String
     var color: Color
-    var action: () -> Void
+    var action: () -> Bool
     var enabled: Bool = true
 }
 
-/// Progressive multi-action swipe reveal following finger drag, snapping open or closed.
+/// Dynamic multi-action swipe reveal following finger drag with Apple Notes-style elastic reveal.
 struct TransactionMultiSwipeReveal<Content: View>: View {
     @Environment(\.revealedTransactionID) private var revealedTransactionID
     let transactionID: UUID
-    let leftActions: [SwipeActionItem]   // Revealed when swiping right
-    let rightActions: [SwipeActionItem]  // Revealed when swiping left
+    let leftActions: [SwipeActionItem]   // Physical slots [1, 2]: [outer, inner]
+    let rightActions: [SwipeActionItem]  // Physical slots [3, 4]: [inner, outer]
+    let onContentTap: () -> Void
     @ViewBuilder var content: () -> Content
 
     @State private var offset: CGFloat = 0
@@ -33,189 +34,298 @@ struct TransactionMultiSwipeReveal<Content: View>: View {
     @State private var isDragging = false
     @State private var isLockedHorizontal = false
     @State private var isLockedVertical = false
+    @State private var lastSwipeEndTime: Date = .distantPast
 
-    private let buttonWidth: CGFloat = 74
-    private let buttonSpacing: CGFloat = 6
-    private let sidePadding: CGFloat = 6
+    private let standardWidth: CGFloat = 74
 
-    private var leftTotalWidth: CGFloat {
-        guard !leftActions.isEmpty else { return 0 }
-        return CGFloat(leftActions.count) * buttonWidth + CGFloat(leftActions.count - 1) * buttonSpacing + sidePadding * 2
+    private var leftRestingWidth: CGFloat {
+        CGFloat(leftActions.count) * standardWidth
     }
 
-    private var rightTotalWidth: CGFloat {
-        guard !rightActions.isEmpty else { return 0 }
-        return CGFloat(rightActions.count) * buttonWidth + CGFloat(rightActions.count - 1) * buttonSpacing + sidePadding * 2
+    private var rightRestingWidth: CGFloat {
+        CGFloat(rightActions.count) * standardWidth
     }
 
-    private var leftReleaseThreshold: CGFloat { leftTotalWidth * 0.55 }
-    private var rightReleaseThreshold: CGFloat { rightTotalWidth * 0.55 }
+    private var leftSnapThreshold: CGFloat { leftRestingWidth * 0.5 }
+    private var rightSnapThreshold: CGFloat { rightRestingWidth * 0.5 }
 
-    var body: some View {
-        ZStack {
+    private func rubberBand(extra: CGFloat) -> CGFloat {
+        guard extra > 0 else { return 0 }
+        return (1.0 - (1.0 / ((extra * 0.55 / 100.0) + 1.0))) * 45.0
+    }
+
+    private func leftActionWidth(index: Int, totalDrag: CGFloat) -> CGFloat {
+        let count = leftActions.count
+        guard count > 0, totalDrag > 0 else { return 0 }
+        if count == 1 {
+            if totalDrag <= standardWidth {
+                return totalDrag
+            } else {
+                return standardWidth + rubberBand(extra: totalDrag - standardWidth)
+            }
+        }
+        // count == 2: index 0 is outer (Slot 1), index 1 is inner (Slot 2)
+        if index == 1 {
+            // Slot 2: near transaction, grows first
+            return min(totalDrag, standardWidth)
+        } else {
+            // Slot 1: at screen edge, grows second
+            if totalDrag <= standardWidth {
+                return 0
+            } else if totalDrag <= 2 * standardWidth {
+                return totalDrag - standardWidth
+            } else {
+                return standardWidth + rubberBand(extra: totalDrag - 2 * standardWidth)
+            }
+        }
+    }
+
+    private func rightActionWidth(index: Int, totalDrag: CGFloat) -> CGFloat {
+        let count = rightActions.count
+        guard count > 0, totalDrag > 0 else { return 0 }
+        if count == 1 {
+            if totalDrag <= standardWidth {
+                return totalDrag
+            } else {
+                return standardWidth + rubberBand(extra: totalDrag - standardWidth)
+            }
+        }
+        // count == 2: index 0 is inner (Slot 3), index 1 is outer (Slot 4)
+        if index == 0 {
+            // Slot 3: near transaction, grows first
+            return min(totalDrag, standardWidth)
+        } else {
+            // Slot 4: at screen edge, grows second
+            if totalDrag <= standardWidth {
+                return 0
+            } else if totalDrag <= 2 * standardWidth {
+                return totalDrag - standardWidth
+            } else {
+                return standardWidth + rubberBand(extra: totalDrag - 2 * standardWidth)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var leftActionLane: some View {
+        if !leftActions.isEmpty && offset > 0 {
             HStack(spacing: 0) {
-                if !leftActions.isEmpty {
-                    ZStack(alignment: .leading) {
-                        Color.clear
-                        HStack(spacing: buttonSpacing) {
-                            ForEach(leftActions) { item in
-                                actionButton(item)
-                            }
-                        }
-                        .padding(.horizontal, sidePadding)
-                        .frame(width: leftTotalWidth, alignment: .leading)
+                ForEach(leftActions.indices, id: \.self) { i in
+                    let w = leftActionWidth(index: i, totalDrag: offset)
+                    if w > 0.5 {
+                        dynamicActionButton(item: leftActions[i], width: w)
                     }
-                    .frame(width: max(0, offset), alignment: .leading)
-                    .clipped()
-                }
-
-                Spacer(minLength: 0)
-
-                if !rightActions.isEmpty {
-                    ZStack(alignment: .trailing) {
-                        Color.clear
-                        HStack(spacing: buttonSpacing) {
-                            ForEach(rightActions) { item in
-                                actionButton(item)
-                            }
-                        }
-                        .padding(.horizontal, sidePadding)
-                        .frame(width: rightTotalWidth, alignment: .trailing)
-                    }
-                    .frame(width: max(0, -offset), alignment: .trailing)
-                    .clipped()
                 }
             }
+            .frame(width: offset, alignment: .leading)
+            .frame(maxHeight: .infinity)
+            .clipped()
+        }
+    }
+
+    @ViewBuilder
+    private var rightActionLane: some View {
+        if !rightActions.isEmpty && offset < 0 {
+            HStack(spacing: 0) {
+                ForEach(rightActions.indices, id: \.self) { i in
+                    let w = rightActionWidth(index: i, totalDrag: -offset)
+                    if w > 0.5 {
+                        dynamicActionButton(item: rightActions[i], width: w)
+                    }
+                }
+            }
+            .frame(width: -offset, alignment: .trailing)
+            .frame(maxHeight: .infinity)
+            .clipped()
+        }
+    }
+
+    private func dynamicActionButton(item: SwipeActionItem, width: CGFloat) -> some View {
+        Button {
+            let success = item.action()
+            if success {
+                withAnimation(.snappy(duration: 0.25)) {
+                    offset = 0
+                    if revealedTransactionID.wrappedValue == transactionID {
+                        revealedTransactionID.wrappedValue = nil
+                    }
+                }
+            }
+        } label: {
+            ZStack {
+                Rectangle()
+                    .fill(item.color)
+
+                VStack(spacing: 3) {
+                    Image(systemName: item.systemImage)
+                        .font(.system(size: 16, weight: .semibold))
+                        .scaleEffect(iconScale(width: width))
+                        .opacity(iconOpacity(width: width))
+
+                    if width >= 44 {
+                        Text(LocalizedStringKey(item.title))
+                            .font(.system(size: 11, weight: .bold))
+                            .lineLimit(1)
+                            .opacity(textOpacity(width: width))
+                    }
+                }
+                .foregroundStyle(.white)
+            }
+            .frame(width: width)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!item.enabled)
+    }
+
+    private func iconScale(width: CGFloat) -> CGFloat {
+        if width < 25 { return 0.5 }
+        if width < 50 { return 0.5 + 0.5 * ((width - 25) / 25) }
+        return 1.0
+    }
+
+    private func iconOpacity(width: CGFloat) -> Double {
+        if width < 15 { return 0 }
+        if width < 40 { return Double((width - 15) / 25) }
+        return 1.0
+    }
+
+    private func textOpacity(width: CGFloat) -> Double {
+        if width < 44 { return 0 }
+        if width < 64 { return Double((width - 44) / 20) }
+        return 1.0
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            HStack(spacing: 0) {
+                leftActionLane
+                Spacer(minLength: 0)
+                rightActionLane
+            }
+            .frame(maxHeight: .infinity)
+            .zIndex(offset != 0 ? 2 : 0)
+            .allowsHitTesting(offset != 0)
 
             content()
                 .offset(x: offset)
                 .contentShape(Rectangle())
+                .zIndex(offset != 0 ? 1 : 1)
+                .gesture(
+                    DragGesture(minimumDistance: 12)
+                        .onChanged { handleDragChange($0) }
+                        .onEnded { handleDragEnd($0) }
+                )
+                .onTapGesture {
+                    handleContentTap()
+                }
         }
         .clipped()
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 24)
-                .onChanged { value in
-                    let dx = value.translation.width
-                    let dy = value.translation.height
-                    if !isLockedHorizontal && !isLockedVertical {
-                        if abs(dx) >= abs(dy) * 1.5 {
-                            isLockedHorizontal = true
-                            dragStartOffset = offset
-                            if let revealed = revealedTransactionID.wrappedValue, revealed != transactionID {
-                                revealedTransactionID.wrappedValue = nil
-                            }
-                        } else {
-                            isLockedVertical = true
-                            if offset != 0 {
-                                withAnimation(.snappy) {
-                                    offset = 0
-                                    if revealedTransactionID.wrappedValue == transactionID {
-                                        revealedTransactionID.wrappedValue = nil
-                                    }
-                                }
-                            }
-                            return
-                        }
-                    }
-                    guard isLockedHorizontal else { return }
-                    isDragging = true
-
-                    let raw = dragStartOffset + dx
-                    var clampedRaw = raw
-                    if clampedRaw > 0 && leftActions.isEmpty {
-                        clampedRaw = 0
-                    } else if clampedRaw < 0 && rightActions.isEmpty {
-                        clampedRaw = 0
-                    }
-
-                    let maxAllowed = clampedRaw >= 0 ? leftTotalWidth : rightTotalWidth
-                    let magnitude = abs(clampedRaw)
-                    let rubberBanded: CGFloat
-                    if magnitude <= maxAllowed {
-                        rubberBanded = magnitude
-                    } else {
-                        let extra = magnitude - maxAllowed
-                        rubberBanded = maxAllowed + extra * 0.20
-                    }
-                    offset = clampedRaw >= 0 ? rubberBanded : -rubberBanded
-                }
-                .onEnded { _ in
-                    guard isLockedHorizontal else {
-                        isLockedHorizontal = false
-                        isLockedVertical = false
-                        isDragging = false
-                        return
-                    }
-                    isDragging = false
-                    isLockedHorizontal = false
-                    isLockedVertical = false
-
-                    let current = offset
-                    withAnimation(.snappy) {
-                        if current >= leftReleaseThreshold && !leftActions.isEmpty {
-                            offset = leftTotalWidth
-                            revealedTransactionID.wrappedValue = transactionID
-                        } else if current <= -rightReleaseThreshold && !rightActions.isEmpty {
-                            offset = -rightTotalWidth
-                            revealedTransactionID.wrappedValue = transactionID
-                        } else {
-                            offset = 0
-                            if revealedTransactionID.wrappedValue == transactionID {
-                                revealedTransactionID.wrappedValue = nil
-                            }
-                        }
-                    }
-                }
-        )
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                if offset != 0 {
-                    withAnimation(.snappy) {
-                        offset = 0
-                        if revealedTransactionID.wrappedValue == transactionID {
-                            revealedTransactionID.wrappedValue = nil
-                        }
-                    }
-                }
-            }
-        )
         .onChange(of: revealedTransactionID.wrappedValue) { _, newID in
             if newID != transactionID && offset != 0 && !isDragging {
-                withAnimation(.snappy) {
+                withAnimation(.snappy(duration: 0.25)) {
                     offset = 0
                 }
             }
         }
     }
 
-    private func actionButton(_ item: SwipeActionItem) -> some View {
-        Button {
-            item.action()
-            withAnimation(.snappy) {
+    private func handleDragChange(_ value: DragGesture.Value) {
+        let dx = value.translation.width
+        let dy = value.translation.height
+
+        if !isLockedHorizontal && !isLockedVertical {
+            if abs(dx) >= abs(dy) * 1.3 && abs(dx) >= 10 {
+                isLockedHorizontal = true
+                isDragging = true
+                dragStartOffset = offset
+                if let revealed = revealedTransactionID.wrappedValue, revealed != transactionID {
+                    revealedTransactionID.wrappedValue = nil
+                }
+            } else if abs(dy) > abs(dx) * 1.3 && abs(dy) >= 10 {
+                isLockedVertical = true
+                if offset != 0 {
+                    withAnimation(.snappy(duration: 0.25)) {
+                        offset = 0
+                        if revealedTransactionID.wrappedValue == transactionID {
+                            revealedTransactionID.wrappedValue = nil
+                        }
+                    }
+                }
+                return
+            }
+        }
+
+        guard isLockedHorizontal else { return }
+        isDragging = true
+
+        let raw = dragStartOffset + dx
+        var clamped = raw
+        if clamped > 0 && leftActions.isEmpty {
+            clamped = 0
+        } else if clamped < 0 && rightActions.isEmpty {
+            clamped = 0
+        }
+
+        let maxResting = clamped >= 0 ? leftRestingWidth : rightRestingWidth
+        let magnitude = abs(clamped)
+        let actualMagnitude: CGFloat
+        if magnitude <= maxResting {
+            actualMagnitude = magnitude
+        } else {
+            actualMagnitude = maxResting + rubberBand(extra: magnitude - maxResting)
+        }
+
+        offset = clamped >= 0 ? actualMagnitude : -actualMagnitude
+    }
+
+    private func handleDragEnd(_ value: DragGesture.Value) {
+        let wasLocked = isLockedHorizontal
+        isDragging = false
+        isLockedHorizontal = false
+        isLockedVertical = false
+        lastSwipeEndTime = Date()
+
+        guard wasLocked else { return }
+
+        let current = offset
+        withAnimation(.snappy(duration: 0.25)) {
+            if current >= leftSnapThreshold && !leftActions.isEmpty {
+                offset = leftRestingWidth
+                revealedTransactionID.wrappedValue = transactionID
+            } else if current <= -rightSnapThreshold && !rightActions.isEmpty {
+                offset = -rightRestingWidth
+                revealedTransactionID.wrappedValue = transactionID
+            } else {
                 offset = 0
                 if revealedTransactionID.wrappedValue == transactionID {
                     revealedTransactionID.wrappedValue = nil
                 }
             }
-        } label: {
-            VStack(spacing: 3) {
-                Image(systemName: item.systemImage)
-                    .font(.system(size: 15, weight: .semibold))
-                Text(LocalizedStringKey(item.title))
-                    .font(.system(size: 11, weight: .bold))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(.white)
-            .frame(width: buttonWidth)
-            .frame(maxHeight: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(item.color)
-            )
-            .padding(.vertical, 4)
         }
-        .buttonStyle(.plain)
-        .disabled(!item.enabled)
+    }
+
+    private func handleContentTap() {
+        if isDragging || Date().timeIntervalSince(lastSwipeEndTime) < 0.4 {
+            return
+        }
+        if offset != 0 {
+            withAnimation(.snappy(duration: 0.25)) {
+                offset = 0
+                if revealedTransactionID.wrappedValue == transactionID {
+                    revealedTransactionID.wrappedValue = nil
+                }
+            }
+            return
+        }
+        if let revealed = revealedTransactionID.wrappedValue, revealed != transactionID {
+            withAnimation(.snappy(duration: 0.25)) {
+                revealedTransactionID.wrappedValue = nil
+            }
+            return
+        }
+        onContentTap()
     }
 }
 
@@ -247,7 +357,14 @@ struct LinkedLedgerRow: View {
                         title: "Refund",
                         systemImage: "arrow.uturn.backward",
                         color: .blue,
-                        action: { _ = store.refundInstallmentParent(parent) }
+                        action: {
+                            guard store.refundInstallmentParent(parent) != nil else {
+                                store.presentedError = "No refundable installment amount."
+                                return false
+                            }
+                            revealedTransactionID.wrappedValue = nil
+                            return true
+                        }
                     )
                 ]
             }
@@ -266,7 +383,14 @@ struct LinkedLedgerRow: View {
                             title: "Complete",
                             systemImage: "checkmark.circle",
                             color: .green,
-                            action: { _ = store.completeSettlement(parent.id) }
+                            action: {
+                                guard store.completeSettlement(parent.id) else {
+                                    store.presentedError = "Failed to complete settlement."
+                                    return false
+                                }
+                                revealedTransactionID.wrappedValue = nil
+                                return true
+                            }
                         )
                     ]
                 }
@@ -279,7 +403,14 @@ struct LinkedLedgerRow: View {
                             title: "Pay Early",
                             systemImage: "checkmark.circle",
                             color: .green,
-                            action: { _ = store.payInstallmentEarly(parent.id) }
+                            action: {
+                                guard store.payInstallmentEarly(parent.id) else {
+                                    store.presentedError = "Failed to pay installment early."
+                                    return false
+                                }
+                                revealedTransactionID.wrappedValue = nil
+                                return true
+                            }
                         )
                     ]
                 }
@@ -298,7 +429,14 @@ struct LinkedLedgerRow: View {
                         title: "Refund",
                         systemImage: "arrow.uturn.backward",
                         color: .blue,
-                        action: { _ = store.refundPurchaseChild(parent) }
+                        action: {
+                            guard store.refundPurchaseChild(parent) != nil else {
+                                store.presentedError = "Failed to refund purchase item."
+                                return false
+                            }
+                            revealedTransactionID.wrappedValue = nil
+                            return true
+                        }
                     )
                 ]
             }
@@ -318,7 +456,14 @@ struct LinkedLedgerRow: View {
                     title: "Refund",
                     systemImage: "arrow.uturn.backward",
                     color: .blue,
-                    action: { _ = store.refundTransaction(parent) }
+                    action: {
+                        guard store.refundTransaction(parent) != nil else {
+                            store.presentedError = "Failed to refund transaction."
+                            return false
+                        }
+                        revealedTransactionID.wrappedValue = nil
+                        return true
+                    }
                 )
             ]
         }
@@ -335,7 +480,11 @@ struct LinkedLedgerRow: View {
                     title: "Delete",
                     systemImage: "trash",
                     color: .red,
-                    action: { store.deleteTransaction(parent) }
+                    action: {
+                        store.deleteTransaction(parent)
+                        revealedTransactionID.wrappedValue = nil
+                        return true
+                    }
                 )
             ]
         }
@@ -353,7 +502,11 @@ struct LinkedLedgerRow: View {
                     title: "Delete",
                     systemImage: "trash",
                     color: .red,
-                    action: { store.deleteTransaction(parent) }
+                    action: {
+                        store.deleteTransaction(parent)
+                        revealedTransactionID.wrappedValue = nil
+                        return true
+                    }
                 )
             ]
         }
@@ -371,7 +524,11 @@ struct LinkedLedgerRow: View {
                     title: "Delete",
                     systemImage: "trash",
                     color: .red,
-                    action: { store.deleteTransaction(parent) }
+                    action: {
+                        store.deleteTransaction(parent)
+                        revealedTransactionID.wrappedValue = nil
+                        return true
+                    }
                 )
             ]
         }
@@ -414,25 +571,19 @@ struct LinkedLedgerRow: View {
         TransactionMultiSwipeReveal(
             transactionID: parent.id,
             leftActions: leftSwipeActions,
-            rightActions: rightSwipeActions
-        ) {
-            Button {
-                if let revealed = revealedTransactionID.wrappedValue, revealed != parent.id {
-                    withAnimation(.snappy) { revealedTransactionID.wrappedValue = nil }
-                    return
-                }
+            rightActions: rightSwipeActions,
+            onContentTap: {
                 withAnimation(.snappy) { expanded.toggle() }
-            } label: {
-                TransactionRow(
-                    transaction: parent,
-                    category: category(parent),
-                    showsDate: showsDate,
-                    groupStatus: groupStatus,
-                    disclosure: expanded ? .expanded : .collapsed
-                )
-                .padding(.horizontal, 14)
             }
-            .buttonStyle(.plain)
+        ) {
+            TransactionRow(
+                transaction: parent,
+                category: category(parent),
+                showsDate: showsDate,
+                groupStatus: groupStatus,
+                disclosure: expanded ? .expanded : .collapsed
+            )
+            .padding(.horizontal, 14)
             .contextMenu { configurationMenu }
         }
     }
@@ -442,25 +593,19 @@ struct LinkedLedgerRow: View {
         TransactionMultiSwipeReveal(
             transactionID: parent.id,
             leftActions: leftSwipeActions,
-            rightActions: rightSwipeActions
-        ) {
-            Button {
-                if let revealed = revealedTransactionID.wrappedValue, revealed != parent.id {
-                    withAnimation(.snappy) { revealedTransactionID.wrappedValue = nil }
-                    return
-                }
+            rightActions: rightSwipeActions,
+            onContentTap: {
                 if !parent.isLockedByReversal { editing = parent }
-            } label: {
-                TransactionRow(
-                    transaction: parent,
-                    category: category(parent),
-                    showsDate: showsDate,
-                    groupStatus: nil,
-                    disclosure: .standard
-                )
-                .padding(.horizontal, 14)
             }
-            .buttonStyle(.plain)
+        ) {
+            TransactionRow(
+                transaction: parent,
+                category: category(parent),
+                showsDate: showsDate,
+                groupStatus: nil,
+                disclosure: .standard
+            )
+            .padding(.horizontal, 14)
             .contextMenu { configurationMenu }
         }
     }
@@ -499,7 +644,14 @@ struct LinkedLedgerRow: View {
                 title: "Reimburse",
                 systemImage: "arrow.uturn.backward.circle",
                 color: .purple,
-                action: { _ = store.configureReimbursement(parentID: parent.id) }
+                action: {
+                    guard store.configureReimbursement(parentID: parent.id) else {
+                        store.presentedError = "Failed to configure reimbursement."
+                        return false
+                    }
+                    revealedTransactionID.wrappedValue = nil
+                    return true
+                }
             )
         case .refund:
             return SwipeActionItem(
@@ -507,7 +659,14 @@ struct LinkedLedgerRow: View {
                 title: "Refund",
                 systemImage: "arrow.uturn.backward",
                 color: .blue,
-                action: { _ = store.convertExpenseToRefundGroup(parent) }
+                action: {
+                    guard store.convertExpenseToRefundGroup(parent) else {
+                        store.presentedError = "Failed to create refund group."
+                        return false
+                    }
+                    revealedTransactionID.wrappedValue = nil
+                    return true
+                }
             )
         case .delete:
             return SwipeActionItem(
@@ -515,7 +674,11 @@ struct LinkedLedgerRow: View {
                 title: "Delete",
                 systemImage: "trash",
                 color: .red,
-                action: { store.deleteTransaction(parent) }
+                action: {
+                    store.deleteTransaction(parent)
+                    revealedTransactionID.wrappedValue = nil
+                    return true
+                }
             )
         case .split:
             return SwipeActionItem(
@@ -523,7 +686,11 @@ struct LinkedLedgerRow: View {
                 title: "Split",
                 systemImage: "person.2",
                 color: .teal,
-                action: { setupMode = .split }
+                action: {
+                    setupMode = .split
+                    revealedTransactionID.wrappedValue = nil
+                    return true
+                }
             )
         }
     }

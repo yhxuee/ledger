@@ -58,25 +58,25 @@ struct InstallmentPlanMetadata: Codable, Hashable, Sendable {
 }
 
 enum GroupStatusPresentation: Equatable, Sendable {
-    case splitting             // "分账中" / "Splitting" (red)
-    case splitComplete         // "已分账" / "Split Complete" (green)
-    case reimbursementPending  // "报销中" / "Reimbursement Pending" (red)
-    case reimbursed            // "已报销" / "Reimbursed" (green)
-    case installmentActive     // "分期中" / "Installments Active" (red)
-    case installmentComplete   // "已分期" / "Installments Complete" (green)
-    case refundPartial         // "部分退款" / "Partial Refund" (green)
-    case refundComplete        // "已退款" / "Refunded" (green)
+    case splitting             // "Splitting" (red)
+    case splitComplete         // "Split Complete" (green)
+    case reimbursementPending  // "Reimbursement Pending" (red)
+    case reimbursed            // "Reimbursed" (green)
+    case installmentActive     // "Installments Active" (red)
+    case installmentComplete   // "Installments Complete" (green)
+    case refundPartial         // "Partial Refund" (green)
+    case refundComplete        // "Refunded" (green)
 
     var localizedText: String {
         switch self {
-        case .splitting: "分账中"
-        case .splitComplete: "已分账"
-        case .reimbursementPending: "报销中"
-        case .reimbursed: "已报销"
-        case .installmentActive: "分期中"
-        case .installmentComplete: "已分期"
-        case .refundPartial: "部分退款"
-        case .refundComplete: "已退款"
+        case .splitting: "Splitting"
+        case .splitComplete: "Split Complete"
+        case .reimbursementPending: "Reimbursement Pending"
+        case .reimbursed: "Reimbursed"
+        case .installmentActive: "Installments Active"
+        case .installmentComplete: "Installments Complete"
+        case .refundPartial: "Partial Refund"
+        case .refundComplete: "Refunded"
         }
     }
 
