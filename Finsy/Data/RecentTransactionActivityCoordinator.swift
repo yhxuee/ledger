@@ -55,6 +55,11 @@ final class RecentTransactionActivityCoordinator {
         }
     }
 
+    private var isLiveActivityAvailable: Bool {
+        guard NSClassFromString("XCTestCase") == nil else { return false }
+        return ActivityAuthorizationInfo().areActivitiesEnabled
+    }
+
     func didRecordTransaction(
         _ transaction: LedgerTransaction,
         account: LedgerAccount?,
@@ -62,11 +67,6 @@ final class RecentTransactionActivityCoordinator {
     ) async {
         // If transaction is part of an ongoing purchase session, Purchase Live Activity handles it
         guard transaction.purchaseSessionID == nil else { return }
-
-        // End any active recent transaction activity
-        await endCurrentActivity()
-
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
         let title = transaction.note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             ?? category?.name
@@ -89,6 +89,11 @@ final class RecentTransactionActivityCoordinator {
             accountName: accountName
         )
         RecentTransactionSharedStore.saveSnapshot(snapshot)
+
+        // End any active recent transaction activity
+        await endCurrentActivity()
+
+        guard isLiveActivityAvailable else { return }
 
         let attributes = RecentTransactionActivityAttributes(transactionID: transaction.id)
         let state = RecentTransactionActivityAttributes.ContentState(
@@ -122,6 +127,7 @@ final class RecentTransactionActivityCoordinator {
     func endCurrentActivity() async {
         autoEndTask?.cancel()
         autoEndTask = nil
+        guard isLiveActivityAvailable else { return }
         for activity in Activity<RecentTransactionActivityAttributes>.activities {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
