@@ -57,7 +57,7 @@ final class WalletPassSnapshotTests: XCTestCase {
         let calendar = Calendar.current
         let year = 2026
         let month = 4
-        var comps = DateComponents(year: year, month: month, day: 10, hour: 12)
+        let comps = DateComponents(year: year, month: month, day: 10, hour: 12)
         let date = calendar.date(from: comps)!
 
         // Add expense with tax: $100 amount, $10 tax

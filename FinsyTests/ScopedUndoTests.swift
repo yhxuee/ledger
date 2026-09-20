@@ -136,7 +136,7 @@ final class ScopedUndoTests: XCTestCase {
             return
         }
 
-        guard let combinedParent = store.combineTransactions([t1.id, t2.id]) else {
+        guard let combinedParent = store.combineTransactions(first: t1, second: t2) else {
             XCTFail("Combine failed")
             return
         }
@@ -146,17 +146,19 @@ final class ScopedUndoTests: XCTestCase {
         XCTAssertTrue(refunded)
 
         let initialTxCount = store.state.transactions.count
+        _ = initialTxCount
         XCTAssertNotNil(store.activeUndoOperation)
 
         // Undo refund
         store.undoDelete()
 
         // Created refund transactions should have been marked deleted
-        let activeVisibleRefund = store.state.transactions.first(where: {
-            $0.parentTransactionID == combinedParent.id &&
-            $0.linkedTransactionKind == .combinedPaymentRefund &&
-            $0.deletedAt == nil
-        })
+        let parentID = combinedParent.id
+        let activeVisibleRefund = store.state.transactions.first { (tx: LedgerTransaction) -> Bool in
+            guard tx.parentTransactionID == parentID else { return false }
+            guard tx.linkedTransactionKind == .combinedPaymentRefund else { return false }
+            return tx.deletedAt == nil
+        }
         XCTAssertNil(activeVisibleRefund, "Visible refund transaction must be marked deleted on undo")
     }
 }
