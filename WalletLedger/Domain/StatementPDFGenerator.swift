@@ -74,7 +74,7 @@ enum StatementPostingResolver {
             case .installment:
                 if let index = t.linkedTransactionIndex {
                     let total = t.parentTransactionID.flatMap { pID in
-                        state.transactions.first(where: { $0.id == pID })?.installmentMetadata?.totalInstallments
+                        state.transactions.first(where: { $0.id == pID })?.installmentMetadata?.count
                     } ?? 0
                     return total > 0 ? "Installment \(index) / \(total)" : "Installment \(index)"
                 }
