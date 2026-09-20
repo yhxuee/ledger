@@ -46,6 +46,8 @@ struct TransactionEditorView: View {
     @State private var isTaxExempt: Bool
     @State private var taxChanged = false
     @FocusState private var noteFocused: Bool
+    @State private var selectedCoupon: WalletCoupon?
+    @State private var isCouponOptedOut = false
 
     init(transaction: LedgerTransaction? = nil, isLinkedDraft: Bool = false) {
         self.isLinkedDraft = isLinkedDraft
@@ -80,6 +82,58 @@ struct TransactionEditorView: View {
 
     private static func amountText(_ value: Double) -> String { String(format: "%.2f", value) }
 
+    private var eligibleCoupons: [WalletCoupon] {
+        guard type == .expense, let sourceAccount, sourceAccount.type == .eWallet else { return [] }
+        let now = Date.now
+        let coupons = sourceAccount.coupons ?? []
+        return coupons.filter { coupon in
+            coupon.currency == currency &&
+            ((coupon.usedAt == nil && coupon.expirationDate >= now) || coupon.id == original?.couponSnapshot?.couponID)
+        }
+    }
+
+    private func checkAutoSelectCoupon() {
+        guard type == .expense, sourceAccount?.type == .eWallet, !isCouponOptedOut else {
+            selectedCoupon = nil
+            return
+        }
+        if let originalSnapshot = original?.couponSnapshot {
+            if let existing = eligibleCoupons.first(where: { $0.id == originalSnapshot.couponID }) {
+                selectedCoupon = existing
+                return
+            }
+        }
+        if selectedCoupon == nil || !eligibleCoupons.contains(where: { $0.id == selectedCoupon?.id }) {
+            selectedCoupon = eligibleCoupons.sorted {
+                if $0.faceValue != $1.faceValue {
+                    return $0.faceValue > $1.faceValue
+                }
+                return $0.expirationDate < $1.expirationDate
+            }.first
+        }
+    }
+
+    private var appliedCouponDiscount: Double {
+        guard let selectedCoupon, !isCouponOptedOut, type == .expense else { return 0 }
+        return min(selectedCoupon.faceValue, abs(enteredAmount))
+    }
+
+    private var netAmount: Double {
+        max(abs(enteredAmount) - appliedCouponDiscount, 0)
+    }
+
+    private var selectedCouponSnapshot: CouponTransactionSnapshot? {
+        guard let selectedCoupon, !isCouponOptedOut, appliedCouponDiscount > 0 else { return nil }
+        return CouponTransactionSnapshot(
+            couponID: selectedCoupon.id,
+            couponName: selectedCoupon.name,
+            couponFaceValue: selectedCoupon.faceValue,
+            appliedAmount: appliedCouponDiscount,
+            preCouponAmount: abs(enteredAmount),
+            currency: selectedCoupon.currency
+        )
+    }
+
     private var enteredAmount: Double {
         let val = (Double(minorUnits) ?? 0) / 100
         return isNegative ? -val : val
@@ -92,7 +146,8 @@ struct TransactionEditorView: View {
         }
         if !taxChanged, let original { return original.taxSnapshot }
         guard let taxRate else { return nil }
-        return TaxCalculations.resolve(entered: enteredAmount, type: type, rate: taxRate,
+        let baseAmount = appliedCouponDiscount > 0 ? netAmount : abs(enteredAmount)
+        return TaxCalculations.resolve(entered: baseAmount, type: type, rate: taxRate,
                                        mode: taxInputMode, exempt: isTaxExempt)
     }
     private var amount: Double {
@@ -160,10 +215,11 @@ struct TransactionEditorView: View {
         return destinationAccount.defaultPocket(for: currency)
     }
 
+    private var effectiveAccountDebit: Double { appliedCouponDiscount > 0 ? netAmount : abs(amount) }
     /// The account-side amount is only editable when it is not simply the transaction amount.
-    private var showsSourceAmount: Bool { sourcePocket != currency }
+    private var showsSourceAmount: Bool { sourcePocket != currency || appliedCouponDiscount > 0 }
     private var showsDestinationAmount: Bool { type == .transfer && targetPocket != currency }
-    private var estimatedSourceAmount: Double { LedgerCalculations.convert(abs(amount), from: currency, to: sourcePocket, rates: store.state.settings.rates) }
+    private var estimatedSourceAmount: Double { LedgerCalculations.convert(effectiveAccountDebit, from: currency, to: sourcePocket, rates: store.state.settings.rates) }
     private var estimatedDestinationAmount: Double { LedgerCalculations.convert(abs(amount), from: currency, to: targetPocket, rates: store.state.settings.rates) }
     private var sourcePostingValue: Double {
         if let original,
@@ -171,11 +227,12 @@ struct TransactionEditorView: View {
            accountID == original.accountID,
            currency == original.currency,
            amount == original.amount,
+           appliedCouponDiscount == (original.couponSnapshot?.appliedDiscount ?? 0),
            !accountAmountOverridden,
            let stored = original.accountAmount {
             return stored
         }
-        return (showsSourceAmount ? (Double(accountAmountText) ?? estimatedSourceAmount) : abs(amount)) * (isNegative ? -1 : 1)
+        return (showsSourceAmount ? (Double(accountAmountText) ?? estimatedSourceAmount) : effectiveAccountDebit) * (isNegative ? -1 : 1)
     }
     private var destinationPostingValue: Double {
         if let original,
@@ -252,10 +309,16 @@ struct TransactionEditorView: View {
             }
             if accountID == nil { applyDefaultAccount(for: categoryID) }
             if destinationID == nil { destinationID = activeAccounts.first(where: { $0.id != accountID })?.id }
+            checkAutoSelectCoupon()
             if original == nil { syncAmountFields() } else { prefillStoredAmounts() }
             if let identifier = noteAttachmentID {
                 Task { noteImage = await AttachmentStore.shared.loadTransactionNote(identifier: identifier) }
             }
+        }
+        .onChange(of: accountID) { _, _ in
+            checkAutoSelectCoupon()
+            accountAmountOverridden = false
+            syncAmountFields()
         }
         .onChange(of: categoryID) { _, category in
             reloadTaxRate()
@@ -276,6 +339,7 @@ struct TransactionEditorView: View {
                 taxInputMode = store.state.settings.defaultTaxInputMode
             }
             reloadTaxRate()
+            checkAutoSelectCoupon()
             accountAmountOverridden = false
             destinationAmountOverridden = false
             syncAmountFields()
@@ -286,8 +350,17 @@ struct TransactionEditorView: View {
         .onChange(of: currency) { _, _ in
             if isInternalTransfer, let accountID { _ = store.ensureCurrencyPocket(accountID: accountID, currency: currency) }
             taxChanged = true
+            checkAutoSelectCoupon()
             accountAmountOverridden = false
             destinationAmountOverridden = false
+            syncAmountFields()
+        }
+        .onChange(of: selectedCoupon) { _, _ in
+            taxChanged = true
+            syncAmountFields()
+        }
+        .onChange(of: isCouponOptedOut) { _, _ in
+            taxChanged = true
             syncAmountFields()
         }
         .onChange(of: enteredAmount) { _, _ in taxChanged = true }
@@ -389,10 +462,15 @@ struct TransactionEditorView: View {
             } else {
                 TransactionCurrencyPicker(selection: $currency).disabled(original?.linkedTransactionKind == .installment)
             }
-            SensitiveMoneyText(amount: enteredAmount, currency: currency)
-                .font(.system(size: 58, weight: .bold, design: .rounded))
-                .minimumScaleFactor(0.5)
-                .lineLimit(1)
+            HStack(alignment: .center, spacing: 8) {
+                SensitiveMoneyText(amount: enteredAmount, currency: currency)
+                    .font(.system(size: 58, weight: .bold, design: .rounded))
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
+                if type == .expense && sourceAccount?.type == .eWallet && !eligibleCoupons.isEmpty {
+                    couponControl
+                }
+            }
             if type != .transfer {
                 taxSummaryLine
                 if taxInputMode == .beforeTax {
@@ -402,6 +480,78 @@ struct TransactionEditorView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
+    }
+
+    private var couponControl: some View {
+        Group {
+            if isCouponOptedOut {
+                Button {
+                    isCouponOptedOut = false
+                    HapticFeedback.selection(enabled: preferences.value.hapticFeedbackEnabled)
+                } label: {
+                    couponBadgeLabel(optedOut: true)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Menu {
+                    Section("Available Coupons") {
+                        ForEach(eligibleCoupons) { coupon in
+                            Button {
+                                selectedCoupon = coupon
+                                isCouponOptedOut = false
+                            } label: {
+                                HStack {
+                                    Text(coupon.name)
+                                    Spacer()
+                                    Text(LedgerFormat.money(coupon.faceValue, currency: coupon.currency))
+                                    if selectedCoupon?.id == coupon.id {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Section {
+                        Button(role: .destructive) {
+                            isCouponOptedOut = true
+                        } label: {
+                            Label("Do Not Use Coupon", systemImage: "slash.circle")
+                        }
+                    }
+                } label: {
+                    couponBadgeLabel(optedOut: false)
+                }
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.45)
+                        .onEnded { _ in
+                            HapticFeedback.selection(enabled: preferences.value.hapticFeedbackEnabled)
+                            isCouponOptedOut = true
+                        }
+                )
+            }
+        }
+    }
+
+    private func couponBadgeLabel(optedOut: Bool) -> some View {
+        let valueText = selectedCoupon.map { "-\(LedgerFormat.money($0.faceValue, currency: $0.currency))" } ?? "Coupon"
+        return HStack(spacing: 4) {
+            Image(systemName: "tag.fill")
+                .font(.system(size: 11, weight: .bold))
+            Text(valueText)
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .strikethrough(optedOut)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .foregroundStyle(optedOut ? Color.secondary : Color.green)
+        .background(
+            Capsule()
+                .fill(optedOut ? Color.secondary.opacity(0.15) : Color.green.opacity(0.18))
+        )
+        .overlay(
+            Capsule()
+                .stroke(optedOut ? Color.secondary.opacity(0.3) : Color.green.opacity(0.5), lineWidth: 1)
+        )
     }
 
     private var internalTransferCurrencyRow: some View {
@@ -935,9 +1085,10 @@ struct TransactionEditorView: View {
             original.destinationAccountCurrency = type == .transfer ? destinationAccountCurrency : nil
             original.destinationAmount = type == .transfer ? destinationPostingValue : nil
             if taxChanged || type == .transfer { original.applyTax(taxSnapshot) }
+            original.couponSnapshot = selectedCouponSnapshot
             store.updateTransaction(original)
         } else {
-            guard store.addTransaction(type: type, accountID: accountID, destinationAccountID: destinationID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: savedAttachmentID, accountCurrency: sourceAccountCurrency, accountAmount: sourcePostingValue, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: type == .transfer ? destinationPostingValue : nil, taxSnapshot: taxSnapshot) != nil else {
+            guard store.addTransaction(type: type, accountID: accountID, destinationAccountID: destinationID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: savedAttachmentID, accountCurrency: sourceAccountCurrency, accountAmount: sourcePostingValue, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: type == .transfer ? destinationPostingValue : nil, taxSnapshot: taxSnapshot, couponSnapshot: selectedCouponSnapshot) != nil else {
                 if noteImageChanged, let savedAttachmentID { try? await AttachmentStore.shared.delete(identifier: savedAttachmentID) }
                 store.presentedError = "The transaction could not be saved."
                 return

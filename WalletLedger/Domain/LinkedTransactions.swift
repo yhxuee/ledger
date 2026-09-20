@@ -5,6 +5,7 @@ enum TransactionGroupMode: String, Codable, Hashable, Sendable {
     case reimbursement
     case installment
     case refund
+    case combinedPayment
 }
 
 enum LinkedTransactionKind: String, Codable, Hashable, Sendable {
@@ -15,6 +16,9 @@ enum LinkedTransactionKind: String, Codable, Hashable, Sendable {
     case installment
     case refundOriginal
     case refundIncome
+    case combinedPaymentItem
+    case combinedPaymentRefund
+    case combinedPaymentRefundSupport
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -102,20 +106,20 @@ enum TransactionSemantics {
             switch mode {
             case .split, .reimbursement, .refund:
                 return true // Parent carries the full original account debit
-            case .installment:
-                return false // Installment parent carries zero account posting
+            case .installment, .combinedPayment:
+                return false // Installment and combined payment parents carry zero account posting
             }
         }
 
         // Group children
         if let kind = transaction.linkedTransactionKind {
             switch kind {
-            case .splitSelfExpense, .reimbursementOriginal, .refundOriginal:
+            case .splitSelfExpense, .reimbursementOriginal, .refundOriginal, .combinedPaymentRefund:
                 return false // Display-only or non-posting child records
             case .splitSettlement, .reimbursementIncome:
                 return transaction.isEffectivelyCompleted // Only posts when money is received
-            case .refundIncome:
-                return true // Received refund moves money
+            case .refundIncome, .combinedPaymentItem, .combinedPaymentRefundSupport:
+                return true // Real money movement / reversal
             case .installment:
                 return transaction.isEffectivelyCompleted // Posts when due or early completed
             }
@@ -131,7 +135,7 @@ enum TransactionSemantics {
         // Group parents
         if let mode = transaction.groupMode {
             switch mode {
-            case .split, .reimbursement, .installment:
+            case .split, .reimbursement, .installment, .combinedPayment:
                 return 0
             case .refund:
                 let originalVal = transaction.amount
@@ -147,6 +151,14 @@ enum TransactionSemantics {
             switch kind {
             case .splitSelfExpense:
                 return LedgerCalculations.historical(transaction, to: target, rates: state.settings.rates)
+            case .combinedPaymentItem:
+                let recognized = transaction.recognizedExpenseAmount
+                return LedgerCalculations.convertHistorical(recognized, rate: transaction.exchangeRateAtTransaction, to: target, rates: state.settings.rates)
+            case .combinedPaymentRefund:
+                return 0
+            case .combinedPaymentRefundSupport:
+                let recognized = transaction.recognizedExpenseAmount
+                return -LedgerCalculations.convertHistorical(recognized, rate: transaction.exchangeRateAtTransaction, to: target, rates: state.settings.rates)
             case .splitSettlement, .reimbursementOriginal, .reimbursementIncome, .refundOriginal, .refundIncome:
                 return 0
             case .installment:
@@ -172,11 +184,13 @@ enum TransactionSemantics {
         // Normal transactions
         if let originalID = transaction.reversalOfTransactionID {
             guard let original = state.transactions.first(where: { $0.id == originalID }), original.type == .expense else { return nil }
-            return -LedgerCalculations.historical(transaction, to: target, rates: state.settings.rates)
+            let recognized = original.recognizedExpenseAmount
+            return -LedgerCalculations.convertHistorical(recognized, rate: transaction.exchangeRateAtTransaction, to: target, rates: state.settings.rates)
         }
 
         guard transaction.type == .expense else { return nil }
-        return LedgerCalculations.historical(transaction, to: target, rates: state.settings.rates)
+        let recognized = transaction.recognizedExpenseAmount
+        return LedgerCalculations.convertHistorical(recognized, rate: transaction.exchangeRateAtTransaction, to: target, rates: state.settings.rates)
     }
 
     /// Single authority for Income Analytics effect, historical-FX converted to `target`.
@@ -186,7 +200,7 @@ enum TransactionSemantics {
         // Group parents
         if let mode = transaction.groupMode {
             switch mode {
-            case .split, .reimbursement, .installment:
+            case .split, .reimbursement, .installment, .combinedPayment:
                 return 0
             case .refund:
                 let originalVal = transaction.amount
@@ -201,7 +215,8 @@ enum TransactionSemantics {
         if let kind = transaction.linkedTransactionKind {
             switch kind {
             case .splitSelfExpense, .splitSettlement, .reimbursementOriginal, .reimbursementIncome,
-                 .installment, .refundOriginal, .refundIncome:
+                 .installment, .refundOriginal, .refundIncome,
+                 .combinedPaymentItem, .combinedPaymentRefund, .combinedPaymentRefundSupport:
                 return 0
             }
         }
@@ -232,7 +247,7 @@ enum TransactionSemantics {
         // Group parents
         if let mode = transaction.groupMode {
             switch mode {
-            case .split, .reimbursement, .installment:
+            case .split, .reimbursement, .installment, .combinedPayment:
                 return nil
             case .refund:
                 guard transaction.isTaxExempt != true, let originalTax = transaction.taxAmount, originalTax > 0, transaction.amount > 0 else { return nil }
@@ -260,6 +275,16 @@ enum TransactionSemantics {
                 let parentCategory = state.transactions.first(where: { $0.id == transaction.parentTransactionID })?.categoryID ?? transaction.categoryID
                 let converted = childTax * transaction.exchangeRateAtTransaction / targetRate
                 return (converted, parentCategory)
+            case .combinedPaymentItem:
+                guard transaction.isTaxExempt != true, let childTax = transaction.taxAmount, childTax > 0 else { return nil }
+                let converted = childTax * transaction.exchangeRateAtTransaction / targetRate
+                return (converted, transaction.categoryID)
+            case .combinedPaymentRefund:
+                return nil
+            case .combinedPaymentRefundSupport:
+                guard transaction.isTaxExempt != true, let childTax = transaction.taxAmount, childTax > 0 else { return nil }
+                let converted = childTax * transaction.exchangeRateAtTransaction / targetRate
+                return (-converted, transaction.categoryID)
             case .splitSettlement, .reimbursementOriginal, .reimbursementIncome, .refundOriginal, .refundIncome:
                 return nil
             }
@@ -318,8 +343,13 @@ enum TransactionSemantics {
 
     /// Non-deleted, non-reversal children of a parent group.
     static func children(of parent: LedgerTransaction, in state: LedgerState) -> [LedgerTransaction] {
-        state.transactions.filter { $0.deletedAt == nil && $0.parentTransactionID == parent.id && !$0.isReversal }
-            .sorted { ($0.linkedTransactionIndex ?? 0, $0.occurredAt) < ($1.linkedTransactionIndex ?? 0, $1.occurredAt) }
+        state.transactions.filter {
+            $0.deletedAt == nil &&
+            $0.parentTransactionID == parent.id &&
+            !$0.isReversal &&
+            $0.linkedTransactionKind != .combinedPaymentRefundSupport
+        }
+        .sorted { ($0.linkedTransactionIndex ?? 0, $0.occurredAt) < ($1.linkedTransactionIndex ?? 0, $1.occurredAt) }
     }
 
     /// Returns the semantic status presentation for parent rows.
@@ -346,6 +376,13 @@ enum TransactionSemantics {
             let refundVal = refundValueInParentCurrency(parent, in: state)
             if refundVal <= 0.001 { return .refundPartial }
             return refundVal < (parent.amount - 0.005) ? .refundPartial : .refundComplete
+
+        case .combinedPayment:
+            let refundChild = groupChildren.first { $0.linkedTransactionKind == .combinedPaymentRefund }
+            if refundChild != nil {
+                return .refundComplete
+            }
+            return nil
         }
     }
 

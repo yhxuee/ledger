@@ -205,6 +205,16 @@ struct SettingsView: View {
             Divider()
 
             NavigationLink {
+                RecordingReminderSettingsView()
+            } label: {
+                let count = preferences.value.recordingReminderSlots.filter(\.isEnabled).count
+                SettingsLinkRow("Bookkeeping Reminders", systemImage: "bell.badge", detail: count > 0 ? "\(count) active" : "Off")
+            }
+            .foregroundStyle(.primary)
+
+            Divider()
+
+            NavigationLink {
                 SwipeActionsEditorView()
             } label: {
                 SettingsLinkRow("Swipe Actions", systemImage: "hand.draw", detail: nil)

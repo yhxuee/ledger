@@ -10,6 +10,7 @@ struct AccountsView: View {
     @State private var creating = false
     @State private var deleting: LedgerAccount?
     @State private var isReordering = false
+    @State private var statementConfigType: StatementType?
     private var portfolio: (netWorth: Double, assets: Double, liabilities: Double) { LedgerCalculations.portfolioSummary(store.state) }
     private var primaryActionColor: Color { LedgerPalette.primaryAction(for: colorScheme) }
     private var hasMarketDataKey: Bool {
@@ -38,6 +39,29 @@ struct AccountsView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                 }
+            }
+            Section {
+                HStack(spacing: 12) {
+                    statementCard(
+                        title: "Monthly Statement",
+                        subtitle: "Balance & postings",
+                        icon: "doc.text.fill",
+                        color: .blue
+                    ) {
+                        statementConfigType = .monthly
+                    }
+                    statementCard(
+                        title: "Tax Statement",
+                        subtitle: "Deductible & analytics",
+                        icon: "percent",
+                        color: .teal
+                    ) {
+                        statementConfigType = .tax
+                    }
+                }
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
             if store.accounts.isEmpty {
                 Section {
@@ -122,11 +146,43 @@ struct AccountsView: View {
             AccountEditorView(item: nil) { deleting = $0 }
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+        .sheet(item: $statementConfigType) { type in
+            StatementConfigurationSheet(type: type)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
                 .presentationCornerRadius(28)
         }
         .confirmationDialog("Delete \(deleting?.name ?? "account")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
             Button("Delete Account and Linked Transactions", role: .destructive) { if let deleting { store.deleteAccount(deleting) }; deleting = nil }
         } message: { Text("The account and linked transactions will be soft-deleted and excluded from all totals.") }
+    }
+
+    private func statementCard(title: String, subtitle: String, icon: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Image(systemName: icon)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(color)
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                Text(LocalizedStringKey(title))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(LocalizedStringKey(subtitle))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private func accountRowContent(_ item: AccountViewModel) -> some View {
@@ -167,6 +223,8 @@ private struct AccountEditorView: View {
     @State private var selectedProviderSymbol: String?
     @State private var photoItem: PhotosPickerItem?
     @State private var interestEnabled: Bool
+    @State private var editingCoupon: WalletCoupon?
+    @State private var creatingCoupon = false
     private let isNew: Bool
 
     private let presets: [CardStyle] = [
@@ -406,6 +464,68 @@ private struct AccountEditorView: View {
                         Text("Interest is recalculated from the current outstanding principal each time it runs.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                if account.type == .eWallet {
+                    Section("Coupons") {
+                        if let coupons = account.coupons, !coupons.isEmpty {
+                            ForEach(coupons) { coupon in
+                                Button {
+                                    editingCoupon = coupon
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            HStack(spacing: 6) {
+                                                Text(coupon.name)
+                                                    .font(.subheadline.weight(.semibold))
+                                                    .foregroundStyle(.primary)
+                                                if coupon.reminderEnabled {
+                                                    Image(systemName: "bell.fill")
+                                                        .font(.caption2)
+                                                        .foregroundStyle(.orange)
+                                                }
+                                            }
+                                            Text("Expires \(coupon.expirationDate.formatted(date: .abbreviated, time: .omitted))")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        VStack(alignment: .trailing, spacing: 2) {
+                                            Text(LedgerFormat.money(coupon.faceValue, currency: coupon.currency))
+                                                .font(.subheadline.monospacedDigit().weight(.semibold))
+                                                .foregroundStyle(.primary)
+                                            if coupon.usedAt != nil {
+                                                Text("Used")
+                                                    .font(.caption2.bold())
+                                                    .foregroundStyle(.secondary)
+                                            } else if coupon.expirationDate < .now {
+                                                Text("Expired")
+                                                    .font(.caption2.bold())
+                                                    .foregroundStyle(.red)
+                                            } else {
+                                                Text("Active")
+                                                    .font(.caption2.bold())
+                                                    .foregroundStyle(.green)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            .onDelete { offsets in
+                                var coupons = account.coupons ?? []
+                                coupons.remove(atOffsets: offsets)
+                                account.coupons = coupons
+                            }
+                        } else {
+                            Text("No coupons added yet")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        Button {
+                            creatingCoupon = true
+                        } label: {
+                            Label("Add Coupon", systemImage: "plus")
+                        }
+                    }
+                }
                 Section("Card Style") {
                     ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(presets, id: \.self) { style in Button { account.cardStyle = style } label: { RoundedRectangle(cornerRadius: 12).fill(LinearGradient(colors: [Color(hex: style.startHex), Color(hex: style.endHex)], startPoint: .topLeading, endPoint: .bottomTrailing)).frame(width: 74, height: 48).overlay { if account.cardStyle == style { Image(systemName: "checkmark.circle.fill").foregroundStyle(.white) } } }.buttonStyle(.plain) } } }
                     ColorPicker("Start Color", selection: Binding(get: { Color(hex: account.cardStyle.startHex) }, set: { account.cardStyle.startHex = $0.rgbHex }))
@@ -457,6 +577,29 @@ private struct AccountEditorView: View {
                     do {
                         if let data = try await item.loadTransferable(type: Data.self), let resized = resizeCardImage(data) { account.cardImageData = resized }
                     } catch { store.presentedError = "Photo import failed: \(error.localizedDescription)" }
+                }
+            }
+            .sheet(isPresented: $creatingCoupon) {
+                CouponEditorSheet(
+                    defaultCurrency: account.currency,
+                    availableCurrencies: account.usesCurrencyPockets ? account.normalizedPockets.map(\.currency) : [account.currency]
+                ) { newCoupon in
+                    var list = account.coupons ?? []
+                    list.append(newCoupon)
+                    account.coupons = list
+                }
+            }
+            .sheet(item: $editingCoupon) { coupon in
+                CouponEditorSheet(
+                    coupon: coupon,
+                    defaultCurrency: account.currency,
+                    availableCurrencies: account.usesCurrencyPockets ? account.normalizedPockets.map(\.currency) : [account.currency]
+                ) { updated in
+                    var list = account.coupons ?? []
+                    if let idx = list.firstIndex(where: { $0.id == updated.id }) {
+                        list[idx] = updated
+                    }
+                    account.coupons = list
                 }
             }
         }

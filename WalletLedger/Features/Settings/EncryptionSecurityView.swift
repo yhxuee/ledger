@@ -196,3 +196,4 @@ struct EncryptionSecurityView: View {
         statusMessage = "End-to-End Encryption disabled. Existing encrypted backups remain readable."
     }
 }
+

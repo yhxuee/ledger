@@ -26,6 +26,7 @@ struct WalletLedgerApp: App {
                     _ = try? await store.refreshExchangeRatesIfNeeded()
                     await StockQuoteRefreshService.shared.refreshIfDue(store: store)
                     MarketRefreshBackground.schedule(store: store)
+                    await FinsyNotificationScheduler.shared.reconcileAll(state: store.state, preferences: preferences.value)
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
@@ -37,6 +38,7 @@ struct WalletLedgerApp: App {
                             _ = try? await store.refreshExchangeRatesIfNeeded()
                             await StockQuoteRefreshService.shared.refreshIfDue(store: store)
                             MarketRefreshBackground.schedule(store: store)
+                            await FinsyNotificationScheduler.shared.reconcileAll(state: store.state, preferences: preferences.value)
                         }
                     } else {
                         privacy.lockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)

@@ -170,6 +170,15 @@ enum BackupCodec {
                 guard Set(pockets.map(\.currency)).count == pockets.count else { throw BackupError.invalidValue("duplicate account pocket") }
                 guard account.stockMetadata == nil else { throw BackupError.invalidValue("multi-currency stocks account") }
             }
+            if let coupons = account.coupons, !coupons.isEmpty {
+                guard account.type == .eWallet else { throw BackupError.invalidValue("coupons on non-eWallet account") }
+                let couponIDs = coupons.map(\.id)
+                guard Set(couponIDs).count == couponIDs.count else { throw BackupError.duplicateID("coupon") }
+                for coupon in coupons {
+                    guard coupon.faceValue.isFinite, coupon.faceValue > 0 else { throw BackupError.invalidValue("coupon face value") }
+                    guard account.pocketCurrencies.contains(coupon.currency) || coupon.currency == account.currency else { throw BackupError.invalidValue("coupon currency") }
+                }
+            }
         }
         for transaction in state.transactions {
             guard knownAccounts.contains(transaction.accountID) else { throw BackupError.missingAccount }
@@ -230,7 +239,7 @@ enum BackupCodec {
                 if let transactionID = item.linkedTransactionID { guard transactionsByID[transactionID] != nil else { throw BackupError.invalidValue("purchase transaction link") } }
             }
         }
-        let usedCurrencies = Set(state.accounts.map(\.currency) + state.transactions.map(\.currency) + (state.recurringRules ?? []).map(\.currency) + (state.purchaseSessions ?? []).map(\.currency) + [state.settings.baseCurrency, .HKD])
+        let usedCurrencies = Set(state.accounts.map(\.currency) + state.accounts.flatMap { ($0.coupons ?? []).map(\.currency) } + state.transactions.map(\.currency) + (state.recurringRules ?? []).map(\.currency) + (state.purchaseSessions ?? []).map(\.currency) + [state.settings.baseCurrency, .HKD])
         for currency in usedCurrencies {
             guard CurrencyRates.reference(currency, in: state.settings.rates) != nil else { throw BackupError.invalidValue("exchange rate \(currency.rawValue)") }
         }

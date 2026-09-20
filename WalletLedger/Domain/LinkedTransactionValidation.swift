@@ -34,6 +34,14 @@ enum LinkedTransactionValidation {
                         let children = TransactionSemantics.children(of: item, in: state)
                         guard children.count == 2 else { throw BackupError.invalidValue("refund schedule count") }
                     }
+                case .combinedPayment:
+                    guard item.splitMetadata == nil, item.installmentMetadata == nil else { throw BackupError.invalidValue("combined payment metadata") }
+                    if item.deletedAt == nil {
+                        let paymentChildren = state.transactions.filter { $0.parentTransactionID == item.id && $0.deletedAt == nil && $0.linkedTransactionKind == .combinedPaymentItem }
+                        guard paymentChildren.count >= 2 else { throw BackupError.invalidValue("combined payment children count") }
+                        guard Set(paymentChildren.map(\.accountID)).count >= 2 else { throw BackupError.invalidValue("combined payment distinct accounts") }
+                        guard paymentChildren.allSatisfy({ $0.categoryID == item.categoryID }) else { throw BackupError.invalidValue("combined payment category mismatch") }
+                    }
                 }
             } else if item.splitMetadata != nil || item.installmentMetadata != nil {
                 throw BackupError.invalidValue("orphan group metadata")
@@ -74,6 +82,12 @@ enum LinkedTransactionValidation {
             case .refundIncome:
                 guard parent.groupMode == .refund, item.type == .income, item.categoryID == .refund,
                       item.linkedTransactionIndex == 1 else { throw BackupError.invalidValue("refund income") }
+            case .combinedPaymentItem:
+                guard parent.groupMode == .combinedPayment, item.type == .expense, item.categoryID == parent.categoryID else { throw BackupError.invalidValue("combined payment item") }
+            case .combinedPaymentRefund:
+                guard parent.groupMode == .combinedPayment, item.type == .income, item.categoryID == .refund else { throw BackupError.invalidValue("combined payment refund") }
+            case .combinedPaymentRefundSupport:
+                guard parent.groupMode == .combinedPayment, item.type == .income, item.categoryID == .refund else { throw BackupError.invalidValue("combined payment refund support") }
             }
 
             if item.deletedAt == nil, let index = item.linkedTransactionIndex {

@@ -141,8 +141,20 @@ enum AccountCardMaterialStyle: String, Codable, CaseIterable, Identifiable, Send
     }
 }
 
+struct RecordingReminderSlot: Codable, Hashable, Sendable, Identifiable {
+    var id: Int
+    var isEnabled: Bool
+    var hour: Int
+    var minute: Int
+}
+
 struct AppPreferences: Codable, Hashable, Sendable {
     static let defaultSwipeActions: [TransactionSwipeAction] = [.reimburse, .refund, .delete, .split]
+    static let defaultReminderSlots: [RecordingReminderSlot] = [
+        RecordingReminderSlot(id: 1, isEnabled: false, hour: 10, minute: 0),
+        RecordingReminderSlot(id: 2, isEnabled: false, hour: 14, minute: 0),
+        RecordingReminderSlot(id: 3, isEnabled: false, hour: 21, minute: 0)
+    ]
 
     var schemaVersion: Int = 1
     var languageCode: String = "en"
@@ -160,11 +172,16 @@ struct AppPreferences: Codable, Hashable, Sendable {
     var cashFlowForecastEnabled: Bool = true
     var forecastYellowThreshold: Double = 0.10
     var forecastRedThreshold: Double = 0.20
+    var recordingReminderSlots: [RecordingReminderSlot] = defaultReminderSlots
+    var monthlyStatementReminderEnabled: Bool = false
+    var monthlyStatementReminderHour: Int = 20
+    var monthlyStatementReminderMinute: Int = 0
 
     enum CodingKeys: String, CodingKey {
         case splitActionOnRightSwipe, reimbursementActionOnRightSwipe
         case schemaVersion, languageCode, biometricLockEnabled, swipeActionOrientation, transactionSwipeActions, hapticFeedbackEnabled, dateFormat, transactionLayout, overviewMetrics, overviewCardLayout, accountCardMaterialStyle
         case cashFlowForecastEnabled, forecastYellowThreshold, forecastRedThreshold
+        case recordingReminderSlots, monthlyStatementReminderEnabled, monthlyStatementReminderHour, monthlyStatementReminderMinute
     }
 
     init(schemaVersion: Int = 1, languageCode: String = "en", biometricLockEnabled: Bool = false,
@@ -177,7 +194,11 @@ struct AppPreferences: Codable, Hashable, Sendable {
          accountCardMaterialStyle: AccountCardMaterialStyle = .auto,
          cashFlowForecastEnabled: Bool = true,
          forecastYellowThreshold: Double = 0.10,
-         forecastRedThreshold: Double = 0.20) {
+         forecastRedThreshold: Double = 0.20,
+         recordingReminderSlots: [RecordingReminderSlot] = defaultReminderSlots,
+         monthlyStatementReminderEnabled: Bool = false,
+         monthlyStatementReminderHour: Int = 20,
+         monthlyStatementReminderMinute: Int = 0) {
         self.schemaVersion = schemaVersion
         self.languageCode = languageCode
         self.biometricLockEnabled = biometricLockEnabled
@@ -192,6 +213,10 @@ struct AppPreferences: Codable, Hashable, Sendable {
         self.cashFlowForecastEnabled = cashFlowForecastEnabled
         self.forecastYellowThreshold = forecastYellowThreshold
         self.forecastRedThreshold = forecastRedThreshold
+        self.recordingReminderSlots = recordingReminderSlots.count == 3 ? recordingReminderSlots : Self.defaultReminderSlots
+        self.monthlyStatementReminderEnabled = monthlyStatementReminderEnabled
+        self.monthlyStatementReminderHour = monthlyStatementReminderHour
+        self.monthlyStatementReminderMinute = monthlyStatementReminderMinute
     }
 
     init(from decoder: Decoder) throws {
@@ -218,6 +243,14 @@ struct AppPreferences: Codable, Hashable, Sendable {
         cashFlowForecastEnabled = try values.decodeIfPresent(Bool.self, forKey: .cashFlowForecastEnabled) ?? true
         forecastYellowThreshold = try values.decodeIfPresent(Double.self, forKey: .forecastYellowThreshold) ?? 0.10
         forecastRedThreshold = try values.decodeIfPresent(Double.self, forKey: .forecastRedThreshold) ?? 0.20
+        if let slots = try? values.decodeIfPresent([RecordingReminderSlot].self, forKey: .recordingReminderSlots), slots.count == 3 {
+            recordingReminderSlots = slots
+        } else {
+            recordingReminderSlots = Self.defaultReminderSlots
+        }
+        monthlyStatementReminderEnabled = try values.decodeIfPresent(Bool.self, forKey: .monthlyStatementReminderEnabled) ?? false
+        monthlyStatementReminderHour = try values.decodeIfPresent(Int.self, forKey: .monthlyStatementReminderHour) ?? 20
+        monthlyStatementReminderMinute = try values.decodeIfPresent(Int.self, forKey: .monthlyStatementReminderMinute) ?? 0
     }
 
     mutating func setOverviewMetric(at index: Int, to newKind: OverviewMetricKind) {

@@ -385,6 +385,7 @@ struct LinkedLedgerRow: View {
     @State private var expanded = false
     @State private var editing: LedgerTransaction?
     @State private var setupMode: TransactionGroupMode?
+    @State private var isDropTargeted = false
 
     private var parent: LedgerTransaction { store.state.transactions.first { $0.id == transaction.id } ?? transaction }
     private var children: [LedgerTransaction] { TransactionSemantics.children(of: parent, in: store.state) }
@@ -414,6 +415,26 @@ struct LinkedLedgerRow: View {
                         }
                     )
                 ]
+            } else if parent.groupMode == .combinedPayment {
+                if !parent.isEffectivelyCompleted {
+                    return [
+                        SwipeActionItem(
+                            id: "refund",
+                            title: "Refund",
+                            systemImage: "arrow.uturn.backward",
+                            color: .blue,
+                            action: {
+                                guard store.refundCombinedPayment(parentID: parent.id) else {
+                                    store.presentedError = "Failed to refund combined payment."
+                                    return false
+                                }
+                                revealedTransactionID.wrappedValue = nil
+                                return true
+                            }
+                        )
+                    ]
+                }
+                return []
             }
             // Split, Reimbursement, Refund parent: left swipe only (no right swipe actions)
             return []
@@ -520,7 +541,7 @@ struct LinkedLedgerRow: View {
 
     private var rightSwipeActions: [SwipeActionItem] {
         if isGroupParent {
-            // Split, Installment, Reimbursement, Refund parent: left swipe Delete only
+            // Split, Installment, Reimbursement, Refund, Combined Payment parent: left swipe Delete only
             return [
                 SwipeActionItem(
                     id: "delete",
@@ -536,8 +557,23 @@ struct LinkedLedgerRow: View {
             ]
         }
 
-        // Group children never support Delete
-        if parent.linkedTransactionKind != nil {
+        // Group children never support Delete, except combined payment items
+        if let kind = parent.linkedTransactionKind {
+            if kind == .combinedPaymentItem {
+                return [
+                    SwipeActionItem(
+                        id: "delete",
+                        title: "Delete",
+                        systemImage: "trash",
+                        color: .red,
+                        action: {
+                            store.deleteTransaction(parent)
+                            revealedTransactionID.wrappedValue = nil
+                            return true
+                        }
+                    )
+                ]
+            }
             return []
         }
 
@@ -615,68 +651,141 @@ struct LinkedLedgerRow: View {
 
     @ViewBuilder
     private var groupParentRow: some View {
-        TransactionMultiSwipeReveal(
-            transactionID: parent.id,
-            leftActions: leftSwipeActions,
-            rightActions: rightSwipeActions,
-            onContentTap: {
-                withAnimation(.snappy) { expanded.toggle() }
+        let distinctAccounts = Set(children.map(\.accountID)).count
+        let subtitle = parent.groupMode == .combinedPayment
+            ? "Combined Payment · \(distinctAccounts) accounts"
+            : nil
+
+        applyDragAndDrop(to:
+            TransactionMultiSwipeReveal(
+                transactionID: parent.id,
+                leftActions: leftSwipeActions,
+                rightActions: rightSwipeActions,
+                onContentTap: {
+                    withAnimation(.snappy) { expanded.toggle() }
+                }
+            ) {
+                TransactionRow(
+                    transaction: parent,
+                    category: category(parent),
+                    showsDate: showsDate,
+                    groupStatus: groupStatus,
+                    disclosure: expanded ? .expanded : .collapsed,
+                    subtitleOverride: subtitle
+                )
+                .padding(.horizontal, 14)
+                .contextMenu { configurationMenu }
             }
-        ) {
-            TransactionRow(
-                transaction: parent,
-                category: category(parent),
-                showsDate: showsDate,
-                groupStatus: groupStatus,
-                disclosure: expanded ? .expanded : .collapsed
-            )
-            .padding(.horizontal, 14)
-            .contextMenu { configurationMenu }
-        }
+        )
     }
 
     @ViewBuilder
     private var swipeableRow: some View {
-        TransactionMultiSwipeReveal(
-            transactionID: parent.id,
-            leftActions: leftSwipeActions,
-            rightActions: rightSwipeActions,
-            onContentTap: {
-                if !parent.isLockedByReversal { editing = parent }
+        applyDragAndDrop(to:
+            TransactionMultiSwipeReveal(
+                transactionID: parent.id,
+                leftActions: leftSwipeActions,
+                rightActions: rightSwipeActions,
+                onContentTap: {
+                    if !parent.isLockedByReversal { editing = parent }
+                }
+            ) {
+                TransactionRow(
+                    transaction: parent,
+                    category: category(parent),
+                    showsDate: showsDate,
+                    groupStatus: nil,
+                    disclosure: .standard
+                )
+                .padding(.horizontal, 14)
+                .contextMenu { configurationMenu }
             }
-        ) {
-            TransactionRow(
-                transaction: parent,
-                category: category(parent),
-                showsDate: showsDate,
-                groupStatus: nil,
-                disclosure: .standard
-            )
-            .padding(.horizontal, 14)
-            .contextMenu { configurationMenu }
-        }
+        )
     }
 
     @ViewBuilder
     private var plainNonSwipeableRow: some View {
-        Button {
-            if let revealed = revealedTransactionID.wrappedValue, revealed != parent.id {
-                withAnimation(.snappy) { revealedTransactionID.wrappedValue = nil }
-                return
+        applyDragAndDrop(to:
+            Button {
+                if let revealed = revealedTransactionID.wrappedValue, revealed != parent.id {
+                    withAnimation(.snappy) { revealedTransactionID.wrappedValue = nil }
+                    return
+                }
+                if !parent.isLockedByReversal { editing = parent }
+            } label: {
+                TransactionRow(
+                    transaction: parent,
+                    category: category(parent),
+                    showsDate: showsDate,
+                    groupStatus: nil,
+                    disclosure: .standard
+                )
+                .padding(.horizontal, 14)
             }
-            if !parent.isLockedByReversal { editing = parent }
-        } label: {
-            TransactionRow(
-                transaction: parent,
-                category: category(parent),
-                showsDate: showsDate,
-                groupStatus: nil,
-                disclosure: .standard
-            )
-            .padding(.horizontal, 14)
+            .buttonStyle(.plain)
+            .contextMenu { configurationMenu }
+        )
+    }
+
+    private var isDraggable: Bool {
+        parent.type == .expense &&
+        parent.deletedAt == nil &&
+        parent.parentTransactionID == nil &&
+        parent.groupMode == nil &&
+        parent.purchaseSessionID == nil &&
+        parent.reversalOfTransactionID == nil &&
+        parent.reversalTransactionID == nil
+    }
+
+    private func handleDrop(items: [String]) -> Bool {
+        guard let firstStr = items.first, let draggedID = UUID(uuidString: firstStr), draggedID != parent.id else { return false }
+        guard let dragged = store.state.transactions.first(where: { $0.id == draggedID && $0.deletedAt == nil }) else { return false }
+        if isGroupParent && parent.groupMode == .combinedPayment {
+            let success = store.addTransactionToCombinedPayment(dragged, into: parent)
+            if success {
+                HapticFeedback.selection(enabled: preferences.value.hapticFeedbackEnabled)
+            }
+            return success
+        } else if store.canCombine(dragged, parent) {
+            let created = store.combineTransactions(first: parent, second: dragged)
+            if created != nil {
+                HapticFeedback.selection(enabled: preferences.value.hapticFeedbackEnabled)
+                return true
+            }
         }
-        .buttonStyle(.plain)
-        .contextMenu { configurationMenu }
+        return false
+    }
+
+    @ViewBuilder
+    private func applyDragAndDrop<Content: View>(to content: Content) -> some View {
+        let highlighted = content
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.green.opacity(isDropTargeted ? 0.8 : 0), lineWidth: 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.green.opacity(isDropTargeted ? 0.12 : 0))
+                    )
+            )
+
+        if isDraggable {
+            highlighted
+                .draggable(parent.id.uuidString)
+                .dropDestination(for: String.self) { items, _ in
+                    handleDrop(items: items)
+                } isTargeted: { targeted in
+                    withAnimation(.snappy(duration: 0.2)) { isDropTargeted = targeted }
+                }
+        } else if isGroupParent && parent.groupMode == .combinedPayment {
+            highlighted
+                .dropDestination(for: String.self) { items, _ in
+                    handleDrop(items: items)
+                } isTargeted: { targeted in
+                    withAnimation(.snappy(duration: 0.2)) { isDropTargeted = targeted }
+                }
+        } else {
+            content
+        }
     }
 
     private func category(_ transaction: LedgerTransaction) -> LedgerCategory {
@@ -784,11 +893,21 @@ struct LinkedLedgerRow: View {
                 } label: {
                     Label("Edit Installment Plan", systemImage: "calendar.badge.clock")
                 }
+            } else if mode == .combinedPayment {
+                if !parent.isEffectivelyCompleted {
+                    Button {
+                        store.ungroupCombinedPayment(parent)
+                    } label: {
+                        Label("Ungroup Combined Payment", systemImage: "rectangle.split.2x1.slash")
+                    }
+                }
             }
-            Button {
-                editing = parent
-            } label: {
-                Label("Edit Transaction", systemImage: "square.and.pencil")
+            if mode != .combinedPayment {
+                Button {
+                    editing = parent
+                } label: {
+                    Label("Edit Transaction", systemImage: "square.and.pencil")
+                }
             }
             Button(role: .destructive) {
                 store.deleteTransaction(parent)
@@ -809,11 +928,17 @@ struct LinkedLedgerRow: View {
                 Label("Delete", systemImage: "trash")
             }
         } else if parent.linkedTransactionKind != nil {
-            // Group children: Edit only, never Delete!
             Button {
                 editing = parent
             } label: {
                 Label("Edit Transaction", systemImage: "square.and.pencil")
+            }
+            if parent.linkedTransactionKind == .combinedPaymentItem {
+                Button(role: .destructive) {
+                    store.deleteTransaction(parent)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
             }
         } else {
             Button {

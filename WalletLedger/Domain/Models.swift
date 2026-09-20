@@ -220,6 +220,61 @@ struct CardStyle: Codable, Hashable, Sendable {
     var endHex: String
 }
 
+struct WalletCoupon: Identifiable, Codable, Hashable, Sendable {
+    var id: UUID
+    var name: String
+    var currency: CurrencyCode
+    var faceValue: Double
+
+    var expirationDate: Date
+
+    var reminderEnabled: Bool
+    var reminderLeadDays: Int
+    var reminderHour: Int
+    var reminderMinute: Int
+
+    var usedAt: Date?
+    var linkedTransactionID: UUID?
+
+    var createdAt: Date
+    var updatedAt: Date
+
+    var expiresAt: Date? {
+        get { expirationDate }
+        set { if let newValue { expirationDate = newValue } }
+    }
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        currency: CurrencyCode,
+        faceValue: Double,
+        expirationDate: Date = Calendar.current.date(byAdding: .month, value: 1, to: .now) ?? .now,
+        reminderEnabled: Bool = false,
+        reminderLeadDays: Int = 1,
+        reminderHour: Int = 9,
+        reminderMinute: Int = 0,
+        usedAt: Date? = nil,
+        linkedTransactionID: UUID? = nil,
+        createdAt: Date = .now,
+        updatedAt: Date = .now
+    ) {
+        self.id = id
+        self.name = name
+        self.currency = currency
+        self.faceValue = faceValue
+        self.expirationDate = expirationDate
+        self.reminderEnabled = reminderEnabled
+        self.reminderLeadDays = reminderLeadDays
+        self.reminderHour = reminderHour
+        self.reminderMinute = reminderMinute
+        self.usedAt = usedAt
+        self.linkedTransactionID = linkedTransactionID
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
 struct LedgerAccount: Identifiable, Codable, Hashable, Sendable {
     var id: UUID
     var userID: String
@@ -238,6 +293,7 @@ struct LedgerAccount: Identifiable, Codable, Hashable, Sendable {
     var isMultiCurrency: Bool = false
     var currencyPockets: [AccountCurrencyPocket] = []
     var stockMetadata: StockMetadata? = nil
+    var coupons: [WalletCoupon]? = []
     var createdAt: Date
     var updatedAt: Date
     var deletedAt: Date?
@@ -247,6 +303,7 @@ struct LedgerAccount: Identifiable, Codable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id, userID, name, type, currency, openingBalance, budget, includeInBudget, logo, cardStyle
         case cardImageData, loanMetadata, isMultiCurrency, currencyPockets, stockMetadata
+        case coupons
         case createdAt, updatedAt, deletedAt, version, syncStatus
     }
 
@@ -325,11 +382,55 @@ extension LedgerAccount {
         isMultiCurrency = try container.decodeIfPresent(Bool.self, forKey: .isMultiCurrency) ?? false
         currencyPockets = try container.decodeIfPresent([AccountCurrencyPocket].self, forKey: .currencyPockets) ?? []
         stockMetadata = try container.decodeIfPresent(StockMetadata.self, forKey: .stockMetadata)
+        coupons = try container.decodeIfPresent([WalletCoupon].self, forKey: .coupons) ?? []
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         deletedAt = try container.decodeIfPresent(Date.self, forKey: .deletedAt)
         version = try container.decode(Int.self, forKey: .version)
         syncStatus = try container.decode(SyncStatus.self, forKey: .syncStatus)
+    }
+}
+
+struct CouponTransactionSnapshot: Codable, Hashable, Sendable {
+    var couponID: UUID
+    var couponName: String
+    var couponFaceValue: Double
+    var appliedAmount: Double
+    var preCouponAmount: Double
+    var currency: CurrencyCode? = nil
+
+    var appliedDiscount: Double { appliedAmount }
+    var faceValue: Double { couponFaceValue }
+
+    init(
+        couponID: UUID,
+        couponName: String,
+        couponFaceValue: Double,
+        appliedAmount: Double,
+        preCouponAmount: Double,
+        currency: CurrencyCode? = nil
+    ) {
+        self.couponID = couponID
+        self.couponName = couponName
+        self.couponFaceValue = couponFaceValue
+        self.appliedAmount = appliedAmount
+        self.preCouponAmount = preCouponAmount
+        self.currency = currency
+    }
+
+    init(
+        couponID: UUID,
+        couponName: String,
+        faceValue: Double,
+        appliedDiscount: Double,
+        currency: CurrencyCode? = nil
+    ) {
+        self.couponID = couponID
+        self.couponName = couponName
+        self.couponFaceValue = faceValue
+        self.appliedAmount = appliedDiscount
+        self.preCouponAmount = appliedDiscount
+        self.currency = currency
     }
 }
 
@@ -376,6 +477,7 @@ struct LedgerTransaction: Identifiable, Codable, Hashable, Sendable {
     var completedAt: Date? = nil
     var splitMetadata: SplitTransactionMetadata? = nil
     var installmentMetadata: InstallmentPlanMetadata? = nil
+    var couponSnapshot: CouponTransactionSnapshot? = nil
     var createdAt: Date
     var updatedAt: Date
     var deletedAt: Date?
@@ -400,6 +502,14 @@ struct LedgerTransaction: Identifiable, Codable, Hashable, Sendable {
             return linkedStatus == .completed || (linkedStatus == nil && linkedTransactionKind != .installment)
         }
         return true
+    }
+
+    /// Recognized expense amount after applying coupon discount.
+    var recognizedExpenseAmount: Double {
+        if let couponSnapshot {
+            return max(amount - couponSnapshot.appliedAmount, 0)
+        }
+        return amount
     }
 
     /// `amount + currency` is the original transaction denomination. The account-side postings

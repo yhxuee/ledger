@@ -6,6 +6,7 @@ extension Notification.Name { static let acceptedCloudLedger = Notification.Name
 final class CloudShareAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         MarketRefreshBackground.register()
+        FinsyNotificationScheduler.shared.configure()
         return true
     }
     func application(_ application: UIApplication, userDidAcceptCloudKitShareWith cloudKitShareMetadata: CKShare.Metadata) {
