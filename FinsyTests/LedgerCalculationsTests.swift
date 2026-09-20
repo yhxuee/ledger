@@ -458,14 +458,14 @@ final class LedgerCalculationsTests: XCTestCase {
     }
 
     func testPurchaseRulesRejectInvalidCategories() {
-        let state = SeedData.make()
+        let state = DemoDataFactory.make()
         // Normal expense category is valid
         XCTAssertTrue(PurchaseRules.validItemCategory(.food, in: state))
         XCTAssertTrue(PurchaseRules.validItemCategory(.shopping, in: state))
 
         // System linked category is invalid
-        XCTAssertTrue(LedgerCategoryID.transfer.isSystemLinked)
-        XCTAssertFalse(PurchaseRules.validItemCategory(.transfer, in: state))
+        XCTAssertTrue(LedgerCategoryID.settlement.isSystemLinked)
+        XCTAssertFalse(PurchaseRules.validItemCategory(.settlement, in: state))
         XCTAssertFalse(PurchaseRules.validItemCategory(.reimbursement, in: state))
 
         // Income category is invalid for purchase items
@@ -476,7 +476,7 @@ final class LedgerCalculationsTests: XCTestCase {
 
         // Test that validateItems throws when an item uses an invalid category
         var session = PurchaseSession(id: UUID(), ledgerBookID: UUID(), name: "Invalid Cat Test", status: .draft, sections: [], items: [
-            PurchaseItem(id: UUID(), categoryID: .transfer, note: "Invalid", amount: 10, displayOrder: 0, isCompleted: false, completedAt: nil, linkedTransactionID: nil)
+            PurchaseItem(id: UUID(), categoryID: .settlement, note: "Invalid", amount: 10, displayOrder: 0, isCompleted: false, completedAt: nil, linkedTransactionID: nil)
         ], createdAt: .now, startedAt: nil, completedAt: nil, receiptAttachmentID: nil)
         XCTAssertThrowsError(try PurchaseRules.validateItems(session, in: state)) { error in
             guard case PurchaseFinalizationError.invalidItem = error else {
@@ -493,7 +493,7 @@ final class LedgerCalculationsTests: XCTestCase {
         // First item is valid, second item has invalid (system linked) category
         let items = [
             PurchaseItem(id: UUID(), categoryID: .food, note: "Valid Item", amount: 30, displayOrder: 0, isCompleted: true, completedAt: .now, resolvedAccountID: accountID, linkedTransactionID: nil),
-            PurchaseItem(id: UUID(), categoryID: .transfer, note: "Invalid Item", amount: 20, displayOrder: 1, isCompleted: true, completedAt: .now, resolvedAccountID: accountID, linkedTransactionID: nil)
+            PurchaseItem(id: UUID(), categoryID: .settlement, note: "Invalid Item", amount: 20, displayOrder: 1, isCompleted: true, completedAt: .now, resolvedAccountID: accountID, linkedTransactionID: nil)
         ]
         state.purchaseSessions = [.init(id: sessionID, ledgerBookID: UUID(), name: "Rollback Test", status: .awaitingSummary, sections: [], items: items, createdAt: .now, startedAt: .now, completedAt: .now, receiptAttachmentID: nil, currency: .HKD, accountID: accountID)]
         let initialTxCount = state.transactions.count
@@ -510,7 +510,7 @@ final class LedgerCalculationsTests: XCTestCase {
     }
 
     func testStatementPostingResolverIndexParity() {
-        let state = SeedData.make()
+        let state = DemoDataFactory.make()
         let accountIDs = Set(state.accounts.map(\.id))
         let baseCurrency = state.settings.baseCurrency
         let transactions = state.transactions
@@ -545,7 +545,7 @@ final class LedgerCalculationsTests: XCTestCase {
     }
 
     func testBudgetBreakdownSinglePassParity() {
-        let state = SeedData.make()
+        let state = DemoDataFactory.make()
         let index = LedgerIndex(state: state)
 
         let breakdownWithoutIndex = LedgerCalculations.budgetBreakdown(state)
