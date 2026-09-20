@@ -5,7 +5,7 @@ import XCTest
 final class WalletPassSnapshotTests: XCTestCase {
     func testAccountPassSnapshotNetWorthParity() {
         let store = LedgerStore(stateForTesting: DemoDataFactory.make())
-        let expectedNetWorth = LedgerCalculations.totalBalance(in: store.state, rates: store.state.settings.rates)
+        let expectedNetWorth = LedgerCalculations.portfolioBalance(store.state, target: store.state.settings.baseCurrency)
 
         let snapshot = WalletPassManager.shared.buildAccountPassSnapshot(
             store: store,
@@ -15,15 +15,14 @@ final class WalletPassSnapshotTests: XCTestCase {
 
         XCTAssertEqual(snapshot.title, "Net Worth")
         XCTAssertEqual(snapshot.balanceAmount, expectedNetWorth, accuracy: 0.0001)
-        XCTAssertEqual(snapshot.currency, store.state.settings.primaryCurrency)
+        XCTAssertEqual(snapshot.currency, store.state.settings.baseCurrency)
     }
 
     func testAccountPassSnapshotSpecificAccountParity() {
         let store = LedgerStore(stateForTesting: DemoDataFactory.make())
         guard let account = store.state.accounts.first(where: { $0.deletedAt == nil }) else { return }
 
-        let activeTxs = store.state.transactions.filter { $0.deletedAt == nil }
-        let expectedBalance = LedgerCalculations.accountBalance(account, transactions: activeTxs, in: store.state)
+        let expectedBalance = LedgerCalculations.balance(for: account, in: store.state)
 
         let snapshot = WalletPassManager.shared.buildAccountPassSnapshot(
             store: store,
@@ -69,7 +68,7 @@ final class WalletPassSnapshotTests: XCTestCase {
             accountID: account.id,
             destinationAccountID: nil,
             amount: 100.0,
-            currency: store.state.settings.primaryCurrency,
+            currency: store.state.settings.baseCurrency,
             accountAmount: 100.0,
             destinationAmount: nil,
             categoryID: .shopping,
@@ -92,7 +91,7 @@ final class WalletPassSnapshotTests: XCTestCase {
             accountID: account.id,
             destinationAccountID: nil,
             amount: 500.0,
-            currency: store.state.settings.primaryCurrency,
+            currency: store.state.settings.baseCurrency,
             accountAmount: 500.0,
             destinationAmount: nil,
             categoryID: .salary,

@@ -1,12 +1,12 @@
 import Foundation
 
-public struct WalletRelevantLocation: Codable, Hashable, Identifiable, Sendable {
-    public var id: UUID
-    public var latitude: Double
-    public var longitude: Double
-    public var relevantText: String
+struct WalletRelevantLocation: Codable, Hashable, Identifiable, Sendable {
+    var id: UUID
+    var latitude: Double
+    var longitude: Double
+    var relevantText: String
 
-    public init(id: UUID = UUID(), latitude: Double, longitude: Double, relevantText: String) {
+    init(id: UUID = UUID(), latitude: Double, longitude: Double, relevantText: String) {
         self.id = id
         self.latitude = latitude
         self.longitude = longitude
@@ -14,23 +14,23 @@ public struct WalletRelevantLocation: Codable, Hashable, Identifiable, Sendable 
     }
 }
 
-public enum WalletAccountPassSource: Codable, Hashable, Sendable {
+enum WalletAccountPassSource: Codable, Hashable, Sendable {
     case allAccounts
     case specificAccount(UUID)
 }
 
-public struct AccountPassSnapshot: Codable, Hashable, Sendable {
-    public var passTypeIdentifier: String
-    public var serialNumber: String
-    public var title: String
-    public var balanceAmount: Double
-    public var currency: CurrencyCode
-    public var formattedBalance: String
-    public var accountCount: Int
-    public var locations: [WalletRelevantLocation]
-    public var generatedAt: Date
+struct AccountPassSnapshot: Codable, Hashable, Sendable {
+    var passTypeIdentifier: String
+    var serialNumber: String
+    var title: String
+    var balanceAmount: Double
+    var currency: CurrencyCode
+    var formattedBalance: String
+    var accountCount: Int
+    var locations: [WalletRelevantLocation]
+    var generatedAt: Date
 
-    public init(
+    init(
         passTypeIdentifier: String = "pass.com.finsy.account",
         serialNumber: String = "finsy-primary-account-pass",
         title: String,
@@ -53,19 +53,19 @@ public struct AccountPassSnapshot: Codable, Hashable, Sendable {
     }
 }
 
-public struct PurchaseReceiptPassSnapshot: Codable, Hashable, Sendable {
-    public var passTypeIdentifier: String
-    public var serialNumber: String
-    public var sessionID: UUID
-    public var storeName: String
-    public var totalAmount: Double
-    public var currency: CurrencyCode
-    public var formattedTotal: String
-    public var itemCount: Int
-    public var itemsSummary: String
-    public var finalizedAt: Date
+struct PurchaseReceiptPassSnapshot: Codable, Hashable, Sendable {
+    var passTypeIdentifier: String
+    var serialNumber: String
+    var sessionID: UUID
+    var storeName: String
+    var totalAmount: Double
+    var currency: CurrencyCode
+    var formattedTotal: String
+    var itemCount: Int
+    var itemsSummary: String
+    var finalizedAt: Date
 
-    public init(
+    init(
         passTypeIdentifier: String = "pass.com.finsy.receipt",
         sessionID: UUID,
         storeName: String,
@@ -89,20 +89,20 @@ public struct PurchaseReceiptPassSnapshot: Codable, Hashable, Sendable {
     }
 }
 
-public struct TaxReceiptPassSnapshot: Codable, Hashable, Sendable {
-    public var passTypeIdentifier: String
-    public var serialNumber: String
-    public var year: Int
-    public var month: Int
-    public var monthName: String
-    public var totalExpenseTax: Double
-    public var totalTaxableExpense: Double
-    public var currency: CurrencyCode
-    public var formattedExpenseTax: String
-    public var formattedTaxableExpense: String
-    public var generatedAt: Date
+struct TaxReceiptPassSnapshot: Codable, Hashable, Sendable {
+    var passTypeIdentifier: String
+    var serialNumber: String
+    var year: Int
+    var month: Int
+    var monthName: String
+    var totalExpenseTax: Double
+    var totalTaxableExpense: Double
+    var currency: CurrencyCode
+    var formattedExpenseTax: String
+    var formattedTaxableExpense: String
+    var generatedAt: Date
 
-    public init(
+    init(
         passTypeIdentifier: String = "pass.com.finsy.tax",
         year: Int,
         month: Int,
@@ -128,14 +128,14 @@ public struct TaxReceiptPassSnapshot: Codable, Hashable, Sendable {
     }
 }
 
-public enum WalletPassError: LocalizedError, Sendable {
+enum WalletPassError: LocalizedError, Sendable {
     case libraryUnavailable
     case signingServiceUnavailable(String)
     case invalidPassData
     case passAlreadyExists
     case addPassCancelled
 
-    public var errorDescription: String? {
+    var errorDescription: String? {
         switch self {
         case .libraryUnavailable:
             return "Apple Wallet is not available on this device."

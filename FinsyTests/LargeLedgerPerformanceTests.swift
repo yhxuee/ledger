@@ -57,7 +57,7 @@ final class LargeLedgerPerformanceTests: XCTestCase {
     func test10kTransactionsCalculationPerformance() {
         let state = makeLargeLedger(count: 10_000)
         let start = CFAbsoluteTimeGetCurrent()
-        let total = LedgerCalculations.totalBalance(in: state, rates: state.settings.rates)
+        let total = LedgerCalculations.portfolioBalance(state, target: state.settings.baseCurrency)
         let duration = CFAbsoluteTimeGetCurrent() - start
 
         XCTAssertTrue(total.isFinite)
@@ -67,7 +67,7 @@ final class LargeLedgerPerformanceTests: XCTestCase {
     func test50kTransactionsCalculationPerformance() {
         let state = makeLargeLedger(count: 50_000)
         let start = CFAbsoluteTimeGetCurrent()
-        let total = LedgerCalculations.totalBalance(in: state, rates: state.settings.rates)
+        let total = LedgerCalculations.portfolioBalance(state, target: state.settings.baseCurrency)
         let duration = CFAbsoluteTimeGetCurrent() - start
 
         XCTAssertTrue(total.isFinite)
@@ -77,7 +77,7 @@ final class LargeLedgerPerformanceTests: XCTestCase {
     func test100kTransactionsCalculationPerformance() {
         let state = makeLargeLedger(count: 100_000)
         let start = CFAbsoluteTimeGetCurrent()
-        let total = LedgerCalculations.totalBalance(in: state, rates: state.settings.rates)
+        let total = LedgerCalculations.portfolioBalance(state, target: state.settings.baseCurrency)
         let duration = CFAbsoluteTimeGetCurrent() - start
 
         XCTAssertTrue(total.isFinite)

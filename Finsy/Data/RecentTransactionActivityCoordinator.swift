@@ -49,7 +49,7 @@ final class RecentTransactionActivityCoordinator {
                     store.deleteTransaction(tx)
                 }
             } else if s.isRefunded {
-                if let tx = store.state.transactions.first(where: { $0.id == s.id && $0.deletedAt == nil && tx.reversalTransactionID == nil }) {
+                if let tx = store.state.transactions.first(where: { $0.id == s.id && $0.deletedAt == nil && $0.reversalTransactionID == nil }) {
                     _ = store.refundTransaction(tx)
                 }
             }

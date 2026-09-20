@@ -15,15 +15,18 @@ final class PurchasePersistenceRaceTests: XCTestCase {
         // Create and start a purchase session
         let sessionID = UUID()
         let itemID = UUID()
-        let item = PurchaseItem(id: itemID, name: "Headphones", amount: 150.0, categoryID: .shopping, status: .completed)
+        let item = PurchaseItem(id: itemID, categoryID: .shopping, note: "Headphones", amount: 150.0, displayOrder: 0, isCompleted: true)
         let session = PurchaseSession(
             id: sessionID,
-            storeName: "Audio Store",
-            paymentAccountID: account.id,
-            currency: account.currency,
-            items: [item],
+            ledgerBookID: store.activeBookID,
+            name: "Audio Store",
             status: .active,
-            startedAt: .now
+            sections: [],
+            items: [item],
+            createdAt: .now,
+            startedAt: .now,
+            currency: account.currency,
+            accountID: account.id
         )
         store.mutateState { $0.purchaseSessions = [session] }
 
@@ -98,15 +101,18 @@ final class PurchasePersistenceRaceTests: XCTestCase {
         }
 
         let sessionID = UUID()
-        let item1 = PurchaseItem(id: UUID(), name: "Book", amount: 20.0, categoryID: .shopping, status: .completed)
+        let item1 = PurchaseItem(id: UUID(), categoryID: .shopping, note: "Book", amount: 20.0, displayOrder: 0, isCompleted: true)
         let session = PurchaseSession(
             id: sessionID,
-            storeName: "Bookstore",
-            paymentAccountID: account.id,
-            currency: account.currency,
-            items: [item1],
+            ledgerBookID: store.activeBookID,
+            name: "Bookstore",
             status: .active,
-            startedAt: .now
+            sections: [],
+            items: [item1],
+            createdAt: .now,
+            startedAt: .now,
+            currency: account.currency,
+            accountID: account.id
         )
         store.mutateState { $0.purchaseSessions = [session] }
 
@@ -130,7 +136,7 @@ final class PurchasePersistenceRaceTests: XCTestCase {
         }
 
         // While finalize is suspended, a concurrent mutation adds a second item to the session
-        let item2 = PurchaseItem(id: UUID(), name: "Bookmark", amount: 5.0, categoryID: .shopping, status: .draft)
+        let item2 = PurchaseItem(id: UUID(), categoryID: .shopping, note: "Bookmark", amount: 5.0, displayOrder: 1, isCompleted: false)
         store.mutateState { state in
             if var sessions = state.purchaseSessions, let idx = sessions.firstIndex(where: { $0.id == sessionID }) {
                 sessions[idx].items.append(item2)

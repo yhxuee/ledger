@@ -42,17 +42,16 @@ final class WalletPassManager: ObservableObject {
         switch source {
         case .allAccounts:
             title = "Net Worth"
-            currency = store.state.settings.primaryCurrency
-            balance = LedgerCalculations.totalBalance(in: store.state, rates: store.state.settings.rates)
+            currency = store.state.settings.baseCurrency
+            balance = LedgerCalculations.portfolioBalance(store.state, target: currency)
         case .specificAccount(let id):
             if let account = store.state.accounts.first(where: { $0.id == id && $0.deletedAt == nil }) {
                 title = account.name
                 currency = account.currency
-                let activeTxs = store.state.transactions.filter { $0.deletedAt == nil }
-                balance = LedgerCalculations.accountBalance(account, transactions: activeTxs, in: store.state)
+                balance = LedgerCalculations.balance(for: account, in: store.state)
             } else {
                 title = "Account"
-                currency = store.state.settings.primaryCurrency
+                currency = store.state.settings.baseCurrency
                 balance = 0
             }
         }
@@ -76,14 +75,14 @@ final class WalletPassManager: ObservableObject {
         session: PurchaseSession,
         store: LedgerStore
     ) -> PurchaseReceiptPassSnapshot {
-        let completedItems = session.items.filter { $0.status == .completed }
+        let completedItems = session.items.filter { $0.isCompleted }
         let total = completedItems.reduce(0.0) { $0 + $1.amount }
         let formattedTotal = "\(session.currency.symbol)\(String(format: "%.2f", total))"
-        let itemsSummary = completedItems.prefix(3).map(\.name).joined(separator: ", ") + (completedItems.count > 3 ? "..." : "")
+        let itemsSummary = completedItems.prefix(3).map(\.note).joined(separator: ", ") + (completedItems.count > 3 ? "..." : "")
 
         return PurchaseReceiptPassSnapshot(
             sessionID: session.id,
-            storeName: session.storeName ?? "Purchase",
+            storeName: session.name,
             totalAmount: total,
             currency: session.currency,
             formattedTotal: formattedTotal,
@@ -98,7 +97,7 @@ final class WalletPassManager: ObservableObject {
         month: Int,
         store: LedgerStore
     ) -> TaxReceiptPassSnapshot {
-        let baseCurrency = store.state.settings.primaryCurrency
+        let baseCurrency = store.state.settings.baseCurrency
         let rates = store.state.settings.rates
         let calendar = Calendar.current
         var comps = DateComponents()
