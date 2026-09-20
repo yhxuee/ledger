@@ -667,7 +667,6 @@ final class LedgerStore: ObservableObject {
         let insertIndex = min(lastNonDeletedIndex + 1, state.accounts.count)
         state.accounts.insert(account, at: insertIndex)
 
-        undoMessage = "Account frozen"
         scheduleSave()
     }
 
@@ -693,7 +692,6 @@ final class LedgerStore: ObservableObject {
             state.accounts.insert(account, at: insertIndex)
         }
 
-        undoMessage = "Account unfrozen"
         scheduleSave()
     }
 
@@ -1531,7 +1529,6 @@ extension LedgerStore {
         parent.taxAmount = 0
         parent.taxBaseAmount = 0
         state.transactions.insert(parent, at: 0)
-        undoMessage = "Combined Payment created"
         scheduleSave()
         return parent
     }
@@ -1572,7 +1569,6 @@ extension LedgerStore {
         state.transactions[parentIdx].version += 1
         state.transactions[parentIdx].syncStatus = .pending
 
-        undoMessage = "Added to Combined Payment"
         scheduleSave()
         return true
     }
@@ -1633,7 +1629,6 @@ extension LedgerStore {
             markDeleted(at: parentIndex, date: now)
         }
 
-        undoMessage = "Transaction detached from Combined Payment"
         scheduleSave()
         return true
     }
@@ -1658,7 +1653,6 @@ extension LedgerStore {
                 }
             }
         }
-        undoMessage = "Combined Payment ungrouped"
         scheduleSave()
     }
 

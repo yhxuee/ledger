@@ -713,7 +713,11 @@ struct TransactionEditorView: View {
         if isInternalTransfer {
             HStack {
                 Menu {
-                    Button("Cancel Internal Transfer") { destinationID = activeAccounts.first(where: { $0.id != accountID })?.id }
+                    Button(role: .destructive) {
+                        destinationID = activeAccounts.first(where: { $0.id != accountID })?.id
+                    } label: {
+                        Label("Cancel Internal Transfer", systemImage: "xmark.circle")
+                    }
                     ForEach(activeAccounts) { account in
                         Button(account.name) {
                             if account.usesCurrencyPockets {

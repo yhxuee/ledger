@@ -186,6 +186,7 @@ struct StatementConfigurationSheet: View {
         isGenerating = true
         let accounts = activeAccounts.filter { selectedAccountIDs.contains($0.id) }
 
+        let isAllSelected = allSelected
         Task {
             do {
                 let url: URL
@@ -194,12 +195,14 @@ struct StatementConfigurationSheet: View {
                     url = try StatementPDFGenerator.generateMonthlyStatement(
                         monthDate: selectedMonth,
                         accounts: accounts,
+                        allAccountsSelected: isAllSelected,
                         in: store.state
                     )
                 case .tax:
                     url = try StatementPDFGenerator.generateTaxStatement(
                         monthDate: selectedMonth,
                         accounts: accounts,
+                        allAccountsSelected: isAllSelected,
                         in: store.state
                     )
                 }
