@@ -225,8 +225,15 @@ enum LedgerCalculations {
         return (budget, spent, spent / budget)
     }
 
-    static func transactions(_ state: LedgerState, accountID: UUID?) -> [LedgerTransaction] {
-        activeTransactions(state).filter { accountID == nil || $0.accountID == accountID || $0.destinationAccountID == accountID }.sorted { $0.occurredAt > $1.occurredAt }
+    static func transactions(_ state: LedgerState, accountID: UUID?, index: LedgerIndex? = nil) -> [LedgerTransaction] {
+        if let index {
+            if let accountID {
+                return index.transactions(for: accountID).sorted { $0.occurredAt > $1.occurredAt }
+            } else {
+                return index.sortedActiveTransactions
+            }
+        }
+        return activeTransactions(state).filter { accountID == nil || $0.accountID == accountID || $0.destinationAccountID == accountID }.sorted { $0.occurredAt > $1.occurredAt }
     }
 
     static func analytics(_ state: LedgerState, range: AnalyticsRange, type: LedgerTransactionType = .expense, categories: Set<LedgerCategoryID> = [], accountID: UUID? = nil, accountIDs: Set<UUID> = [], customRange: ClosedRange<Date>? = nil, now: Date = .now, index: LedgerIndex? = nil) -> AnalyticsSummary {

@@ -84,6 +84,7 @@ extension LedgerStore {
         saveRevision &+= 1
         let revision = saveRevision
         let snapshot = librarySnapshot()
+        try persistenceFailureHook?()
         try await LedgerPersistence.shared.save(snapshot, revision: revision)
         OverviewWidgetRelay.updateSnapshot(store: self)
         if let active = snapshot.books.first(where: { $0.id == snapshot.activeBookID }), active.effectiveStorageKind != .local {

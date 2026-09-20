@@ -53,7 +53,7 @@ extension LedgerStore {
         try PurchaseRules.validateItems(session, in: state)
         // Local-first: the purchase becomes active and is durably persisted before any
         // App Group / ActivityKit work runs. Those steps can never fail the start.
-        let previousState = state
+        let previousSession = session
         session.status = .active
         session.startedAt = .now
         session.completedAt = nil
@@ -63,9 +63,16 @@ extension LedgerStore {
         do {
             try await persistDurableAsync()
         } catch {
-            mutateState(.full) { state in
-                state = previousState
+            mutateState(.purchaseOnly) { state in
+                guard var sessions = state.purchaseSessions,
+                      let i = sessions.firstIndex(where: { $0.id == sessionID })
+                else { return }
+                guard sessions[i].status == .active else { return }
+                sessions[i] = previousSession
+                state.purchaseSessions = sessions
             }
+            commitActiveBook()
+            scheduleSave()
             throw error
         }
         purchaseSyncWarning = nil
@@ -147,44 +154,82 @@ extension LedgerStore {
         // Post each child to the pocket that already holds the purchase currency, else the primary pocket.
         let purchasePocket = paymentAccount.defaultPocket(for: session.currency)
 
-        // Validate the entire purchase and build all missing transactions in memory first without mutating state.
+        // Pre-scan active transactions in the current book.
+        let activeTransactions = state.transactions.filter { $0.deletedAt == nil && !$0.isReversal }
+        let activeByID = Dictionary(activeTransactions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let existingSessionTransactions = activeTransactions.filter {
+            $0.purchaseSessionID == sessionID && $0.purchaseItemID != nil
+        }
+        let existingByItemID = Dictionary(grouping: existingSessionTransactions, by: { $0.purchaseItemID! })
+
         var newTransactions: [LedgerTransaction] = []
-        var itemTransactionPairs: [(itemIndex: Int, transaction: LedgerTransaction)] = []
-        for itemIndex in session.items.indices where session.items[itemIndex].linkedTransactionID == nil {
-            let item = session.items[itemIndex]
-            let taxSnapshot = state.categories.first(where: { $0.id == item.categoryID }).flatMap {
-                TaxCalculations.resolve(entered: item.amount, type: .expense, rate: state.settings.taxRate(for: $0), mode: .finalAmount, exempt: false)
+        var itemTransactionMappings: [(itemIndex: Int, transactionID: UUID)] = []
+
+        for (itemIndex, item) in session.items.enumerated() {
+            if let linkedID = item.linkedTransactionID {
+                // Case A: Item already has a linkedTransactionID
+                guard let existing = activeByID[linkedID],
+                      existing.purchaseSessionID == sessionID,
+                      existing.purchaseItemID == item.id else {
+                    throw PurchaseFinalizationError.inconsistentPurchaseData
+                }
+                itemTransactionMappings.append((itemIndex, linkedID))
+            } else {
+                // Case B: Item does not have a linkedTransactionID
+                let matches = existingByItemID[item.id] ?? []
+                if matches.count == 1 {
+                    // Single match: adopt existing transaction
+                    let matchID = matches[0].id
+                    itemTransactionMappings.append((itemIndex, matchID))
+                } else if matches.isEmpty {
+                    // Zero matches: build new transaction
+                    let taxSnapshot = state.categories.first(where: { $0.id == item.categoryID }).flatMap {
+                        TaxCalculations.resolve(entered: item.amount, type: .expense, rate: state.settings.taxRate(for: $0), mode: .finalAmount, exempt: false)
+                    }
+                    let transaction = try buildTransaction(
+                        type: .expense,
+                        accountID: accountID,
+                        destinationAccountID: nil,
+                        amount: item.amount,
+                        currency: session.currency,
+                        categoryID: item.categoryID,
+                        occurredAt: item.completedAt ?? .now,
+                        note: item.note,
+                        purchaseSessionID: sessionID,
+                        purchaseItemID: item.id,
+                        accountCurrency: purchasePocket,
+                        taxSnapshot: taxSnapshot,
+                        in: state
+                    )
+                    newTransactions.append(transaction)
+                    itemTransactionMappings.append((itemIndex, transaction.id))
+                } else {
+                    // Multiple matches: inconsistent state
+                    throw PurchaseFinalizationError.inconsistentPurchaseData
+                }
             }
-            let transaction = try buildTransaction(
-                type: .expense,
-                accountID: accountID,
-                destinationAccountID: nil,
-                amount: item.amount,
-                currency: session.currency,
-                categoryID: item.categoryID,
-                occurredAt: item.completedAt ?? .now,
-                note: item.note,
-                purchaseSessionID: sessionID,
-                purchaseItemID: item.id,
-                accountCurrency: purchasePocket,
-                taxSnapshot: taxSnapshot,
-                in: state
-            )
-            newTransactions.append(transaction)
-            itemTransactionPairs.append((itemIndex, transaction))
         }
 
-        let previousState = state
+        // Verify 1-to-1 uniqueness: every item must map to a distinct transaction ID
+        let resolvedIDs = itemTransactionMappings.map(\.transactionID)
+        guard Set(resolvedIDs).count == session.items.count else {
+            throw PurchaseFinalizationError.inconsistentPurchaseData
+        }
+
+        let previousSession = session
+        let createdTransactionIDs = Set(newTransactions.map(\.id))
         var finishedSession: PurchaseSession?
         mutateState(.financial) { state in
-            state.transactions.append(contentsOf: newTransactions)
+            if !newTransactions.isEmpty {
+                state.transactions.append(contentsOf: newTransactions)
+            }
             if var currentSessions = state.purchaseSessions, let idx = currentSessions.firstIndex(where: { $0.id == sessionID }) {
-                for pair in itemTransactionPairs {
-                    currentSessions[idx].items[pair.itemIndex].linkedTransactionID = pair.transaction.id
+                for mapping in itemTransactionMappings {
+                    currentSessions[idx].items[mapping.itemIndex].linkedTransactionID = mapping.transactionID
                 }
                 currentSessions[idx].receiptAttachmentID = receiptAttachmentID ?? currentSessions[idx].receiptAttachmentID
                 currentSessions[idx].status = .completed
-                currentSessions[idx].completedAt = .now
+                currentSessions[idx].completedAt = currentSessions[idx].completedAt ?? .now
                 currentSessions[idx].updatedAt = .now
                 finishedSession = currentSessions[idx]
                 state.purchaseSessions = currentSessions
@@ -194,9 +239,17 @@ extension LedgerStore {
         do {
             try await persistDurableAsync()
         } catch {
-            mutateState(.full) { state in
-                state = previousState
+            mutateState(.financial) { state in
+                state.transactions.removeAll { createdTransactionIDs.contains($0.id) }
+                if var currentSessions = state.purchaseSessions, let idx = currentSessions.firstIndex(where: { $0.id == sessionID }) {
+                    if currentSessions[idx].status == .completed {
+                        currentSessions[idx] = previousSession
+                        state.purchaseSessions = currentSessions
+                    }
+                }
             }
+            commitActiveBook()
+            scheduleSave()
             throw error
         }
 

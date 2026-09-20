@@ -8,7 +8,7 @@ enum AppRoute: Equatable, Sendable {
 }
 
 enum PurchaseFinalizationError: LocalizedError {
-    case missingSession, notReady, invalidItem, paymentAccountUnavailable, missingRate
+    case missingSession, notReady, invalidItem, paymentAccountUnavailable, missingRate, inconsistentPurchaseData
     var errorDescription: String? {
         switch self {
         case .missingSession: "Purchase session was not found."
@@ -16,6 +16,7 @@ enum PurchaseFinalizationError: LocalizedError {
         case .invalidItem: "Each purchase item needs a name, category and positive amount."
         case .paymentAccountUnavailable: "Choose an active payment account before starting or completing this purchase."
         case .missingRate: "Set a valid exchange rate for the purchase and payment account currencies first."
+        case .inconsistentPurchaseData: "This purchase contains conflicting ledger links and could not be finalized safely."
         }
     }
 }
@@ -32,6 +33,7 @@ final class LedgerStore: ObservableObject {
     var fxRefreshes: Set<UUID> = []
     var lastFinancialRefresh = Date.now
     private var activeMutationImpact: StateMutationImpact?
+    var persistenceFailureHook: (@MainActor () throws -> Void)?
 
     @Published private(set) var state: LedgerState {
         didSet {

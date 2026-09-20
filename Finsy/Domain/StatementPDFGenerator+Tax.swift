@@ -139,6 +139,9 @@ extension StatementPDFGenerator {
             drawSectionTitle("Tax-Recognized Records (\(taxItems.count))", yOffset: &yOffset)
             drawTaxTableHeader(accentColor: accentColor, contentWidth: contentWidth, yOffset: &yOffset)
 
+            let rowDateFormatter = DateFormatter()
+            rowDateFormatter.dateFormat = "yyyy-MM-dd"
+
             for (idx, item) in taxItems.enumerated() {
                 let note = item.note
                 let estimatedRowHeight: CGFloat = note.count > 35 ? 28 : 20
@@ -153,7 +156,8 @@ extension StatementPDFGenerator {
                     contentWidth: contentWidth,
                     rowHeight: estimatedRowHeight,
                     isAlternate: idx % 2 == 1,
-                    yOffset: &yOffset
+                    yOffset: &yOffset,
+                    dateFormatter: rowDateFormatter
                 )
             }
 
@@ -294,7 +298,8 @@ extension StatementPDFGenerator {
         contentWidth: CGFloat,
         rowHeight: CGFloat,
         isAlternate: Bool,
-        yOffset: inout CGFloat
+        yOffset: inout CGFloat,
+        dateFormatter: DateFormatter? = nil
     ) {
         let colWidths: [CGFloat] = [
             contentWidth * 0.09,
@@ -326,8 +331,13 @@ extension StatementPDFGenerator {
             UIRectFill(rowRect)
         }
 
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd"
+        let df: DateFormatter
+        if let dateFormatter {
+            df = dateFormatter
+        } else {
+            df = DateFormatter()
+            df.dateFormat = "yyyy-MM-dd"
+        }
         let dateStr = df.string(from: item.transaction.occurredAt)
         let rateStr = String(format: "%.1f%%", item.rate * 100)
 

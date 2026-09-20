@@ -169,6 +169,9 @@ extension StatementPDFGenerator {
             drawSectionTitle("Transaction Records (\(postings.count))", yOffset: &yOffset)
             drawGeneralTransactionTableHeader(baseCurrency: baseCurrency, accentColor: accentColor, contentWidth: contentWidth, colWidths: colWidths, yOffset: &yOffset)
 
+            let rowDateFormatter = DateFormatter()
+            rowDateFormatter.dateFormat = "yyyy-MM-dd"
+
             for (idx, posting) in postings.enumerated() {
                 let descHeight = measureDescriptionHeight(text: posting.userDescription, width: colWidths[3] - 6)
                 let estimatedRowHeight = max(19.0, descHeight + 7.0)
@@ -186,7 +189,10 @@ extension StatementPDFGenerator {
                     contentWidth: contentWidth,
                     colWidths: colWidths,
                     isAlternate: idx % 2 == 1,
-                    yOffset: &yOffset
+                    yOffset: &yOffset,
+                    accountsByID: index.accountsByID,
+                    categoriesByID: index.categoriesByID,
+                    dateFormatter: rowDateFormatter
                 )
             }
 
@@ -205,7 +211,8 @@ extension StatementPDFGenerator {
                 pageNumber: pageIndex,
                 accentColor: accentColor,
                 state: state,
-                now: now
+                now: now,
+                index: index
             )
         }
 
@@ -341,6 +348,9 @@ extension StatementPDFGenerator {
                 } else {
                     drawMultiCurrencyTransactionTableHeader(pocketCurrency: pocketCurrency, accentColor: accentColor, contentWidth: contentWidth, colWidths: colWidths, yOffset: &yOffset)
 
+                    let rowDateFormatter = DateFormatter()
+                    rowDateFormatter.dateFormat = "yyyy-MM-dd"
+
                     for (idx, posting) in pocketPostings.enumerated() {
                         let descHeight = measureDescriptionHeight(text: posting.userDescription, width: colWidths[2] - 6)
                         let estimatedRowHeight = max(19.0, descHeight + 7.0)
@@ -358,7 +368,9 @@ extension StatementPDFGenerator {
                             contentWidth: contentWidth,
                             colWidths: colWidths,
                             isAlternate: idx % 2 == 1,
-                            yOffset: &yOffset
+                            yOffset: &yOffset,
+                            categoriesByID: index.categoriesByID,
+                            dateFormatter: rowDateFormatter
                         )
                     }
                     yOffset += 16
@@ -383,7 +395,8 @@ extension StatementPDFGenerator {
                 pageNumber: pageIndex,
                 accentColor: accentColor,
                 state: state,
-                now: now
+                now: now,
+                index: index
             )
         }
 
@@ -532,7 +545,10 @@ extension StatementPDFGenerator {
         contentWidth: CGFloat,
         colWidths: [CGFloat],
         isAlternate: Bool,
-        yOffset: inout CGFloat
+        yOffset: inout CGFloat,
+        accountsByID: [UUID: LedgerAccount]? = nil,
+        categoriesByID: [LedgerCategoryID: LedgerCategory]? = nil,
+        dateFormatter: DateFormatter? = nil
     ) {
         let topPadding: CGFloat = 3
         let bottomPadding: CGFloat = 4
@@ -576,11 +592,16 @@ extension StatementPDFGenerator {
             .foregroundColor: textColor
         ]
 
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd"
+        let df: DateFormatter
+        if let dateFormatter {
+            df = dateFormatter
+        } else {
+            df = DateFormatter()
+            df.dateFormat = "yyyy-MM-dd"
+        }
         let dateStr = df.string(from: posting.date)
-        let accName = state.accounts.first { $0.id == posting.accountID }?.name ?? "Account"
-        let catName = posting.isTransfer ? "Transfer" : (state.categories.first { $0.id == posting.categoryID }?.name ?? "General")
+        let accName = (accountsByID?[posting.accountID] ?? state.accounts.first { $0.id == posting.accountID })?.name ?? "Account"
+        let catName = posting.isTransfer ? "Transfer" : ((categoriesByID?[posting.categoryID] ?? state.categories.first { $0.id == posting.categoryID })?.name ?? "General")
         let curStr = posting.originalCurrency.rawValue
         let fxStr = formatFXRate(posting.effectiveFXRate)
 
@@ -699,7 +720,9 @@ extension StatementPDFGenerator {
         contentWidth: CGFloat,
         colWidths: [CGFloat],
         isAlternate: Bool,
-        yOffset: inout CGFloat
+        yOffset: inout CGFloat,
+        categoriesByID: [LedgerCategoryID: LedgerCategory]? = nil,
+        dateFormatter: DateFormatter? = nil
     ) {
         let topPadding: CGFloat = 3
         let bottomPadding: CGFloat = 4
@@ -743,10 +766,15 @@ extension StatementPDFGenerator {
             .foregroundColor: textColor
         ]
 
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd"
+        let df: DateFormatter
+        if let dateFormatter {
+            df = dateFormatter
+        } else {
+            df = DateFormatter()
+            df.dateFormat = "yyyy-MM-dd"
+        }
         let dateStr = df.string(from: posting.date)
-        let catName = posting.isTransfer ? "Transfer" : (state.categories.first { $0.id == posting.categoryID }?.name ?? "General")
+        let catName = posting.isTransfer ? "Transfer" : ((categoriesByID?[posting.categoryID] ?? state.categories.first { $0.id == posting.categoryID })?.name ?? "General")
         let curStr = posting.originalCurrency.rawValue
 
         let amtVal = formatMoney(posting.nativeAmount)
@@ -781,11 +809,12 @@ extension StatementPDFGenerator {
         pageNumber: Int,
         accentColor: UIColor,
         state: LedgerState,
-        now: Date
+        now: Date,
+        index: LedgerIndex? = nil
     ) {
         let calendar = Calendar.current
         let baseCurrency = state.settings.baseCurrency
-        let (summary, windows) = ThreeMonthFinancialEngine.calculate(for: startOfMonth, in: state, baseCurrency: baseCurrency, now: now)
+        let (summary, windows) = ThreeMonthFinancialEngine.calculate(for: startOfMonth, in: state, baseCurrency: baseCurrency, now: now, index: index)
 
         var yOffset: CGFloat = margin
 

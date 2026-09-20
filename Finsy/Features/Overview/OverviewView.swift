@@ -14,8 +14,8 @@ struct OverviewView: View {
     @State private var revealedTransactionID: UUID? = nil
 
     private var selected: AccountViewModel? { selectedAccountID.flatMap { id in store.accounts.first { $0.id == id } } }
-    private var transactions: [LedgerTransaction] { LedgerCalculations.transactions(store.state, accountID: selectedAccountID) }
-    private var usage: (budget: Double, spent: Double, ratio: Double) { selected.map { LedgerCalculations.budgetUsage(store.state, account: $0.account) } ?? LedgerCalculations.budgetUsage(store.state) }
+    private var transactions: [LedgerTransaction] { LedgerCalculations.transactions(store.state, accountID: selectedAccountID, index: store.index) }
+    private var usage: (budget: Double, spent: Double, ratio: Double) { selected.map { LedgerCalculations.budgetUsage(store.state, account: $0.account, index: store.index) } ?? LedgerCalculations.budgetUsage(store.state, index: store.index) }
     private var usageCurrency: CurrencyCode { selected?.account.currency ?? store.state.settings.baseCurrency }
 
     // Metric summaries
