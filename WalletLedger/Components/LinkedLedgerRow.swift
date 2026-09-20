@@ -754,7 +754,7 @@ struct LinkedLedgerRow: View {
             } label: {
                 Label("Reimbursement", systemImage: "arrow.uturn.backward.circle")
             }
-            if store.state.accounts.first(where: { $0.id == parent.accountID })?.type == .credit {
+            if TransactionSemantics.isEligibleForInstallment(parent, in: store.state) {
                 Button {
                     setupMode = .installment
                 } label: {

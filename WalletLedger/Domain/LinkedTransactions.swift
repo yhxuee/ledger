@@ -309,6 +309,13 @@ enum TransactionSemantics {
         transaction.purchaseSessionID == nil
     }
 
+    /// True if an expense transaction is eligible for Credit Installment setup.
+    static func isEligibleForInstallment(_ transaction: LedgerTransaction, in state: LedgerState) -> Bool {
+        guard eligible(transaction) else { return false }
+        guard let account = state.accounts.first(where: { $0.id == transaction.accountID }) else { return false }
+        return account.type == .credit
+    }
+
     /// Non-deleted, non-reversal children of a parent group.
     static func children(of parent: LedgerTransaction, in state: LedgerState) -> [LedgerTransaction] {
         state.transactions.filter { $0.deletedAt == nil && $0.parentTransactionID == parent.id && !$0.isReversal }

@@ -37,6 +37,10 @@
             <key>LSItemContentTypes</key><array>
                 <string>com.finsy.app.backup</string>
                 <string>org.medx.walletledger.backup</string>
+                <string>com.finsy.app.pairing-request</string>
+                <string>com.finsy.app.key-grant</string>
+                <string>public.json</string>
+                <string>public.comma-separated-values-text</string>
             </array>
         </dict>
     </array>
@@ -45,10 +49,25 @@
         <dict>
             <key>UTTypeIdentifier</key><string>com.finsy.app.backup</string>
             <key>UTTypeDescription</key><string>Finsy Backup</string>
-            <key>UTTypeConformsTo</key><array><string>public.json</string></array>
+            <key>UTTypeConformsTo</key><array><string>public.data</string></array>
             <key>UTTypeTagSpecification</key><dict>
-                <key>public.filename-extension</key><array><string>walletledger</string></array>
-                <key>public.mime-type</key><string>application/json</string>
+                <key>public.filename-extension</key><array><string>fsy</string></array>
+            </dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key><string>com.finsy.app.pairing-request</string>
+            <key>UTTypeDescription</key><string>Finsy Pairing Request</string>
+            <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+            <key>UTTypeTagSpecification</key><dict>
+                <key>public.filename-extension</key><array><string>fsyrequest</string></array>
+            </dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key><string>com.finsy.app.key-grant</string>
+            <key>UTTypeDescription</key><string>Finsy Key Grant</string>
+            <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+            <key>UTTypeTagSpecification</key><dict>
+                <key>public.filename-extension</key><array><string>fsykey</string></array>
             </dict>
         </dict>
     </array>

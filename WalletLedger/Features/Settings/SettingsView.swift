@@ -1,6 +1,7 @@
 import CloudKit
 import SwiftUI
 import UniformTypeIdentifiers
+import CryptoKit
 
 struct SettingsView: View {
     @EnvironmentObject private var store: LedgerStore
@@ -13,6 +14,8 @@ struct SettingsView: View {
     @State private var working = false
     @State private var statusMessage: String?
     @State private var confirmingReset = false
+    @State private var confirmingDisableE2EE = false
+    @State private var confirmingPendingCloud = false
     @State private var cloudShare: CKShare?
     @State private var showingCloudSharing = false
 
@@ -31,15 +34,15 @@ struct SettingsView: View {
         .background(LedgerBackground())
         .navigationTitle("Settings")
         .toolbar { ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() } }
-        .fileExporter(isPresented: $showingExporter, document: exportDocument, contentType: .walletLedgerBackup, defaultFilename: backupFileName) { result in
+        .fileExporter(isPresented: $showingExporter, document: exportDocument, contentType: .fsyBackup, defaultFilename: backupFileName) { result in
             if case .failure(let error) = result { store.presentedError = error.localizedDescription }
         }
-        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.walletLedgerBackup, .json]) { result in
+        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.fsyBackup, .legacyWalletLedgerBackup, .json, .commaSeparatedText]) { result in
             do {
                 let url = try result.get()
                 let accessed = url.startAccessingSecurityScopedResource()
                 defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-                importPreview = try BackupCodec.decode(Data(contentsOf: url), sourceName: url.lastPathComponent)
+                importPreview = try BackupCodec.decode(Data(contentsOf: url), sourceName: url.lastPathComponent, existingState: store.state)
             } catch { store.presentedError = error.localizedDescription }
         }
         .sheet(item: $importPreview) { preview in
@@ -47,6 +50,7 @@ struct SettingsView: View {
                 store.replace(with: preview.envelope)
                 importPreview = nil
             }
+            .environmentObject(store)
         }
         .sheet(isPresented: $showingCloudSharing) {
             if let cloudShare {
@@ -73,6 +77,22 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This clears local ledgers, receipts, caches, and device preferences. It does not delete CloudKit ledgers owned by or shared with other people.")
+        }
+        .confirmationDialog("Turn Off End-to-End Encryption?", isPresented: $confirmingDisableE2EE, titleVisibility: .visible) {
+            Button("Turn Off", role: .destructive) {
+                disableE2EE()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Future CloudKit records and backups for this ledger will no longer use the ledger encryption key. Existing encrypted backup files remain encrypted.")
+        }
+        .confirmationDialog("Cloud Changes Pending", isPresented: $confirmingPendingCloud, titleVisibility: .visible) {
+            Button("Continue Anyway") {
+                executePendingBackupAction()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Cloud changes may still be pending. This backup will contain the latest data currently available on this device.")
         }
     }
 
@@ -225,6 +245,33 @@ struct SettingsView: View {
 
             Divider()
 
+            HStack {
+                SettingsLabel("End-to-End Encryption", systemImage: "lock.shield")
+                Spacer()
+                if store.activeBook.effectiveStorageKind == .cloudParticipant {
+                    Text("Required by Owner")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Toggle("", isOn: e2eeBinding)
+                        .labelsHidden()
+                }
+            }
+
+            if store.activeBook.effectiveEncryptionState == .enabled {
+                LabeledContent("Encryption Key", value: (try? LedgerKeyStore.loadKey(for: store.activeBook.id)) != nil ? "Available" : "Missing")
+                LabeledContent("Authorized Device", value: "This Device")
+            }
+
+            NavigationLink {
+                DeviceAuthorizationView()
+            } label: {
+                SettingsLinkRow("Device Authorization", systemImage: "key.horizontal", detail: nil)
+            }
+            .foregroundStyle(.primary)
+
+            Divider()
+
             Button(role: .destructive) {
                 confirmingReset = true
             } label: {
@@ -232,7 +279,7 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Text("Sensitive values are protected on this device only. This preference is never included in ledger backups.")
+            Text("Finsy cannot recover an encrypted ledger if every authorized copy of its encryption key is lost. Keep at least one authorized device or transfer the key when replacing devices.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -252,7 +299,7 @@ struct SettingsView: View {
             Divider()
 
             Button {
-                Task { await performICloudBackup() }
+                prepareICloudBackup()
             } label: {
                 SettingsLabel("Back Up Now", systemImage: "icloud.and.arrow.up")
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -274,8 +321,7 @@ struct SettingsView: View {
             Divider()
 
             Button {
-                exportDocument = BackupDocument(envelope: store.backupEnvelope())
-                showingExporter = true
+                prepareExportBackup()
             } label: {
                 SettingsLabel("Export Backup", systemImage: "square.and.arrow.up")
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -360,12 +406,109 @@ struct SettingsView: View {
     }
     private var backupFileName: String {
         let values = Calendar.current.dateComponents([.year, .month, .day], from: .now)
-        return String(format: "Finsy-%04d-%02d-%02d.walletledger", values.year ?? 0, values.month ?? 0, values.day ?? 0)
+        return String(format: "Finsy-%04d-%02d-%02d.fsy", values.year ?? 0, values.month ?? 0, values.day ?? 0)
     }
+
+    private var e2eeBinding: Binding<Bool> {
+        Binding(
+            get: { store.activeBook.effectiveEncryptionState == .enabled },
+            set: { enabled in
+                if enabled {
+                    Task { await enableE2EE() }
+                } else {
+                    confirmingDisableE2EE = true
+                }
+            }
+        )
+    }
+
+    private func enableE2EE() async {
+        guard await privacy.authorizeSensitiveChange(
+            reason: "Authenticate to enable End-to-End Encryption.",
+            protectionEnabled: preferences.value.biometricLockEnabled
+        ) else { return }
+
+        do {
+            let (key, fp) = try LedgerKeyStore.generateAndSaveKey(for: store.activeBook.id)
+            store.markActiveBookEncrypted(fingerprint: fp)
+            if store.activeBook.effectiveStorageKind != .local {
+                working = true; defer { working = false }
+                try await CloudLedgerService.shared.migrateToEncrypted(book: store.activeBook, key: key)
+            }
+            statusMessage = "End-to-End Encryption enabled for this ledger."
+        } catch {
+            store.presentedError = error.localizedDescription
+        }
+    }
+
+    private func disableE2EE() {
+        store.markActiveBookUnencrypted()
+        statusMessage = "End-to-End Encryption disabled. Existing encrypted backups remain readable."
+    }
+
+    @State private var pendingBackupAction: (() -> Void)? = nil
+
+    private func executePendingBackupAction() {
+        let action = pendingBackupAction
+        pendingBackupAction = nil
+        action?()
+    }
+
+    private func prepareICloudBackup() {
+        if store.activeBook.effectiveStorageKind != .local {
+            Task {
+                do {
+                    if let synced = try await CloudLedgerService.shared.flushAndFetch(book: store.activeBook) {
+                        store.addOrMergeCloudBook(synced)
+                    }
+                    await performICloudBackup()
+                } catch {
+                    pendingBackupAction = { Task { await self.performICloudBackup() } }
+                    confirmingPendingCloud = true
+                }
+            }
+        } else {
+            Task { await performICloudBackup() }
+        }
+    }
+
+    private func prepareExportBackup() {
+        if store.activeBook.effectiveStorageKind != .local {
+            Task {
+                do {
+                    if let synced = try await CloudLedgerService.shared.flushAndFetch(book: store.activeBook) {
+                        store.addOrMergeCloudBook(synced)
+                    }
+                    performExportBackup()
+                } catch {
+                    pendingBackupAction = { self.performExportBackup() }
+                    confirmingPendingCloud = true
+                }
+            }
+        } else {
+            performExportBackup()
+        }
+    }
+
+    private func performExportBackup() {
+        let key = (store.activeBook.effectiveEncryptionState == .enabled) ? (try? LedgerKeyStore.loadKey(for: store.activeBook.id)) : nil
+        exportDocument = BackupDocument(
+            envelope: store.backupEnvelope(),
+            ledgerID: store.activeBook.id,
+            key: key
+        )
+        showingExporter = true
+    }
+
     private func performICloudBackup() async {
         working = true; defer { working = false }
         do {
-            let date = try await ICloudBackupService.shared.backup(store.backupEnvelope())
+            let key = (store.activeBook.effectiveEncryptionState == .enabled) ? (try? LedgerKeyStore.loadKey(for: store.activeBook.id)) : nil
+            let date = try await ICloudBackupService.shared.backup(
+                store.backupEnvelope(),
+                ledgerID: store.activeBook.id,
+                key: key
+            )
             store.updateSettings { $0.lastBackupAt = date }
             statusMessage = "Backup saved to iCloud Drive."
         } catch {
@@ -375,7 +518,7 @@ struct SettingsView: View {
     private func performICloudRestore() async {
         working = true; defer { working = false }
         do {
-            importPreview = try await ICloudBackupService.shared.restoreLatest()
+            importPreview = try await ICloudBackupService.shared.restoreLatest(existingState: store.state)
         } catch {
             store.presentedError = error.localizedDescription
         }
@@ -475,8 +618,27 @@ struct SettingsGlassSection<Content: View>: View {
 
 struct ImportPreviewView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: LedgerStore
     let preview: ImportPreview
     let confirm: () -> Void
+    @State private var confirmingStaleBackup = false
+
+    private var isLocalNewer: Bool {
+        store.state.lastModifiedAt > preview.envelope.data.lastModifiedAt
+    }
+
+    private var localUpdatedAgo: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: store.state.lastModifiedAt, relativeTo: .now)
+    }
+
+    private var backupUpdatedAgo: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: preview.envelope.data.lastModifiedAt, relativeTo: .now)
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -514,9 +676,23 @@ struct ImportPreviewView: View {
                     .accessibilityLabel("Cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Import", action: confirm)
-                        .fontWeight(.semibold)
+                    Button("Import") {
+                        if isLocalNewer {
+                            confirmingStaleBackup = true
+                        } else {
+                            confirm()
+                        }
+                    }
+                    .fontWeight(.semibold)
                 }
+            }
+            .confirmationDialog("Newer Local Data", isPresented: $confirmingStaleBackup, titleVisibility: .visible) {
+                Button("Replace Anyway", role: .destructive) {
+                    confirm()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Your current ledger is newer (updated \(localUpdatedAgo)).\nThis backup was last updated \(backupUpdatedAgo).\n\nReplacing the current ledger may discard newer transactions.")
             }
         }
         .presentationDetents([.medium, .large])

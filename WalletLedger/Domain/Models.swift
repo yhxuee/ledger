@@ -519,6 +519,30 @@ struct LedgerState: Codable, Hashable, Sendable {
     var settings: LedgerSettings
     var recurringRules: [RecurringRule]? = nil
     var purchaseSessions: [PurchaseSession]? = nil
+
+    var lastModifiedAt: Date {
+        var dates: [Date] = [settings.updatedAt]
+        for a in accounts { dates.append(a.updatedAt) }
+        for t in transactions { dates.append(t.updatedAt) }
+        if let rules = recurringRules {
+            for r in rules { dates.append(r.updatedAt) }
+        }
+        if let sessions = purchaseSessions {
+            for s in sessions {
+                dates.append(s.updatedAt ?? s.completedAt ?? s.startedAt ?? s.createdAt)
+            }
+        }
+        return dates.max() ?? .distantPast
+    }
+}
+
+enum LedgerEncryptionState: String, Codable, Hashable, Sendable {
+    case disabled
+    case enabling
+    case enabled
+    case authorizationRequired
+    case disabling
+    case migrationFailed
 }
 
 struct LedgerBook: Identifiable, Codable, Hashable, Sendable {
@@ -530,8 +554,17 @@ struct LedgerBook: Identifiable, Codable, Hashable, Sendable {
     var storageKind: LedgerStorageKind? = nil
     var cloudZoneName: String? = nil
     var cloudZoneOwnerName: String? = nil
+    var isEncrypted: Bool? = nil
+    var encryptionVersion: Int? = nil
+    var keyFingerprint: String? = nil
+    var encryptionState: LedgerEncryptionState? = nil
 
     var effectiveStorageKind: LedgerStorageKind { storageKind ?? .local }
+    var effectiveEncryptionState: LedgerEncryptionState {
+        if let encryptionState { return encryptionState }
+        if isEncrypted == true { return .enabled }
+        return .disabled
+    }
 }
 
 enum LedgerStorageKind: String, Codable, Hashable, Sendable { case local, cloudOwner, cloudParticipant }

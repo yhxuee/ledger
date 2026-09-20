@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 enum BackupCodec {
     static let currentSchemaVersion = 3
@@ -22,7 +23,103 @@ enum BackupCodec {
 
     static func encode(_ envelope: LedgerBackupEnvelope) throws -> Data { try encoder().encode(envelope) }
 
-    static func decode(_ data: Data, sourceName: String) throws -> ImportPreview {
+    static func encodeFsy(
+        envelope: LedgerBackupEnvelope,
+        ledgerID: UUID,
+        key: SymmetricKey?
+    ) throws -> Data {
+        let manifest = FsyInnerManifest(
+            ledgerID: ledgerID,
+            snapshotCreatedAt: .now,
+            stateLastModifiedAt: envelope.data.lastModifiedAt,
+            schemaVersion: envelope.data.schemaVersion,
+            accountCount: envelope.metadata.accountCount,
+            transactionCount: envelope.metadata.transactionCount
+        )
+        let innerPayload = FsyInnerBackupPayload(manifest: manifest, envelope: envelope)
+        let innerData = try encoder().encode(innerPayload)
+
+        let container: FsyBackupContainer
+        if let key {
+            let (ciphertext, fp) = try LedgerCryptoService.encryptBackup(innerData, ledgerID: ledgerID, key: key)
+            container = FsyBackupContainer(
+                format: FsyBackupContainer.currentFormat,
+                formatVersion: FsyBackupContainer.currentFormatVersion,
+                ledgerID: ledgerID,
+                encrypted: true,
+                encryptionVersion: LedgerCryptoService.currentEncryptionVersion,
+                keyFingerprint: fp,
+                createdAt: .now,
+                payload: ciphertext
+            )
+        } else {
+            container = FsyBackupContainer(
+                format: FsyBackupContainer.currentFormat,
+                formatVersion: FsyBackupContainer.currentFormatVersion,
+                ledgerID: ledgerID,
+                encrypted: false,
+                encryptionVersion: nil,
+                keyFingerprint: nil,
+                createdAt: .now,
+                payload: innerData
+            )
+        }
+        return try encoder().encode(container)
+    }
+
+    static func decode(_ data: Data, sourceName: String, existingState: LedgerState? = nil) throws -> ImportPreview {
+        // 1. Check for CSV format
+        if sourceName.lowercased().hasSuffix(".csv") || (String(data: data, encoding: .utf8)?.contains("account_amount") == true) {
+            if let text = String(data: data, encoding: .utf8), let baseState = existingState {
+                return try CSVTransactionImporter.convertToImportPreview(csvText: text, sourceName: sourceName, existingState: baseState)
+            }
+        }
+
+        // 2. Check for .fsy container
+        if let fsy = try? decoder().decode(FsyBackupContainer.self, from: data), fsy.format == FsyBackupContainer.currentFormat {
+            let innerData: Data
+            if fsy.encrypted {
+                guard let key = try LedgerKeyStore.loadKey(for: fsy.ledgerID) else {
+                    throw LedgerCryptoError.authorizationRequired(ledgerID: fsy.ledgerID, fingerprint: fsy.keyFingerprint)
+                }
+                let fp = LedgerKeyStore.fingerprint(for: key, ledgerID: fsy.ledgerID)
+                if let expected = fsy.keyFingerprint, !expected.isEmpty, expected.lowercased() != fp.lowercased() {
+                    throw LedgerCryptoError.authorizationRequired(ledgerID: fsy.ledgerID, fingerprint: expected)
+                }
+                innerData = try LedgerCryptoService.decryptBackup(
+                    fsy.payload,
+                    ledgerID: fsy.ledgerID,
+                    key: key,
+                    formatVersion: fsy.formatVersion,
+                    expectedFingerprint: fsy.keyFingerprint
+                )
+            } else {
+                innerData = fsy.payload
+            }
+
+            var envelope: LedgerBackupEnvelope
+            if let inner = try? decoder().decode(FsyInnerBackupPayload.self, from: innerData) {
+                guard inner.manifest.ledgerID == fsy.ledgerID else {
+                    throw LedgerCryptoError.corruptedContainer("Inner manifest ledger ID does not match container.")
+                }
+                envelope = inner.envelope
+            } else if let direct = try? decoder().decode(LedgerBackupEnvelope.self, from: innerData) {
+                envelope = direct
+            } else {
+                throw BackupError.corruptArchive
+            }
+
+            PurchaseRules.migrateDevelopmentSessions(in: &envelope.data)
+            SchemaMigration.normalize(&envelope.data)
+            try validate(envelope.data)
+            envelope.metadata.accountCount = envelope.data.accounts.filter { $0.deletedAt == nil }.count
+            envelope.metadata.transactionCount = envelope.data.transactions.filter { $0.deletedAt == nil }.count
+            envelope.metadata.categoryCount = envelope.data.categories.count
+            envelope.metadata.baseCurrency = envelope.data.settings.baseCurrency
+            return .init(sourceName: sourceName, envelope: envelope, warnings: [])
+        }
+
+        // 3. Fallback to legacy formats (.walletledger, .json)
         var envelope: LedgerBackupEnvelope
         if let current = try? decoder().decode(LedgerBackupEnvelope.self, from: data) {
             envelope = current

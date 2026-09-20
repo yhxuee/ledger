@@ -5398,6 +5398,259 @@
           }
         }
       }
+    },
+    "Set Installments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Installments"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置分期"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定分期"
+          }
+        }
+      }
+    },
+    "End-to-End Encryption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End-to-End Encryption"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端到端加密"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端對端加密"
+          }
+        }
+      }
+    },
+    "Device Authorization": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device Authorization"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备授权"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "裝置授權"
+          }
+        }
+      }
+    },
+    "Ledger Backup Found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ledger Backup Found"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发现账本备份"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "發現帳本備份"
+          }
+        }
+      }
+    },
+    "This device is not authorized to decrypt this ledger. Use a paired device to authorize this device by QR code or secure transfer.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device is not authorized to decrypt this ledger. Use a paired device to authorize this device by QR code or secure transfer."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备未经授权无法解密此账本。请使用已配对的设备通过二维码或安全传输授权此设备。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此裝置未經授權無法解密此帳本。請使用已配對的裝置透過 QR 碼或安全傳輸授權此裝置。"
+          }
+        }
+      }
+    },
+    "Turn Off End-to-End Encryption?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn Off End-to-End Encryption?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭端到端加密？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉端對端加密？"
+          }
+        }
+      }
+    },
+    "Future CloudKit records and backups for this ledger will no longer use the ledger encryption key. Existing encrypted backup files remain encrypted.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Future CloudKit records and backups for this ledger will no longer use the ledger encryption key. Existing encrypted backup files remain encrypted."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此账本未来的 CloudKit 记录和备份将不再使用账本加密密钥。已有的加密备份文件仍将保持加密。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帳本未來的 CloudKit 記錄與備份將不再使用帳本加密金鑰。現有的加密備份檔案仍將保持加密。"
+          }
+        }
+      }
+    },
+    "Cloud changes may still be pending. This backup will contain the latest data currently available on this device.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud changes may still be pending. This backup will contain the latest data currently available on this device."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可能仍有待处理的云端同步更改。此备份将包含当前此设备上可用的最新数据。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可能仍有待處理的雲端同步變更。此備份將包含目前此裝置上可用的最新資料。"
+          }
+        }
+      }
+    },
+    "Newer Local Data": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Newer Local Data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地数据更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本機資料較新"
+          }
+        }
+      }
+    },
+    "Replace Anyway": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace Anyway"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍然替换"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍然取代"
+          }
+        }
+      }
+    },
+    "Finsy cannot recover an encrypted ledger if every authorized copy of its encryption key is lost. Keep at least one authorized device or transfer the key when replacing devices.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finsy cannot recover an encrypted ledger if every authorized copy of its encryption key is lost. Keep at least one authorized device or transfer the key when replacing devices."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果账本加密密钥的所有已授权副本全部丢失，Finsy 将无法恢复加密账本。请保留至少一台已授权设备，或在更换设备时转移密钥。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "若帳本加密金鑰的所有已授權複本全部遺失，Finsy 將無法復原加密帳本。請保留至少一部已授權裝置，或在更換裝置時轉移金鑰。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

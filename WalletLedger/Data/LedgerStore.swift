@@ -125,6 +125,24 @@ final class LedgerStore: ObservableObject {
         scheduleSave()
     }
 
+    func markActiveBookEncrypted(fingerprint: String) {
+        guard let index = books.firstIndex(where: { $0.id == activeBookID }) else { return }
+        books[index].isEncrypted = true
+        books[index].encryptionVersion = LedgerCryptoService.currentEncryptionVersion
+        books[index].keyFingerprint = fingerprint
+        books[index].encryptionState = .enabled
+        books[index].updatedAt = .now
+        scheduleSave()
+    }
+
+    func markActiveBookUnencrypted() {
+        guard let index = books.firstIndex(where: { $0.id == activeBookID }) else { return }
+        books[index].isEncrypted = false
+        books[index].encryptionState = .disabled
+        books[index].updatedAt = .now
+        scheduleSave()
+    }
+
     func addOrMergeCloudBook(_ book: LedgerBook) {
         commitActiveBook()
         if let index = books.firstIndex(where: { $0.id == book.id }) {
@@ -801,6 +819,10 @@ final class LedgerStore: ObservableObject {
     }
 
     func handleDeepLink(_ url: URL) {
+        if url.isFileURL {
+            handleOpenedFile(url)
+            return
+        }
         guard url.scheme == "finsy" || url.scheme == "walletledger" else { return }
         if url.host == "transaction" && (url.path == "/add" || url.pathComponents.contains("add")) {
             activeRoute = .addTransaction
@@ -810,6 +832,26 @@ final class LedgerStore: ObservableObject {
             routedPurchaseID = id
             activeRoute = .purchase(id)
             return
+        }
+    }
+
+    func handleOpenedFile(_ url: URL) {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else { return }
+
+        if url.pathExtension.lowercased() == "fsykey" {
+            do {
+                let envelope = try JSONDecoder().decode(FinsyKeyGrantEnvelope.self, from: data)
+                let privateKey = try LedgerDeviceIdentity.getOrCreatePrivateKey()
+                let (_, ledgerID, _) = try LedgerCryptoService.receiveKeyGrant(envelope: envelope, devicePrivateKey: privateKey)
+                if let index = books.firstIndex(where: { $0.id == ledgerID }) {
+                    books[index].encryptionState = .enabled
+                    scheduleSave()
+                }
+            } catch {
+                presentedError = error.localizedDescription
+            }
         }
     }
 

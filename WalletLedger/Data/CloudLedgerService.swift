@@ -25,9 +25,13 @@ final class CloudLedgerSyncCoordinator: CKSyncEngineDelegate, @unchecked Sendabl
             for record in records {
                 if let cached = pendingRecords[record.recordID] {
                     cached["payload"] = record["payload"]
+                    cached["ciphertextV1"] = record["ciphertextV1"]
+                    cached["keyFingerprint"] = record["keyFingerprint"]
+                    cached["encryptionVersion"] = record["encryptionVersion"]
                     cached["updatedAt"] = record["updatedAt"]
                     cached["version"] = record["version"]
                     cached["receipt"] = record["receipt"]
+                    cached["noteAttachment"] = record["noteAttachment"]
                     cached.parent = record.parent
                     pendingRecords[record.recordID] = cached
                 } else { pendingRecords[record.recordID] = record }
@@ -58,6 +62,9 @@ final class CloudLedgerSyncCoordinator: CKSyncEngineDelegate, @unchecked Sendabl
                 let serverDate = server["updatedAt"] as? Date ?? .distantPast
                 if localDate > serverDate {
                     server["payload"] = failure.record["payload"]
+                    server["ciphertextV1"] = failure.record["ciphertextV1"]
+                    server["keyFingerprint"] = failure.record["keyFingerprint"]
+                    server["encryptionVersion"] = failure.record["encryptionVersion"]
                     server["updatedAt"] = failure.record["updatedAt"]
                     server["version"] = failure.record["version"]
                     queue.sync { pendingRecords[server.recordID] = server }
@@ -155,9 +162,102 @@ actor CloudLedgerService {
         }
     }
 
+    func flushAndFetch(book: LedgerBook) async throws -> LedgerBook? {
+        configureCallbacksIfNeeded()
+        guard book.effectiveStorageKind != .local, let zoneName = book.cloudZoneName else { return nil }
+        let owner = book.cloudZoneOwnerName ?? (book.effectiveStorageKind == .cloudOwner ? CKCurrentUserDefaultName : "")
+        guard !owner.isEmpty else { return nil }
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: owner)
+        let database = (book.effectiveStorageKind == .cloudOwner) ? container.privateCloudDatabase : container.sharedCloudDatabase
+
+        // Fetch latest records from CloudKit
+        let records = try await fetchAllRecords(database: database, zoneID: zoneID)
+        let decoded = try CloudRecordMapper.decodeBook(
+            from: records,
+            participant: (book.effectiveStorageKind == .cloudParticipant),
+            attachmentFolder: AttachmentStore.folderURL
+        )
+        return decoded
+    }
+
+    func migrateToEncrypted(book: LedgerBook, key: SymmetricKey) async throws {
+        configureCallbacksIfNeeded()
+        guard book.effectiveStorageKind != .local, let zoneName = book.cloudZoneName else { return }
+        let owner = book.cloudZoneOwnerName ?? (book.effectiveStorageKind == .cloudOwner ? CKCurrentUserDefaultName : "")
+        guard !owner.isEmpty else { return }
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: owner)
+        let database = (book.effectiveStorageKind == .cloudOwner) ? container.privateCloudDatabase : container.sharedCloudDatabase
+
+        let records = try await fetchAllRecords(database: database, zoneID: zoneID)
+        var recordsToUpdate: [CKRecord] = []
+
+        for record in records {
+            guard let plaintextPayload = record["payload"] as? Data else { continue }
+            let (ciphertext, fp) = try LedgerCryptoService.encryptRecord(
+                plaintextPayload,
+                ledgerID: book.id,
+                recordType: record.recordType,
+                recordID: record.recordID.recordName,
+                key: key
+            )
+            record["ciphertextV1"] = ciphertext as CKRecordValue
+            record["keyFingerprint"] = fp as CKRecordValue
+            record["encryptionVersion"] = LedgerCryptoService.currentEncryptionVersion as CKRecordValue
+            recordsToUpdate.append(record)
+        }
+
+        for batch in recordsToUpdate.chunked(into: 100) {
+            let response = try await database.modifyRecords(saving: batch, deleting: [], savePolicy: .ifServerRecordUnchanged, atomically: true)
+            var savedRecords: [CKRecord] = []
+            for saved in response.saveResults.values.compactMap({ try? $0.get() }) {
+                // Clear plaintext payload only after server confirmed save
+                saved["payload"] = nil
+                savedRecords.append(saved)
+            }
+            _ = try await database.modifyRecords(saving: savedRecords, deleting: [], savePolicy: .ifServerRecordUnchanged, atomically: true)
+        }
+    }
+
+    func postEnrollmentRequest(_ request: FinsyPairingRequest, book: LedgerBook) async throws {
+        guard let zoneName = book.cloudZoneName, let owner = book.cloudZoneOwnerName else { return }
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: owner)
+        let record = CKRecord(recordType: CloudRecordType.enrollmentRequest, recordID: CKRecord.ID(recordName: "enroll-\(request.requestID.uuidString)", zoneID: zoneID))
+        record["requestID"] = request.requestID.uuidString as CKRecordValue
+        record["ledgerID"] = request.ledgerID.uuidString as CKRecordValue
+        record["publicKey"] = request.newDevicePublicKey as CKRecordValue
+        record["expiresAt"] = request.expiresAt as CKRecordValue
+        record["createdAt"] = Date.now as CKRecordValue
+        _ = try await container.sharedCloudDatabase.save(record)
+    }
+
+    func postKeyEnvelope(_ envelope: FinsyKeyGrantEnvelope, book: LedgerBook) async throws {
+        guard let zoneName = book.cloudZoneName else { return }
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: book.cloudZoneOwnerName ?? CKCurrentUserDefaultName)
+        let record = CKRecord(recordType: CloudRecordType.keyEnvelope, recordID: CKRecord.ID(recordName: "envelope-\(envelope.requestID.uuidString)", zoneID: zoneID))
+        record["requestID"] = envelope.requestID.uuidString as CKRecordValue
+        record["ledgerID"] = envelope.ledgerID.uuidString as CKRecordValue
+        record["keyFingerprint"] = envelope.keyFingerprint as CKRecordValue
+        record["encapsulatedKey"] = envelope.encapsulatedKey as CKRecordValue
+        record["ciphertext"] = envelope.ciphertext as CKRecordValue
+        let database = (book.effectiveStorageKind == .cloudOwner) ? container.privateCloudDatabase : container.sharedCloudDatabase
+        _ = try await database.save(record)
+    }
+
     private func fetchAllRecords(database: CKDatabase, zoneID: CKRecordZone.ID) async throws -> [CKRecord] {
         var output: [CKRecord] = []
-        for type in [CloudRecordType.book, CloudRecordType.account, CloudRecordType.transaction, CloudRecordType.category, CloudRecordType.settings, CloudRecordType.budget, CloudRecordType.recurring, CloudRecordType.purchaseSession, CloudRecordType.purchaseItem] {
+        for type in [
+            CloudRecordType.book,
+            CloudRecordType.account,
+            CloudRecordType.transaction,
+            CloudRecordType.category,
+            CloudRecordType.settings,
+            CloudRecordType.budget,
+            CloudRecordType.recurring,
+            CloudRecordType.purchaseSession,
+            CloudRecordType.purchaseItem,
+            CloudRecordType.enrollmentRequest,
+            CloudRecordType.keyEnvelope
+        ] {
             var cursor: CKQueryOperation.Cursor?
             repeat {
                 let results: [(CKRecord.ID, Result<CKRecord, Error>)]
