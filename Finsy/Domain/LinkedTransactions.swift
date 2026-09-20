@@ -267,13 +267,13 @@ enum TransactionSemantics {
             switch kind {
             case .splitSelfExpense:
                 guard transaction.isTaxExempt != true, let childTax = transaction.taxAmount, childTax > 0 else { return nil }
-                let parentTx = transaction.parentTransactionID.flatMap { index?.transactionsByID[$0] ?? state.transactions.first(where: { tx in tx.id == $0 }) }
+                let parentTx = transaction.parentTransactionID.flatMap { parentID in index?.transactionsByID[parentID] ?? state.transactions.first(where: { $0.id == parentID }) }
                 let parentCategory = parentTx?.categoryID ?? transaction.categoryID
                 let converted = childTax * transaction.exchangeRateAtTransaction / targetRate
                 return (converted, parentCategory)
             case .installment:
                 guard transaction.isCompleted(asOf: now), transaction.isTaxExempt != true, let childTax = transaction.taxAmount, childTax > 0 else { return nil }
-                let parentTx = transaction.parentTransactionID.flatMap { index?.transactionsByID[$0] ?? state.transactions.first(where: { tx in tx.id == $0 }) }
+                let parentTx = transaction.parentTransactionID.flatMap { parentID in index?.transactionsByID[parentID] ?? state.transactions.first(where: { $0.id == parentID }) }
                 let parentCategory = parentTx?.categoryID ?? transaction.categoryID
                 let converted = childTax * transaction.exchangeRateAtTransaction / targetRate
                 return (converted, parentCategory)
