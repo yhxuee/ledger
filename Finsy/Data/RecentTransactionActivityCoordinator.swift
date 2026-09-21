@@ -259,15 +259,17 @@ final class RecentTransactionActivityCoordinator {
                     state: state,
                     staleDate: expiresAt
                 )
-                compactActivityID = activity.id
+                let activityID = activity.id
+                compactActivityID = activityID
 
                 let alertConfig = AlertConfiguration(
                     title: "\(amountText)",
                     body: "\(title)",
                     sound: .default
                 )
-                await activity.update(
-                    ActivityContent(state: state, staleDate: expiresAt),
+                await Self.updateActivityAlert(
+                    activityID: activityID,
+                    content: ActivityContent(state: state, staleDate: expiresAt),
                     alertConfiguration: alertConfig
                 )
 
@@ -281,7 +283,7 @@ final class RecentTransactionActivityCoordinator {
                     self.currentOperationID = nil
                 }
 
-                return .started(activityID: activity.id)
+                return .started(activityID: activityID)
             }
         } catch {
             let nsError = error as NSError
@@ -338,8 +340,22 @@ final class RecentTransactionActivityCoordinator {
         }
     }
 
+    nonisolated private static func updateActivityAlert(
+        activityID: String,
+        content: ActivityContent<RecentTransactionActivityAttributes.ContentState>,
+        alertConfiguration: AlertConfiguration
+    ) async {
+        for activity in Activity<RecentTransactionActivityAttributes>.activities where activity.id == activityID {
+            await activity.update(content, alertConfiguration: alertConfiguration)
+        }
+    }
+
     private func endRecentActivities() async {
         guard isLiveActivityAvailable else { return }
+        await Self.endAllActivities()
+    }
+
+    nonisolated private static func endAllActivities() async {
         for activity in Activity<RecentTransactionActivityAttributes>.activities {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
