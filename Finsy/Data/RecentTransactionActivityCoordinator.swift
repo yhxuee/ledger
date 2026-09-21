@@ -13,7 +13,10 @@ public enum RecentTransactionActivityOutcome: Equatable, Sendable {
 final class RecentTransactionActivityCoordinator {
     static let shared = RecentTransactionActivityCoordinator()
 
-    private var autoEndTask: Task<Void, Never>?
+    private var lifecycleTask: Task<Void, Never>?
+    private var currentOperationID: UUID?
+    private var transientActivityID: String?
+    private var compactActivityID: String?
     private var observers: [Any] = []
 
     private init() {}
@@ -28,6 +31,7 @@ final class RecentTransactionActivityCoordinator {
             object: nil,
             queue: .main
         ) { [weak store] note in
+            RecentTransactionActivityCoordinator.shared.handleActionTriggered()
             guard let store, let id = note.object as? UUID else { return }
             if let targetBookID = note.userInfo?["ledgerBookID"] as? UUID {
                 guard targetBookID == store.activeBookID else { return }
@@ -43,6 +47,7 @@ final class RecentTransactionActivityCoordinator {
             object: nil,
             queue: .main
         ) { [weak store] note in
+            RecentTransactionActivityCoordinator.shared.handleActionTriggered()
             guard let store, let id = note.object as? UUID else { return }
             if let targetBookID = note.userInfo?["ledgerBookID"] as? UUID {
                 guard targetBookID == store.activeBookID else { return }
@@ -52,6 +57,14 @@ final class RecentTransactionActivityCoordinator {
             }
         }
         observers.append(refundObs)
+    }
+
+    func handleActionTriggered() {
+        lifecycleTask?.cancel()
+        lifecycleTask = nil
+        currentOperationID = nil
+        transientActivityID = nil
+        compactActivityID = nil
     }
 
     func reconcilePendingActions(store: LedgerStore) {
@@ -88,16 +101,55 @@ final class RecentTransactionActivityCoordinator {
             return .skippedPurchaseTransaction
         }
 
+        // Newest transaction wins: cancel prior lifecycle and clear state
+        lifecycleTask?.cancel()
+        lifecycleTask = nil
+        currentOperationID = nil
+        transientActivityID = nil
+        compactActivityID = nil
+
+        // End any active recent transaction activity immediately
+        await endRecentActivities()
+
         let operationID = UUID()
-        let expiresAt = Date.now.addingTimeInterval(10)
-        let sign = transaction.type == .expense ? "-" : "+"
-        let formattedAmount = LedgerMoneyFormat.symbol(transaction.amount, currency: transaction.currency)
-        let amountText = "\(sign)\(formattedAmount)"
+        currentOperationID = operationID
+
+        let createdAt = Date.now
+        let expandedEndsAt = createdAt.addingTimeInterval(3)
+        let expiresAt = createdAt.addingTimeInterval(8)
+
+        let amountText = LedgerMoneyFormat.code(abs(transaction.amount), currency: transaction.currency)
         let isRefundable = transaction.type == .expense && !transaction.isReversal && transaction.reversalTransactionID == nil
         let accountName = account?.name ?? "Account"
         let title = transaction.note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             ?? category?.name
             ?? (transaction.type == .transfer ? "Transfer" : "Transaction")
+
+        let categorySymbol: String
+        let categoryColorHex: String
+        if let category {
+            categorySymbol = category.symbol
+            categoryColorHex = category.colorHex
+        } else {
+            switch transaction.type {
+            case .expense:
+                categorySymbol = "creditcard.fill"
+                categoryColorHex = PurchaseActivityPalette.accentHex
+            case .income:
+                categorySymbol = "arrow.down.circle.fill"
+                categoryColorHex = PurchaseActivityPalette.successHex
+            case .transfer:
+                categorySymbol = "arrow.left.arrow.right.circle.fill"
+                categoryColorHex = PurchaseActivityPalette.infoHex
+            }
+        }
+
+        let transactionType: String
+        switch transaction.type {
+        case .expense: transactionType = "Expense"
+        case .income: transactionType = "Income"
+        case .transfer: transactionType = "Transfer"
+        }
 
         let snapshot = RecentTransactionActionSnapshot(
             operationID: operationID,
@@ -106,15 +158,12 @@ final class RecentTransactionActivityCoordinator {
             title: title,
             amountText: amountText,
             occurredAt: transaction.occurredAt,
-            createdAt: .now,
+            createdAt: createdAt,
             expiresAt: expiresAt,
             isRefundable: isRefundable,
             accountName: accountName
         )
         RecentTransactionSharedStore.saveSnapshot(snapshot)
-
-        // End any active recent transaction activity
-        await endCurrentActivity()
 
         guard isLiveActivityAvailable else {
             #if DEBUG
@@ -127,35 +176,113 @@ final class RecentTransactionActivityCoordinator {
         let attributes = RecentTransactionActivityAttributes(transactionID: transaction.id)
         let state = RecentTransactionActivityAttributes.ContentState(
             transactionID: transaction.id,
-            title: title,
+            transactionType: transactionType,
+            categorySymbol: categorySymbol,
+            categoryColorHex: categoryColorHex,
             amountText: amountText,
+            isRefundable: isRefundable,
+            statusText: nil,
+            title: title,
             isExpense: transaction.type == .expense,
             accountName: accountName,
             occurredAt: transaction.occurredAt,
-            expiresAt: expiresAt,
-            isRefundable: isRefundable
+            expiresAt: expiresAt
         )
 
         do {
-            let activity = try Activity.request(
-                attributes: attributes,
-                content: ActivityContent(state: state, staleDate: expiresAt),
-                pushType: nil
-            )
+            if #available(iOS 18.0, *) {
+                let activity = try startTransientActivity(
+                    attributes: attributes,
+                    state: state,
+                    staleDate: expandedEndsAt
+                )
+                transientActivityID = activity.id
 
-            autoEndTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(10.5))
-                guard !Task.isCancelled else { return }
-                await self?.endCurrentActivity()
+                #if DEBUG
+                let appState = await UIApplication.shared.applicationState
+                let appGroupAvailable = RecentTransactionSharedStore.containerURL() != nil
+                print("[RecentActivity] transient started id=\(activity.id) appState=\(appState.rawValue) appGroupAvailable=\(appGroupAvailable)")
+                #endif
+
+                lifecycleTask = Task { [weak self, operationID, transactionID = transaction.id, attributes, state, expiresAt] in
+                    // Phase A: transient presentation for ~3 seconds
+                    try? await Task.sleep(for: .seconds(3))
+                    guard !Task.isCancelled else { return }
+                    guard let self = self, self.currentOperationID == operationID else { return }
+
+                    // Check if operation was consumed (undone/refunded) during Phase A
+                    if let snap = RecentTransactionSharedStore.loadSnapshot(id: transactionID),
+                       snap.isUndone || snap.isRefunded {
+                        await self.endRecentActivities()
+                        self.transientActivityID = nil
+                        self.currentOperationID = nil
+                        return
+                    }
+
+                    // End Phase A transient activity
+                    await self.endRecentActivities()
+                    self.transientActivityID = nil
+
+                    guard self.currentOperationID == operationID else { return }
+
+                    // Phase B: start compact standard activity for remaining ~5 seconds
+                    do {
+                        let compactActivity = try self.startCompactActivity(
+                            attributes: attributes,
+                            state: state,
+                            staleDate: expiresAt
+                        )
+                        self.compactActivityID = compactActivity.id
+
+                        #if DEBUG
+                        print("[RecentActivity] compact started id=\(compactActivity.id)")
+                        #endif
+                    } catch {
+                        return
+                    }
+
+                    // Wait remaining ~5 seconds
+                    try? await Task.sleep(for: .seconds(5))
+                    guard !Task.isCancelled else { return }
+                    guard self.currentOperationID == operationID else { return }
+
+                    await self.endRecentActivities()
+                    self.compactActivityID = nil
+                    self.currentOperationID = nil
+                }
+
+                return .started(activityID: activity.id)
+            } else {
+                // Fallback for iOS < 18: start standard activity and update with alertConfiguration
+                let activity = try startCompactActivity(
+                    attributes: attributes,
+                    state: state,
+                    staleDate: expiresAt
+                )
+                compactActivityID = activity.id
+
+                let alertConfig = AlertConfiguration(
+                    title: "\(amountText)",
+                    body: "\(title)",
+                    sound: .default
+                )
+                await activity.update(
+                    ActivityContent(state: state, staleDate: expiresAt),
+                    alertConfiguration: alertConfig
+                )
+
+                lifecycleTask = Task { [weak self, operationID] in
+                    try? await Task.sleep(for: .seconds(8))
+                    guard !Task.isCancelled else { return }
+                    guard let self = self, self.currentOperationID == operationID else { return }
+
+                    await self.endRecentActivities()
+                    self.compactActivityID = nil
+                    self.currentOperationID = nil
+                }
+
+                return .started(activityID: activity.id)
             }
-
-            #if DEBUG
-            let appState = await UIApplication.shared.applicationState
-            let appGroupAvailable = RecentTransactionSharedStore.containerURL() != nil
-            print("[RecentActivity] activitiesEnabled=true applicationState=\(appState.rawValue) appGroupAvailable=\(appGroupAvailable) requestResult=started(\(activity.id))")
-            #endif
-
-            return .started(activityID: activity.id)
         } catch {
             let nsError = error as NSError
             #if DEBUG
@@ -167,12 +294,63 @@ final class RecentTransactionActivityCoordinator {
         }
     }
 
-    func endCurrentActivity() async {
-        autoEndTask?.cancel()
-        autoEndTask = nil
+    @available(iOS 18.0, *)
+    private func startTransientActivity(
+        attributes: RecentTransactionActivityAttributes,
+        state: RecentTransactionActivityAttributes.ContentState,
+        staleDate: Date
+    ) throws -> Activity<RecentTransactionActivityAttributes> {
+        try Activity.request(
+            attributes: attributes,
+            content: ActivityContent(
+                state: state,
+                staleDate: staleDate
+            ),
+            pushType: nil,
+            style: .transient
+        )
+    }
+
+    private func startCompactActivity(
+        attributes: RecentTransactionActivityAttributes,
+        state: RecentTransactionActivityAttributes.ContentState,
+        staleDate: Date
+    ) throws -> Activity<RecentTransactionActivityAttributes> {
+        if #available(iOS 18.0, *) {
+            return try Activity.request(
+                attributes: attributes,
+                content: ActivityContent(
+                    state: state,
+                    staleDate: staleDate
+                ),
+                pushType: nil,
+                style: .standard
+            )
+        } else {
+            return try Activity.request(
+                attributes: attributes,
+                content: ActivityContent(
+                    state: state,
+                    staleDate: staleDate
+                ),
+                pushType: nil
+            )
+        }
+    }
+
+    private func endRecentActivities() async {
         guard isLiveActivityAvailable else { return }
         for activity in Activity<RecentTransactionActivityAttributes>.activities {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
+    }
+
+    func endCurrentActivity() async {
+        lifecycleTask?.cancel()
+        lifecycleTask = nil
+        currentOperationID = nil
+        transientActivityID = nil
+        compactActivityID = nil
+        await endRecentActivities()
     }
 }

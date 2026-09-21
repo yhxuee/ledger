@@ -24184,40 +24184,16 @@
     "Recorded": {
       "extractionState": "manual",
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfasst"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Recorded"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已记录"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已記錄"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "記録済み"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "기록됨"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Записано"
           }
         },
         "es": {
@@ -24226,22 +24202,46 @@
             "value": "Registrado"
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erfasst"
-          }
-        },
         "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "Enregistré"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記録完了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기록 완료"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записано"
+          }
+        },
         "th": {
           "stringUnit": {
             "state": "translated",
             "value": "บันทึกแล้ว"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记账完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記帳完成"
           }
         }
       }

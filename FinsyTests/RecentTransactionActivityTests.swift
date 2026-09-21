@@ -43,8 +43,8 @@ final class RecentTransactionActivityTests: XCTestCase {
             XCTAssertFalse(s.isUndone)
             XCTAssertFalse(s.isRefunded)
             let diff = s.expiresAt.timeIntervalSince(now)
-            XCTAssertGreaterThanOrEqual(diff, 9.0, "Expiry window should be approx 10 seconds")
-            XCTAssertLessThanOrEqual(diff, 11.0)
+            XCTAssertGreaterThanOrEqual(diff, 7.0, "Expiry window should be approx 8 seconds")
+            XCTAssertLessThanOrEqual(diff, 9.5)
         }
     }
 

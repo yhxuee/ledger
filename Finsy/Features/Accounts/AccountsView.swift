@@ -91,7 +91,20 @@ struct AccountsView: View {
                 Section {
                     ForEach(store.accounts) { item in
                         accountRowContent(item)
-                            .contentShape(.interaction, RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            .contentShape(
+                                .interaction,
+                                RoundedRectangle(
+                                    cornerRadius: 20,
+                                    style: .continuous
+                                )
+                            )
+                            .contentShape(
+                                .dragPreview,
+                                RoundedRectangle(
+                                    cornerRadius: 20,
+                                    style: .continuous
+                                )
+                            )
                             .onTapGesture {
                                 if !isReordering {
                                     editing = item
@@ -255,6 +268,7 @@ struct AccountsView: View {
         }
         .padding(15)
         .ledgerGlass(interactive: false, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .opacity(item.account.effectiveIsFrozen ? 0.7 : 1.0)
     }
 

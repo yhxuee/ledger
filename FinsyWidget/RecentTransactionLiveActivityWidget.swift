@@ -11,137 +11,142 @@ struct RecentTransactionLiveActivityWidget: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    HStack(spacing: 8) {
-                        Image(systemName: context.state.isExpense ? "arrow.down.right.circle.fill" : "arrow.up.left.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(context.state.isExpense ? Color.orange : Color.green)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(context.state.title)
-                                .font(.subheadline.weight(.semibold))
-                                .lineLimit(1)
-                            Text(context.state.accountName)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(context.state.amountText)
-                            .font(.headline.bold())
-                            .foregroundStyle(context.state.isExpense ? Color.primary : Color.green)
-                        if context.state.statusText == nil {
-                            Text(timerInterval: context.state.occurredAt...context.state.expiresAt, countsDown: true)
-                                .font(.caption2.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text(LocalizedStringKey("Recorded"))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    if let status = context.state.statusText {
-                        HStack {
-                            Label(LocalizedStringKey(status), systemImage: "checkmark.circle.fill")
-                                .font(.caption.bold())
-                                .foregroundStyle(Color.green)
+                    VStack(spacing: 12) {
+                        HStack(spacing: 10) {
+                            categoryIconView(symbol: context.state.categorySymbol, colorHex: context.state.categoryColorHex)
+                            Text(LocalizedStringKey(context.state.transactionType))
+                                .font(.headline.weight(.medium))
+                                .foregroundStyle(.primary)
                             Spacer()
+                            Text(context.state.amountText)
+                                .font(.headline.weight(.semibold).monospacedDigit())
+                                .foregroundStyle(.primary)
+                                .privacySensitive()
                         }
                         .padding(.top, 4)
-                    } else {
-                        HStack(spacing: 12) {
-                            Button(intent: UndoRecentTransactionIntent(transactionID: context.state.transactionID)) {
-                                Label("Undo", systemImage: "arrow.uturn.backward")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(Color.gray.opacity(0.35))
 
-                            if context.state.isRefundable {
-                                Button(intent: RefundRecentTransactionIntent(transactionID: context.state.transactionID)) {
-                                    Label("Refund", systemImage: "arrow.counterclockwise")
+                        if let status = context.state.statusText {
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                Text(LocalizedStringKey(status))
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.green)
+                                Spacer()
+                            }
+                        } else {
+                            HStack(spacing: 12) {
+                                if context.state.isRefundable {
+                                    Button(intent: RefundRecentTransactionIntent(transactionID: context.state.transactionID)) {
+                                        Label(LocalizedStringKey("Refund"), systemImage: "arrow.counterclockwise")
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(Color.orange)
+                                }
+
+                                Button(intent: UndoRecentTransactionIntent(transactionID: context.state.transactionID)) {
+                                    Label(LocalizedStringKey("Undo"), systemImage: "arrow.uturn.backward")
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .tint(Color.orange)
+                                .tint(Color.gray.opacity(0.35))
+
+                                Spacer()
                             }
-                            Spacer()
                         }
-                        .padding(.top, 4)
                     }
                 }
             } compactLeading: {
-                Image(systemName: context.state.statusText != nil ? "checkmark.circle.fill" : "arrow.counterclockwise.circle.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(context.state.statusText != nil ? Color.green : Color.orange)
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
             } compactTrailing: {
-                if let status = context.state.statusText {
-                    Text(LocalizedStringKey(status))
-                        .font(.caption2.bold())
-                        .foregroundStyle(Color.green)
-                } else {
-                    Text(timerInterval: context.state.occurredAt...context.state.expiresAt, countsDown: true)
-                        .font(.caption2.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(Color.orange)
-                }
+                Text(context.state.amountText)
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .lineLimit(1)
+                    .privacySensitive()
             } minimal: {
-                Image(systemName: context.state.statusText != nil ? "checkmark.circle.fill" : "arrow.counterclockwise.circle.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(context.state.statusText != nil ? Color.green : Color.orange)
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
             }
         }
     }
 
     @ViewBuilder
+    private func categoryIconView(symbol: String, colorHex: String) -> some View {
+        let tint = PurchaseActivityPalette.categoryColor(hex: colorHex)
+        if symbol.hasPrefix("emoji:") {
+            Text(String(symbol.dropFirst(6)))
+                .font(.system(size: 18))
+                .frame(width: 30, height: 30)
+                .background(tint.opacity(0.2), in: Circle())
+        } else {
+            let systemName = symbol.isEmpty ? "tag.fill" : symbol
+            Image(systemName: systemName)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 30, height: 30)
+                .background(tint.opacity(0.15), in: Circle())
+        }
+    }
+
+    @ViewBuilder
     private func lockScreenView(context: ActivityViewContext<RecentTransactionActivityAttributes>) -> some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             HStack {
-                Image(systemName: context.state.isExpense ? "arrow.down.right.circle.fill" : "arrow.up.left.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(context.state.isExpense ? Color.orange : Color.green)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(context.state.title)
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text(LocalizedStringKey("Recorded"))
                         .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text(context.state.accountName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.primary)
                 }
-
                 Spacer()
+            }
 
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(context.state.amountText)
-                        .font(.headline.bold())
-                        .foregroundStyle(context.state.isExpense ? Color.primary : Color.green)
-
-                    if context.state.statusText == nil {
-                        Text(timerInterval: context.state.occurredAt...context.state.expiresAt, countsDown: true)
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            HStack(spacing: 10) {
+                categoryIconView(symbol: context.state.categorySymbol, colorHex: context.state.categoryColorHex)
+                Text(LocalizedStringKey(context.state.transactionType))
+                    .font(.headline.weight(.medium))
+                    .foregroundStyle(.primary)
+                Spacer()
+                Text(context.state.amountText)
+                    .font(.headline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.primary)
+                    .privacySensitive()
             }
 
             if let status = context.state.statusText {
-                HStack {
-                    Label(LocalizedStringKey(status), systemImage: "checkmark.circle.fill")
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text(LocalizedStringKey(status))
                         .font(.caption.bold())
-                        .foregroundStyle(Color.green)
+                        .foregroundStyle(.green)
                     Spacer()
                 }
             } else {
                 HStack(spacing: 12) {
-                    Button(intent: UndoRecentTransactionIntent(transactionID: context.state.transactionID)) {
-                        Label("Undo", systemImage: "arrow.uturn.backward")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.gray.opacity(0.35))
-
                     if context.state.isRefundable {
                         Button(intent: RefundRecentTransactionIntent(transactionID: context.state.transactionID)) {
-                            Label("Refund", systemImage: "arrow.counterclockwise")
+                            Label(LocalizedStringKey("Refund"), systemImage: "arrow.counterclockwise")
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(Color.orange)
                     }
+
+                    Button(intent: UndoRecentTransactionIntent(transactionID: context.state.transactionID)) {
+                        Label(LocalizedStringKey("Undo"), systemImage: "arrow.uturn.backward")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.gray.opacity(0.35))
 
                     Spacer()
                 }
