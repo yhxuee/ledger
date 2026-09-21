@@ -521,6 +521,12 @@ extension LedgerStore {
                     state.purchaseSessions = sessions
                 }
             }
+
+            if let categorySnapshots = operation.defaultExpenseAccountByCategorySnapshots {
+                for (category, accountID) in categorySnapshots {
+                    state.settings.defaultExpenseAccountByCategory[category] = accountID
+                }
+            }
         }
         scheduleSave()
         return true

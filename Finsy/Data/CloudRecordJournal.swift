@@ -95,14 +95,14 @@ final class CloudRecordJournal {
     }
 
     func encryptionPolicy(in zone: CKRecordZone.ID) throws -> CloudEncryptionPolicy? {
-        let key = Self.key(CKRecord.ID(recordName: "", zoneID: zone))
+        let key = Self.key(CKRecord.ID(recordName: "encryption-policy", zoneID: zone))
         guard let data = try database.data("encryption-policy", key) else { return nil }
         return try JSONDecoder().decode(CloudEncryptionPolicy.self, from: data)
     }
 
     @discardableResult
     func mergeEncryptionPolicy(_ policy: CloudEncryptionPolicy, in zone: CKRecordZone.ID) throws -> CloudEncryptionPolicy {
-        let key = Self.key(CKRecord.ID(recordName: "", zoneID: zone))
+        let key = Self.key(CKRecord.ID(recordName: "encryption-policy", zoneID: zone))
         let result = try encryptionPolicy(in: zone)?.merged(with: policy) ?? policy
         try database.put("encryption-policy", key, JSONEncoder().encode(result))
         return result

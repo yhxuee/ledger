@@ -230,12 +230,15 @@ struct VerticalOverviewHeroLayout: Layout {
 
                         Spacer(minLength: isSideColumn ? 6 : 8)
 
-                        ProgressView(value: privacy.isLocked ? 0 : min(max(usage.ratio, 0), 1))
-                            .tint(usage.ratio > 1 ? .red : LedgerPalette.coral)
+                        let safeRatio = usage.ratio.isFinite ? usage.ratio : 0
+                        let safePct = (safeRatio * 100).isFinite ? Int(safeRatio * 100) : 0
+
+                        ProgressView(value: privacy.isLocked ? 0 : min(max(safeRatio, 0), 1))
+                            .tint(safeRatio > 1 ? .red : LedgerPalette.coral)
 
                         Spacer().frame(height: 4)
 
-                        SensitiveValueText("\(Int(usage.ratio * 100))\(String(localized: "% used"))", maskLength: 8)
+                        SensitiveValueText("\(safePct)\(String(localized: "% used"))", maskLength: 8)
                             .font(isSideColumn ? .caption2 : .caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -672,6 +675,7 @@ struct OverviewMetricDetailSheet: View {
         guard !privacy.isLocked, segmentTotal > 0 else { return "0%" }
         let value = summary.categoryTotals[categoryID, default: 0]
         let percentage = (value / segmentTotal * 100).rounded()
+        guard percentage.isFinite else { return "0%" }
         return "\(Int(percentage))%"
     }
 }

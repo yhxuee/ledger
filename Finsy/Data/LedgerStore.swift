@@ -101,6 +101,7 @@ final class LedgerStore: ObservableObject {
     nonisolated static let localRepository = LocalLedgerRepository()
 
     init() {
+        let startupStart = Date.now
         persistenceEnabled = false
         currencyCatalog = CurrencyDescriptor.bundled
         currencyCatalogUpdatedAt = nil
@@ -108,24 +109,34 @@ final class LedgerStore: ObservableObject {
         let fallback = LedgerBook(id: UUID(), name: "Ledger 1", state: initial, createdAt: .now, updatedAt: .now)
         books = [fallback]; activeBookID = fallback.id; state = initial
         do {
+            let storageOpenStart = Date.now
             try FinsyStorage.prepare()
+            LedgerDiagnostics.recordStartupPhase("storage-open", duration: Date.now.timeIntervalSince(storageOpenStart))
             let cachedCatalog = CurrencyCatalogCache.load()
             currencyCatalog = CurrencyDescriptor.appCatalog(cachedCatalog?.currencies ?? [])
             currencyCatalogUpdatedAt = cachedCatalog?.fetchedAt
+            let loadStart = Date.now
             if let library = try Self.loadLibrary() {
                 guard let active = library.books.first(where: { $0.id == library.activeBookID }) ?? library.books.first else { throw BackupError.invalidFormat }
                 books = library.books; activeBookID = active.id; state = active.state
+                let totalTxs = library.books.reduce(0) { $0 + $1.state.transactions.count }
+                LedgerDiagnostics.recordStartupPhase("materialize", duration: Date.now.timeIntervalSince(loadStart), books: library.books.count, transactions: totalTxs)
             } else if let legacy = try Self.loadLegacyState() {
                 state = legacy; books[0].state = legacy
+                LedgerDiagnostics.recordStartupPhase("legacy-materialize", duration: Date.now.timeIntervalSince(loadStart), books: 1, transactions: legacy.transactions.count)
             }
             persistenceEnabled = true
-            refreshHasMoreTransactions()
+            let recurringStart = Date.now
             processDueRecurring()
-            scheduleSave()
+            LedgerDiagnostics.recordStartupPhase("process-recurring", duration: Date.now.timeIntervalSince(recurringStart))
             scheduleNextInstallmentRefresh()
+            let totalStartupDuration = Date.now.timeIntervalSince(startupStart)
+            let finalTxs = books.reduce(0) { $0 + $1.state.transactions.count }
+            LedgerDiagnostics.recordStartupPhase("ready", duration: totalStartupDuration, books: books.count, transactions: finalTxs)
         } catch {
             // Keep disk data untouched. The existing error presentation reports the failure.
             presentedError = String(format: String(localized: "The ledger could not be loaded. Existing data has been preserved. %@"), error.localizedDescription)
+            LedgerDiagnostics.failure(error, operation: "startup", logger: LedgerDiagnostics.persistence)
         }
     }
 
@@ -279,67 +290,15 @@ final class LedgerStore: ObservableObject {
     }
 
     func materializeFullState() -> LedgerState {
-        guard persistenceEnabled,
-              let repo = try? Self.localRepository.transactionRepository(),
-              let fullBook = try? repo.materializeFullBook(id: activeBookID) else {
-            return state
-        }
-        var full = state
-        var map = Dictionary(fullBook.state.transactions.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
-        for tx in state.transactions {
-            map[tx.id] = tx
-        }
-        full.transactions = Array(map.values).sorted { $0.occurredAt > $1.occurredAt }
-        full.accounts = state.accounts
-        full.categories = state.categories
-        full.settings = state.settings
-        full.recurringRules = state.recurringRules
-        full.purchaseSessions = state.purchaseSessions
-        return full
+        // Under full-hydration baseline, in-memory state is always fully materialized.
+        state
     }
 
     func loadNextTransactionPage(pageSize: Int = 250) {
-        guard persistenceEnabled, !isLoadingMoreTransactions, hasMoreTransactions else { return }
-        isLoadingMoreTransactions = true
-        defer { isLoadingMoreTransactions = false }
-        guard let repo = try? Self.localRepository.transactionRepository() else { return }
-
-        let start = Date.now
-        let activeSorted = state.transactions.filter { $0.deletedAt == nil }.sorted { $0.occurredAt > $1.occurredAt }
-        let oldest = activeSorted.last
-
-        guard let nextPage = try? repo.recentTransactions(
-            bookID: activeBookID,
-            before: oldest?.occurredAt,
-            beforeID: oldest?.id,
-            limit: pageSize
-        ), !nextPage.isEmpty else {
-            hasMoreTransactions = false
-            return
-        }
-
-        let existingIDs = Set(state.transactions.map(\.id))
-        let newTransactions = nextPage.filter { !existingIDs.contains($0.id) }
-        guard !newTransactions.isEmpty else {
-            hasMoreTransactions = false
-            return
-        }
-
-        mutateState { state in
-            state.transactions.append(contentsOf: newTransactions)
-        }
-        let duration = Date.now.timeIntervalSince(start)
-        LedgerDiagnostics.recordLazyMetrics(operation: "page-fetch", duration: duration, count: newTransactions.count, totalCount: state.transactions.count)
-        refreshHasMoreTransactions()
+        hasMoreTransactions = false
     }
 
     func refreshHasMoreTransactions() {
-        guard persistenceEnabled, let repo = try? Self.localRepository.transactionRepository() else {
-            hasMoreTransactions = false
-            return
-        }
-        let loadedCount = state.transactions.filter { $0.deletedAt == nil }.count
-        let totalCount = (try? repo.transactionCount(bookID: activeBookID)) ?? loadedCount
-        hasMoreTransactions = totalCount > loadedCount
+        hasMoreTransactions = false
     }
 }

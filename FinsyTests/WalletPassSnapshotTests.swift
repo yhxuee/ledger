@@ -51,7 +51,9 @@ final class WalletPassSnapshotTests: XCTestCase {
     }
 
     func testTaxReceiptPassExcludesIncomeTax() {
-        let store = LedgerStore(stateForTesting: DemoDataFactory.make())
+        var state = DemoDataFactory.make()
+        state.transactions = []
+        let store = LedgerStore(stateForTesting: state)
         guard let account = store.state.accounts.first(where: { $0.deletedAt == nil }) else { return }
 
         let calendar = Calendar.current

@@ -117,10 +117,12 @@ extension LedgerStore {
             txSnapshots[tx.id] = tx
             expectedTxVersions[tx.id] = tx.version + 1
         }
+        let categorySnapshots = state.settings.defaultExpenseAccountByCategory.filter { $0.value == account.id }
         activeUndoOperation = LedgerUndoOperation(
             message: "Account deleted",
             transactionSnapshots: txSnapshots,
             accountSnapshots: [account.id: preAccount],
+            defaultExpenseAccountByCategorySnapshots: categorySnapshots,
             expectedTransactionVersions: expectedTxVersions,
             expectedAccountVersions: [account.id: preAccount.version + 1]
         )

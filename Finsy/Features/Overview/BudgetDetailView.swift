@@ -18,8 +18,10 @@ struct BudgetDetailView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("MONTHLY BUDGET").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                         HStack { summaryMetric("Budget", detail.budget); summaryMetric("Spent", detail.spent); summaryMetric("Remaining", detail.remaining) }
-                        ProgressView(value: privacy.isLocked ? 0 : min(max(detail.ratio, 0), 1)).tint(detail.ratio > 1 ? .red : LedgerPalette.coral)
-                        SensitiveValueText("\(Int((detail.ratio * 100).rounded()))% used", maskLength: 6).font(.caption).foregroundStyle(.secondary)
+                        let safeRatio = detail.ratio.isFinite ? detail.ratio : 0
+                        let safePct = (safeRatio * 100).isFinite ? Int((safeRatio * 100).rounded()) : 0
+                        ProgressView(value: privacy.isLocked ? 0 : min(max(safeRatio, 0), 1)).tint(safeRatio > 1 ? .red : LedgerPalette.coral)
+                        SensitiveValueText("\(safePct)% used", maskLength: 6).font(.caption).foregroundStyle(.secondary)
                     }.padding(18).ledgerGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                     LazyVStack(spacing: 10) {
                         ForEach(detail.lines) { line in
@@ -29,7 +31,7 @@ struct BudgetDetailView: View {
                                 HStack { Text(line.title).font(.headline); Spacer(); SensitiveMoneyText(amount: line.remaining, currency: line.currency).font(.subheadline.bold()) }
                                 HStack { SensitiveMoneyText(amount: line.spent, currency: line.currency).font(.caption); Text("of").font(.caption).foregroundStyle(.secondary); SensitiveMoneyText(amount: line.budget, currency: line.currency).font(.caption) }
                                 if let risk {
-                                    let pct = Int((risk.exceedance * 100).rounded())
+                                    let pct = (risk.exceedance * 100).isFinite ? Int((risk.exceedance * 100).rounded()) : 0
                                     HStack(spacing: 4) {
                                         Text("Projected:")
                                             .font(.caption.weight(.semibold))

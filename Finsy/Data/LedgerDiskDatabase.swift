@@ -42,7 +42,17 @@ final class LedgerDiskDatabase: @unchecked Sendable {
                 PRIMARY KEY (book_id, transaction_id)
             ) WITHOUT ROWID
             """)
-            _ = try? execute("ALTER TABLE transactions_index ADD COLUMN account_currency TEXT")
+            let pragma = try statement("PRAGMA table_info(transactions_index)")
+            var hasAccountCurrency = false
+            while sqlite3_step(pragma) == SQLITE_ROW {
+                if let name = sqlite3_column_text(pragma, 1), String(cString: name) == "account_currency" {
+                    hasAccountCurrency = true
+                }
+            }
+            sqlite3_finalize(pragma)
+            if !hasAccountCurrency {
+                _ = try? execute("ALTER TABLE transactions_index ADD COLUMN account_currency TEXT")
+            }
             try execute("CREATE INDEX IF NOT EXISTS idx_tx_occurred ON transactions_index (book_id, is_deleted, occurred_at DESC, transaction_id DESC)")
             try execute("CREATE INDEX IF NOT EXISTS idx_tx_account ON transactions_index (book_id, account_id, is_deleted, occurred_at DESC)")
             try execute("CREATE INDEX IF NOT EXISTS idx_tx_dest_account ON transactions_index (book_id, destination_account_id, is_deleted, occurred_at DESC)")

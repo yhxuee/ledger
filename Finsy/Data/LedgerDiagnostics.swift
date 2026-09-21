@@ -21,6 +21,13 @@ enum LedgerDiagnostics {
             persistence.info("LazyMetrics op=\(operation, privacy: .public) count=\(count) durationMs=\(Int(duration * 1000))")
         }
     }
+
+    static func recordStartupPhase(_ phase: String, duration: TimeInterval, books: Int? = nil, transactions: Int? = nil) {
+        var msg = "startup \(phase) elapsed=\(String(format: "%.4f", duration))"
+        if let books { msg += " books=\(books)" }
+        if let transactions { msg += " transactions=\(transactions)" }
+        persistence.info("\(msg, privacy: .public)")
+    }
 }
 
 enum AttachmentPath {

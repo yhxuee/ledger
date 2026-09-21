@@ -23,6 +23,9 @@ struct LedgerUndoOperation: Sendable {
     /// Pre-operation snapshots of purchase sessions modified or deleted.
     var purchaseSessionSnapshots: [UUID: PurchaseSession]
 
+    /// Pre-operation snapshots of category default expense account mappings modified or cleared.
+    var defaultExpenseAccountByCategorySnapshots: [LedgerCategoryID: UUID]?
+
     /// Expected version of each transaction modified by the operation.
     /// If subsequent changes bumped the version, undo fails safely without overwriting newer data.
     var expectedTransactionVersions: [UUID: Int]
@@ -39,6 +42,7 @@ struct LedgerUndoOperation: Sendable {
         accountSnapshots: [UUID: LedgerAccount] = [:],
         recurringRuleSnapshots: [UUID: RecurringRule] = [:],
         purchaseSessionSnapshots: [UUID: PurchaseSession] = [:],
+        defaultExpenseAccountByCategorySnapshots: [LedgerCategoryID: UUID]? = nil,
         expectedTransactionVersions: [UUID: Int] = [:],
         expectedAccountVersions: [UUID: Int] = [:]
     ) {
@@ -50,6 +54,7 @@ struct LedgerUndoOperation: Sendable {
         self.accountSnapshots = accountSnapshots
         self.recurringRuleSnapshots = recurringRuleSnapshots
         self.purchaseSessionSnapshots = purchaseSessionSnapshots
+        self.defaultExpenseAccountByCategorySnapshots = defaultExpenseAccountByCategorySnapshots
         self.expectedTransactionVersions = expectedTransactionVersions
         self.expectedAccountVersions = expectedAccountVersions
     }

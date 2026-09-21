@@ -597,7 +597,7 @@ extension LedgerStore {
             state.transactions.insert(visibleRefund, at: 0)
             state.transactions.append(contentsOf: supportReversals)
         }
-        let updatedParentVersion = state.transactions[parentIndex].version
+        let updatedParentVersion = state.transactions.first(where: { $0.id == parent.id })?.version ?? (parent.version + 1)
         let refundMsg = String(localized: "Combined Payment refunded")
         activeUndoOperation = LedgerUndoOperation(
             message: refundMsg,

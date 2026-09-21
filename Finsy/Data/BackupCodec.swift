@@ -142,6 +142,8 @@ enum BackupCodec {
         return .init(sourceName: sourceName, envelope: envelope, warnings: warnings)
     }
 
+    /// Invariant: BackupCodec.validate() requires fully materialized LedgerState.
+    /// It enforces complete referential integrity across all transactions, refunds, and linked purchases.
     static func validate(_ state: LedgerState) throws {
         guard state.schemaVersion <= currentSchemaVersion else { throw BackupError.futureSchema(state.schemaVersion) }
         let accountIDs = state.accounts.map(\.id)

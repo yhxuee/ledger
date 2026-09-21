@@ -16,22 +16,11 @@ extension LedgerStore {
         commitActiveBook()
         guard let book = books.first(where: { $0.id == id }) else { return }
         activeBookID = book.id
-        var targetState = book.state
-        if targetState.transactions.isEmpty, persistenceEnabled {
-            if let repo = try? Self.localRepository.transactionRepository(),
-               let initialPage = try? repo.recentTransactions(bookID: id, before: nil, beforeID: nil, limit: 300),
-               !initialPage.isEmpty {
-                targetState.transactions = initialPage
-                if let idx = books.firstIndex(where: { $0.id == id }) {
-                    books[idx].state.transactions = initialPage
-                }
-            }
-        }
+        let targetState = book.state
         mutateState { state in state = targetState }
         undoTransactions = []
         activeUndoOperation = nil
         undoMessage = nil
-        refreshHasMoreTransactions()
         processDueRecurring()
         scheduleSave()
     }
@@ -189,7 +178,10 @@ extension LedgerStore {
         guard var library = try localRepository.loadLibrary() else { return nil }
         guard !library.books.isEmpty else { throw BackupError.invalidFormat }
         SchemaMigration.normalize(&library)
+        let validateStart = Date.now
+        // Invariant: BackupCodec.validate() requires fully materialized LedgerState
         for book in library.books { try BackupCodec.validate(book.state) }
+        LedgerDiagnostics.recordStartupPhase("validate", duration: Date.now.timeIntervalSince(validateStart), books: library.books.count)
         return library
     }
 

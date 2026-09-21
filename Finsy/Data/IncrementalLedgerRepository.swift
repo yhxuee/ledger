@@ -39,6 +39,8 @@ struct IncrementalLedgerRepository: Sendable {
 
     func load(pageSize: Int = 300) throws -> LedgerLibrary? {
         let started = Date.now
+        var totalTxs = 0
+        var totalBooks = 0
         let library: LedgerLibrary? = try database.transaction(write: false) {
             guard let data = try database.data("library", "manifest") else { return nil }
             let manifest = try decoder.decode(Manifest.self, from: data)
@@ -48,35 +50,19 @@ struct IncrementalLedgerRepository: Sendable {
                 let header: Header = try read(namespace, "header")
                 var book = header.book
                 book.state.accounts = try read(namespace, ids: header.accountIDs, prefix: "account")
+                book.state.transactions = try read(namespace, ids: header.transactionIDs, prefix: "transaction")
                 book.state.recurringRules = try header.recurringIDs.map { try read(namespace, ids: $0, prefix: "recurring") }
                 book.state.purchaseSessions = try header.purchaseIDs.map { try read(namespace, ids: $0, prefix: "purchase") }
-
-                if id == manifest.activeBookID {
-                    // Active book: hydrate bounded recent transactions
-                    try ensureIndexPopulated(for: id)
-                    let recentIDs: [UUID]
-                    if try database.hasIndexedTransactions(bookID: namespace) {
-                        let ids = try database.recentTransactionIDs(bookID: namespace, limit: pageSize)
-                        recentIDs = ids.compactMap(UUID.init)
-                    } else if header.transactionIDs.count <= pageSize {
-                        recentIDs = header.transactionIDs
-                    } else {
-                        recentIDs = Array(header.transactionIDs.prefix(pageSize))
-                    }
-                    book.state.transactions = try read(namespace, ids: recentIDs, prefix: "transaction")
-                } else {
-                    // Inactive books: do not hydrate transactions at startup (empty array)
-                    book.state.transactions = []
-                }
                 return book
             }
+            totalBooks = books.count
+            totalTxs = books.reduce(0) { $0 + $1.state.transactions.count }
             return LedgerLibrary(schemaVersion: manifest.schemaVersion, activeBookID: manifest.activeBookID, books: books)
         }
         if let library {
-            let count = library.books.reduce(0) { $0 + $1.state.transactions.count }
             let duration = Date.now.timeIntervalSince(started)
-            LedgerDiagnostics.recordLazyMetrics(operation: "startup-load", duration: duration, count: count)
-            LedgerDiagnostics.persistence.info("Loaded library books=\(library.books.count) transactions=\(count) elapsed=\(duration)")
+            LedgerDiagnostics.recordStartupPhase("load-library", duration: duration, books: totalBooks, transactions: totalTxs)
+            LedgerDiagnostics.persistence.info("Loaded library books=\(library.books.count) transactions=\(totalTxs) elapsed=\(duration)")
         }
         return library
     }
@@ -137,8 +123,17 @@ struct IncrementalLedgerRepository: Sendable {
                     pocketBalances[account.id] = balances
                 }
 
-                let allIDs = try database.allIndexedTransactionIDs(bookID: namespace).compactMap(UUID.init)
-                let headerTxIDs = allIDs.isEmpty ? book.state.transactions.map(\.id) : allIDs
+                let existingHeader: Header? = try? read(namespace, "header")
+                let headerTxIDs: [UUID]
+                if !book.state.transactions.isEmpty {
+                    headerTxIDs = book.state.transactions.map(\.id)
+                } else if let existing = existingHeader, !existing.transactionIDs.isEmpty {
+                    // Invariant: If in-memory state has 0 transactions but existing header has transactions,
+                    // NEVER overwrite with empty array! Keep the existing transaction IDs.
+                    headerTxIDs = existing.transactionIDs
+                } else {
+                    headerTxIDs = []
+                }
                 try database.put(namespace, "header", encoder.encode(Header(book, allTransactionIDs: headerTxIDs, validatedBalances: pocketBalances)))
             }
             let manifest = Manifest(schemaVersion: library.schemaVersion, activeBookID: library.activeBookID, bookIDs: library.books.map(\.id))
