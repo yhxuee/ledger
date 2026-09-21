@@ -1077,33 +1077,7 @@ struct TransactionEditorView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 ForEach(availableCategories) { category in
-                    Button { withAnimation(.snappy) { categoryID = category.id } } label: {
-                        VStack(spacing: 4) {
-                            CategoryIcon(category: category, font: .title3)
-                            Text(category.displayName)
-                                .font(.caption.weight(.semibold))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.72)
-                        }
-                        .frame(width: 112, height: 78)
-                        .foregroundStyle(categoryID == category.id ? Color(hex: category.colorHex) : Color.primary)
-                        .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        if !category.id.isSystemLinked {
-                            Button {
-                                categoryEditorMode = .edit(category)
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-                            Button(role: .destructive) {
-                                categoryPendingDeletion = category
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
-                    }
+                    categoryControl(category)
                 }
                 if !isLinked {
                     Button { categoryEditorMode = .create(initialKind: activeKind) } label: {
@@ -1115,13 +1089,67 @@ struct TransactionEditorView: View {
                                 .minimumScaleFactor(0.72)
                         }
                         .frame(width: 112, height: 78)
-                        .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .ledgerGlass(interactive: false, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .contentShape(.interaction, RoundedRectangle(cornerRadius: 20, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .contentShape(.interaction, RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
             }
             .padding(.vertical, 4)
         }
+    }
+
+    @ViewBuilder
+    private func categoryControl(_ category: LedgerCategory) -> some View {
+        if !category.id.isSystemLinked {
+            Menu {
+                Button {
+                    categoryEditorMode = .edit(category)
+                } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
+                Button(role: .destructive) {
+                    categoryPendingDeletion = category
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            } label: {
+                categoryCard(category)
+            } primaryAction: {
+                withAnimation(.snappy) {
+                    categoryID = category.id
+                }
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .contentShape(.interaction, RoundedRectangle(cornerRadius: 20, style: .continuous))
+        } else {
+            Button {
+                withAnimation(.snappy) {
+                    categoryID = category.id
+                }
+            } label: {
+                categoryCard(category)
+            }
+            .buttonStyle(.plain)
+            .contentShape(.interaction, RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+    }
+
+    @ViewBuilder
+    private func categoryCard(_ category: LedgerCategory) -> some View {
+        VStack(spacing: 4) {
+            CategoryIcon(category: category, font: .title3)
+            Text(category.displayName)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+        .frame(width: 112, height: 78)
+        .foregroundStyle(categoryID == category.id ? Color(hex: category.colorHex) : Color.primary)
+        .ledgerGlass(interactive: false, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .contentShape(.interaction, RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func press(_ key: String) {
