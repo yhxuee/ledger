@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 /// A connection is confined to its caller's actor/thread. Every value is bound, never interpolated.
-final class LedgerDiskDatabase {
+final class LedgerDiskDatabase: @unchecked Sendable {
     private var handle: OpaquePointer?
     private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 

@@ -304,6 +304,7 @@ final class LedgerStore: ObservableObject {
         defer { isLoadingMoreTransactions = false }
         guard let repo = try? Self.localRepository.transactionRepository() else { return }
 
+        let start = Date.now
         let activeSorted = state.transactions.filter { $0.deletedAt == nil }.sorted { $0.occurredAt > $1.occurredAt }
         let oldest = activeSorted.last
 
@@ -327,6 +328,8 @@ final class LedgerStore: ObservableObject {
         mutateState { state in
             state.transactions.append(contentsOf: newTransactions)
         }
+        let duration = Date.now.timeIntervalSince(start)
+        LedgerDiagnostics.recordLazyMetrics(operation: "page-fetch", duration: duration, count: newTransactions.count, totalCount: state.transactions.count)
         refreshHasMoreTransactions()
     }
 

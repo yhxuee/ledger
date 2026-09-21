@@ -69,7 +69,7 @@ struct TaxAnalyticsPage: View {
         let bounds = dateBounds
         var totals: [LedgerCategoryID: Double] = [:]
 
-        for transaction in store.state.transactions {
+        for transaction in store.transactions(from: bounds.start, to: bounds.end) {
             guard transaction.occurredAt >= bounds.start, transaction.occurredAt < bounds.end,
                   accountIDs.isEmpty || accountIDs.contains(transaction.accountID),
                   let taxResult = TransactionSemantics.taxEffect(transaction, in: store.state, to: store.state.settings.baseCurrency),

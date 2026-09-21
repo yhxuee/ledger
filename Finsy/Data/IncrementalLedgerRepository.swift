@@ -74,7 +74,9 @@ struct IncrementalLedgerRepository: Sendable {
         }
         if let library {
             let count = library.books.reduce(0) { $0 + $1.state.transactions.count }
-            LedgerDiagnostics.persistence.info("Loaded library books=\(library.books.count) transactions=\(count) elapsed=\(Date.now.timeIntervalSince(started))")
+            let duration = Date.now.timeIntervalSince(started)
+            LedgerDiagnostics.recordLazyMetrics(operation: "startup-load", duration: duration, count: count)
+            LedgerDiagnostics.persistence.info("Loaded library books=\(library.books.count) transactions=\(count) elapsed=\(duration)")
         }
         return library
     }

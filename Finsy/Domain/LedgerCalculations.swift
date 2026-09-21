@@ -236,7 +236,7 @@ enum LedgerCalculations {
         return activeTransactions(state).filter { accountID == nil || $0.accountID == accountID || $0.destinationAccountID == accountID }.sorted { $0.occurredAt > $1.occurredAt }
     }
 
-    static func analytics(_ state: LedgerState, range: AnalyticsRange, type: LedgerTransactionType = .expense, categories: Set<LedgerCategoryID> = [], accountID: UUID? = nil, accountIDs: Set<UUID> = [], customRange: ClosedRange<Date>? = nil, now: Date = .now, index: LedgerIndex? = nil) -> AnalyticsSummary {
+    static func analytics(_ state: LedgerState, range: AnalyticsRange, type: LedgerTransactionType = .expense, categories: Set<LedgerCategoryID> = [], accountID: UUID? = nil, accountIDs: Set<UUID> = [], customRange: ClosedRange<Date>? = nil, now: Date = .now, index: LedgerIndex? = nil, transactions: [LedgerTransaction]? = nil) -> AnalyticsSummary {
         let calendar = Calendar.current
         let target = state.settings.baseCurrency
         let startOfToday = calendar.startOfDay(for: now)
@@ -301,7 +301,7 @@ enum LedgerCalculations {
 
         let relevantCategories = state.categories.filter { $0.kind == (type == .income ? .income : .expense) && !$0.id.isSystemLinked }
         var totals = Dictionary(uniqueKeysWithValues: relevantCategories.map { ($0.id, 0.0) })
-        let effectiveTransactions = index?.activeTransactions ?? activeTransactions(state)
+        let effectiveTransactions = transactions ?? (index?.activeTransactions ?? activeTransactions(state))
         for transaction in effectiveTransactions where transaction.occurredAt >= start && transaction.occurredAt < end && (accountID == nil || transaction.accountID == accountID) && (accountIDs.isEmpty || accountIDs.contains(transaction.accountID)) {
             guard categories.isEmpty || categories.contains(transaction.categoryID) else { continue }
             guard let value = transactionEffect(transaction, in: state, to: target, type: type, now: now, index: index) else { continue }

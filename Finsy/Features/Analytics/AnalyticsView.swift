@@ -26,8 +26,35 @@ struct AnalyticsView: View {
         store.state.categories.filter { $0.kind == (activeType == .income ? .income : .expense) }
     }
 
+    private var analyticsDateBounds: (start: Date, end: Date) {
+        let calendar = Calendar.current
+        let now = Date.now
+        let startOfToday = calendar.startOfDay(for: now)
+        if hasCustomRange {
+            let start = calendar.startOfDay(for: rangeStart)
+            let end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: rangeEnd)) ?? rangeEnd
+            return (start, end)
+        }
+        let start: Date
+        let end = calendar.date(byAdding: .day, value: 1, to: startOfToday) ?? now
+        switch range {
+        case .week:
+            let weekday = calendar.component(.weekday, from: startOfToday)
+            start = calendar.date(byAdding: .day, value: -(weekday - 1), to: startOfToday) ?? startOfToday
+        case .month:
+            start = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? startOfToday
+        case .sixMonths, .year:
+            let count = range == .sixMonths ? 6 : 12
+            let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? startOfToday
+            start = calendar.date(byAdding: .month, value: -(count - 1), to: monthStart) ?? monthStart
+        }
+        return (start, end)
+    }
+
     private func summary(for type: LedgerTransactionType) -> AnalyticsSummary {
         let cats = type == .income ? selectedIncomeCategories : selectedExpenseCategories
+        let bounds = analyticsDateBounds
+        let txs = store.transactions(from: bounds.start, to: bounds.end)
         return LedgerCalculations.analytics(
             store.state,
             range: range,
@@ -35,7 +62,8 @@ struct AnalyticsView: View {
             categories: cats,
             accountIDs: selectedAccounts,
             customRange: hasCustomRange ? rangeStart...rangeEnd : nil,
-            index: store.index
+            index: store.index,
+            transactions: txs
         )
     }
 

@@ -83,6 +83,16 @@ struct LedgerView: View {
                         )
                         .padding(.top, 40)
                         .frame(maxWidth: .infinity)
+                    } else if store.hasMoreTransactions {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .padding()
+                            Spacer()
+                        }
+                        .onAppear {
+                            store.loadNextTransactionPage()
+                        }
                     }
                 } header: {
                     if showingCalendar {

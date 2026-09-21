@@ -187,10 +187,15 @@ struct StatementConfigurationSheet: View {
         isGenerating = true
         let accounts = activeAccounts.filter { selectedAccountIDs.contains($0.id) }
         let isAllSelected = allSelected
-        let state = store.state
+        var state = store.state
         let selectedMonth = self.selectedMonth
         let themeColorHex = preferences.value.statementThemeColorHex
         let type = self.type
+
+        let calendar = Calendar.current
+        let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: selectedMonth)) ?? selectedMonth
+        let cutoffEnd = calendar.date(byAdding: .month, value: 1, to: startOfMonth) ?? selectedMonth
+        state.transactions = store.transactions(from: nil, to: cutoffEnd)
 
         Task.detached(priority: .userInitiated) {
             do {

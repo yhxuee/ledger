@@ -13,6 +13,14 @@ enum LedgerDiagnostics {
         let value = error as NSError
         logger.error("\(operation, privacy: .public) failed domain=\(value.domain, privacy: .public) code=\(value.code)")
     }
+
+    static func recordLazyMetrics(operation: String, duration: TimeInterval, count: Int, totalCount: Int? = nil) {
+        if let totalCount {
+            persistence.info("LazyMetrics op=\(operation, privacy: .public) count=\(count) total=\(totalCount) durationMs=\(Int(duration * 1000))")
+        } else {
+            persistence.info("LazyMetrics op=\(operation, privacy: .public) count=\(count) durationMs=\(Int(duration * 1000))")
+        }
+    }
 }
 
 enum AttachmentPath {
