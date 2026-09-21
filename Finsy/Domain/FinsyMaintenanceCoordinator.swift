@@ -24,6 +24,7 @@ final class FinsyMaintenanceCoordinator {
         defer { isPerformingMaintenance = false }
 
         await privacy.unlockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
+        await store.resumeEncryptionMigrations()
         RecentTransactionActivityCoordinator.shared.registerObservers(store: store)
         RecentTransactionActivityCoordinator.shared.reconcilePendingActions(store: store)
         OverviewWidgetRelay.updateSnapshot(store: store, preferences: preferences.value)
@@ -53,6 +54,7 @@ final class FinsyMaintenanceCoordinator {
         Task { @MainActor in
             defer { self.isPerformingMaintenance = false }
             await privacy.unlockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
+            await CloudLedgerService.shared.recoverSyncIfNeeded()
             _ = try? await store.refreshExchangeRatesIfNeeded()
             await StockQuoteRefreshService.shared.refreshIfDue(store: store)
             MarketRefreshBackground.schedule(store: store)

@@ -181,6 +181,7 @@ enum BackupCodec {
             }
         }
         for transaction in state.transactions {
+            if let identifier = transaction.noteAttachmentID { try AttachmentPath.validate(identifier) }
             guard knownAccounts.contains(transaction.accountID) else { throw BackupError.missingAccount }
             guard transaction.amount.isFinite, transaction.amount > 0, transaction.exchangeRateAtTransaction.isFinite, transaction.exchangeRateAtTransaction > 0 else { throw BackupError.invalidValue("transaction") }
             guard categoryIDs.contains(transaction.categoryID) else { throw BackupError.invalidValue("transaction category") }
@@ -226,6 +227,7 @@ enum BackupCodec {
         let purchaseSessionIDs = (state.purchaseSessions ?? []).map(\.id)
         guard Set(purchaseSessionIDs).count == purchaseSessionIDs.count else { throw BackupError.duplicateID("purchase session") }
         for session in state.purchaseSessions ?? [] {
+            if let identifier = session.receiptAttachmentID { try AttachmentPath.validate(identifier) }
             if let accountID = session.accountID { guard knownAccounts.contains(accountID) else { throw BackupError.missingAccount } }
             if session.status == .active || session.status == .awaitingSummary {
                 guard session.accountID != nil else { throw BackupError.invalidValue("purchase payment account") }

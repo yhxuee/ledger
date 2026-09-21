@@ -172,6 +172,7 @@ struct EncryptionSecurityView: View {
     }
 
     private func enableE2EE() async {
+        let targetBookID = store.activeBookID
         guard await privacy.authorizeSensitiveChange(
             reason: "Authenticate to enable End-to-End Encryption.",
             protectionEnabled: preferences.value.biometricLockEnabled
@@ -180,11 +181,7 @@ struct EncryptionSecurityView: View {
         working = true
         defer { working = false }
         do {
-            let (key, fp) = try LedgerKeyStore.generateAndSaveKey(for: store.activeBook.id)
-            store.markActiveBookEncrypted(fingerprint: fp)
-            if store.activeBook.effectiveStorageKind != .local {
-                try await CloudLedgerService.shared.migrateToEncrypted(book: store.activeBook, key: key)
-            }
+            try await store.enableEncryption(bookID: targetBookID)
             statusMessage = "End-to-End Encryption enabled for this ledger."
         } catch {
             store.presentedError = error.localizedDescription

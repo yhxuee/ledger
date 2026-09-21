@@ -6,7 +6,7 @@ actor AttachmentStore {
     nonisolated static var folderURL: URL {
         FinsyStorage.folder.appending(path: "Attachments", directoryHint: .isDirectory)
     }
-    nonisolated static func url(for identifier: String) -> URL { folderURL.appending(path: identifier) }
+    nonisolated static func url(for identifier: String) throws -> URL { try AttachmentPath.url(identifier, in: folderURL) }
 
     func saveReceipt(_ image: UIImage) throws -> String {
         try save(image, prefix: "receipt")
@@ -30,10 +30,13 @@ actor AttachmentStore {
         return identifier
     }
 
-    func loadReceipt(identifier: String) -> UIImage? { UIImage(contentsOfFile: Self.url(for: identifier).path) }
-    func loadTransactionNote(identifier: String) -> UIImage? { UIImage(contentsOfFile: Self.url(for: identifier).path) }
+    func loadReceipt(identifier: String) -> UIImage? {
+        guard let url = try? Self.url(for: identifier) else { return nil }
+        return UIImage(contentsOfFile: url.path)
+    }
+    func loadTransactionNote(identifier: String) -> UIImage? { loadReceipt(identifier: identifier) }
     func delete(identifier: String) throws {
-        let url = Self.url(for: identifier)
+        let url = try Self.url(for: identifier)
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         try FileManager.default.removeItem(at: url)
     }

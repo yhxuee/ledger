@@ -70,11 +70,12 @@ actor AlphaVantageService {
         let region: String
         let open: Bool
     }
-    private var searchCache: [String: [Match]] = [:]
+    private var searchCache = ExpiringCache<String, [Match]>(capacity: 128, lifetime: 86_400)
     private var searches: [String: Task<[Match], Error>] = [:]
-    private var failedSearches: [String: (date: Date, error: MarketDataError)] = [:]
+    private var failedSearches = ExpiringCache<String, (date: Date, error: MarketDataError)>(capacity: 128, lifetime: 300)
     private var quotes: [String: Task<Quote, Error>] = [:]
-    private var quoteCache: [String: Quote] = [:]
+    private var quoteCache = ExpiringCache<String, Quote>(capacity: 256, lifetime: 86_400)
+    private var cacheGeneration: UInt64 = 0
     private let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
@@ -82,9 +83,17 @@ actor AlphaVantageService {
         return URLSession(configuration: configuration)
     }()
 
-    func resetCaches() { searchCache = [:]; quoteCache = [:]; failedSearches = [:] }
+    func resetCaches() {
+        cacheGeneration &+= 1
+        for task in searches.values { task.cancel() }
+        for task in quotes.values { task.cancel() }
+        searches.removeAll(); quotes.removeAll()
+        searchCache.removeAll(); quoteCache.removeAll(); failedSearches.removeAll()
+    }
 
     private func request(_ function: String, parameters: [String: String] = [:]) async throws -> [String: Any] {
+        let started = Date.now
+        defer { LedgerDiagnostics.market.debug("Request operation=\(function, privacy: .public) elapsed=\(Date.now.timeIntervalSince(started))") }
         guard let key = try MarketDataKeychain.read(), !key.isEmpty else { throw MarketDataError.missingKey }
         var url = URLComponents(string: "https://www.alphavantage.co/query")!
         url.queryItems = (["function": function, "apikey": key].merging(parameters) { _, new in new })
@@ -113,6 +122,7 @@ actor AlphaVantageService {
         guard query.count >= 2 else { return [] }
         if let cached = searchCache[query] { return cached.filter { $0.belongs(to: market) } }
         if let failure = failedSearches[query], Date.now.timeIntervalSince(failure.date) < 300 { throw failure.error }
+        let generation = cacheGeneration
         let task: Task<[Match], Error>
         if let existing = searches[query] { task = existing }
         else {
@@ -127,13 +137,14 @@ actor AlphaVantageService {
             }
             searches[query] = task
         }
-        defer { searches[query] = nil }
+        defer { if generation == cacheGeneration { searches[query] = nil } }
         do {
             let result = try await task.value
+            guard generation == cacheGeneration else { throw CancellationError() }
             searchCache[query] = result
             return result.filter { $0.belongs(to: market) }
         } catch {
-            if let failure = error as? MarketDataError { failedSearches[query] = (.now, failure) }
+            if generation == cacheGeneration, let failure = error as? MarketDataError { failedSearches[query] = (.now, failure) }
             throw error
         }
     }
@@ -141,6 +152,7 @@ actor AlphaVantageService {
     func quote(symbol: String) async throws -> Quote {
         if let cached = quoteCache[symbol], Date.now.timeIntervalSince(cached.fetchedAt) < 60 { return cached }
         if let pending = quotes[symbol] { return try await pending.value }
+        let generation = cacheGeneration
         let task = Task<Quote, Error> {
             let response = try await self.request("GLOBAL_QUOTE", parameters: ["symbol": symbol])
             guard let quote = response["Global Quote"] as? [String: String],
@@ -150,12 +162,13 @@ actor AlphaVantageService {
             return Quote(symbol: symbol, price: price, tradingDay: day, fetchedAt: .now)
         }
         quotes[symbol] = task
-        defer { quotes[symbol] = nil }
+        defer { if generation == cacheGeneration { quotes[symbol] = nil } }
         let result = try await withTaskCancellationHandler {
             try await task.value
         } onCancel: {
             task.cancel()
         }
+        guard generation == cacheGeneration else { throw CancellationError() }
         if let old = quoteCache[symbol], old.tradingDay > result.tradingDay { return old }
         quoteCache[symbol] = result
         return result

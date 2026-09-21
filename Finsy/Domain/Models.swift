@@ -854,6 +854,7 @@ struct LedgerBook: Identifiable, Codable, Hashable, Sendable {
     var encryptionVersion: Int? = nil
     var keyFingerprint: String? = nil
     var encryptionState: LedgerEncryptionState? = nil
+    var encryptionUpdatedAt: Date? = nil
 
     var effectiveStorageKind: LedgerStorageKind { storageKind ?? .local }
     var effectiveEncryptionState: LedgerEncryptionState {

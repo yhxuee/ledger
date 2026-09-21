@@ -33,6 +33,7 @@ enum StateMutationImpact: Sendable {
 final class LedgerStore: ObservableObject {
     static let shared = LedgerStore()
     var fxRefreshes: Set<UUID> = []
+    var encryptionMigrations: Set<UUID> = []
     var lastFinancialRefresh = Date.now
     private var activeMutationImpact: StateMutationImpact?
     #if DEBUG

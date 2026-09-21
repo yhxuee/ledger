@@ -67,3 +67,7 @@ For this change, Swift syntax parsing, plist validation and whitespace checks ar
 `FinsyTests` covers balance semantics, soft deletion, native backup round-trip, native v1 migration, legacy Web conversion, flexible currencies, refund idempotency and deletion, both budget modes, multi-currency budgets, dynamic loan interest, deleted default-account mappings, PurchaseSession finalization/grouping, and CloudKit record mapping without network access.
 
 This checkout is authored from Windows, where SwiftUI, ActivityKit, EventKit and CloudKit SDK compilation is unavailable. Run the included Xcode test target or the existing macOS GitHub Actions workflow before signing a release archive.
+
+## Persistence diagnostics
+
+Local library saves now use incremental SQLite persistence; existing JSON libraries and portable backup formats remain readable. CloudKit uses a durable record/outbox journal and SDK change events. See [Persistence diagnostics](docs/PersistenceDiagnostics.md) for logging, regression tests, migration details, and device checks.

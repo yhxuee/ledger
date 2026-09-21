@@ -20,8 +20,13 @@ extension LedgerStore {
         } catch { presentedError = error.localizedDescription }
     }
 
-    func resetLocalData() throws {
+    func resetLocalData() async throws {
         saveTask?.cancel()
+        persistenceEnabled = false
+        defer { persistenceEnabled = true }
+        saveRevision &+= 1
+        await LedgerPersistence.shared.invalidate(revision: saveRevision)
+        await CloudLedgerService.shared.resetLocalState()
         try Self.localRepository.resetLocalData()
         try PurchaseSharedStateStore.resetLocalSnapshots()
         Task { await PurchaseLiveActivityController.shared.endAll() }
@@ -35,6 +40,7 @@ extension LedgerStore {
         undoTransactions = []
         activeUndoOperation = nil
         undoMessage = nil
+        persistenceEnabled = true
         scheduleSave()
     }
 

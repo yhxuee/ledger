@@ -8,9 +8,16 @@ protocol LedgerRepository: Sendable {
 struct LocalLedgerRepository: LedgerRepository {
     static var storageFolder: URL { FinsyStorage.folder }
 
+    var folder: URL = Self.storageFolder
+
     func loadLibrary() throws -> LedgerLibrary? {
         try FinsyStorage.prepare()
-        let url = Self.storageFolder.appending(path: "library.json")
+        let databaseURL = folder.appending(path: "ledger.sqlite")
+        if FileManager.default.fileExists(atPath: databaseURL.path),
+           let library = try IncrementalLedgerRepository(database: LedgerDiskDatabase(url: databaseURL)).load() {
+            return library
+        }
+        let url = folder.appending(path: "library.json")
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let data = try Data(contentsOf: url)
         if var current = try? BackupCodec.decoder().decode(LedgerLibrary.self, from: data), current.schemaVersion >= 2 {
@@ -22,10 +29,13 @@ struct LocalLedgerRepository: LedgerRepository {
     }
 
     func saveLibrary(_ library: LedgerLibrary) throws {
+        try saveLibrary(library, previous: nil)
+    }
+
+    func saveLibrary(_ library: LedgerLibrary, previous: LedgerLibrary?) throws {
         try FinsyStorage.prepare()
-        let url = Self.storageFolder.appending(path: "library.json")
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
-        try BackupCodec.encoder().encode(library).write(to: url, options: [.atomic, .completeFileProtection])
+        let database = try LedgerDiskDatabase(url: folder.appending(path: "ledger.sqlite"))
+        try IncrementalLedgerRepository(database: database).save(library, previous: previous)
     }
 
     func resetLocalData() throws {

@@ -25,6 +25,7 @@ struct CloudBookMetadata: Codable, Hashable {
     var isEncrypted: Bool? = nil
     var encryptionVersion: Int? = nil
     var keyFingerprint: String? = nil
+    var encryptionUpdatedAt: Date? = nil
 }
 
 struct CloudPurchaseSessionHeader: Codable, Hashable {
@@ -44,16 +45,46 @@ struct CloudPurchaseSessionHeader: Codable, Hashable {
 }
 
 enum CloudRecordMapper {
+    static func removeTemporaryAssets(_ records: [CKRecord]) {
+        let temporary = FileManager.default.temporaryDirectory.standardizedFileURL
+        for record in records {
+            for field in ["receipt", "noteAttachment"] {
+                guard let asset = record[field] as? CKAsset, let url = asset.fileURL,
+                      url.deletingLastPathComponent().standardizedFileURL == temporary,
+                      url.lastPathComponent.hasPrefix("enc-") else { continue }
+                do { try FileManager.default.removeItem(at: url) }
+                catch { LedgerDiagnostics.failure(error, operation: "encrypted-asset-cleanup", logger: LedgerDiagnostics.security) }
+            }
+        }
+    }
+    static func encryptionKey(for book: LedgerBook) throws -> SymmetricKey? {
+        guard book.effectiveEncryptionState != .authorizationRequired else {
+            throw LedgerCryptoError.authorizationRequired(ledgerID: book.id, fingerprint: book.keyFingerprint)
+        }
+        let required = book.isEncrypted == true || book.effectiveEncryptionState != .disabled
+        guard required else { return nil }
+        guard let key = try LedgerKeyStore.loadKey(for: book.id) else {
+            throw LedgerCryptoError.authorizationRequired(ledgerID: book.id, fingerprint: book.keyFingerprint)
+        }
+        if let expected = book.keyFingerprint,
+           expected.lowercased() != LedgerKeyStore.fingerprint(for: key, ledgerID: book.id).lowercased() {
+            throw LedgerCryptoError.authorizationRequired(ledgerID: book.id, fingerprint: expected)
+        }
+        return key
+    }
+
     static func zoneID(for bookID: UUID, ownerName: String = CKCurrentUserDefaultName) -> CKRecordZone.ID {
         CKRecordZone.ID(zoneName: "LedgerBook-\(bookID.uuidString)", ownerName: ownerName)
     }
 
-    static func records(for book: LedgerBook, zoneID: CKRecordZone.ID? = nil, attachmentFolder: URL? = nil) throws -> [CKRecord] {
+    static func records(for book: LedgerBook, zoneID: CKRecordZone.ID? = nil, attachmentFolder: URL? = nil, recordNames: Set<String>? = nil) throws -> [CKRecord] {
         let zone = zoneID ?? self.zoneID(for: book.id)
-        let isEncrypted = (book.effectiveEncryptionState == .enabled)
-        let key: SymmetricKey? = isEncrypted ? try LedgerKeyStore.loadKey(for: book.id) : nil
+        let key = try encryptionKey(for: book)
+        let isEncrypted = key != nil
 
         var records: [CKRecord] = []
+        var completed = false
+        defer { if !completed { removeTemporaryAssets(records) } }
         let metadata = CloudBookMetadata(
             id: book.id,
             name: book.name,
@@ -62,21 +93,23 @@ enum CloudRecordMapper {
             schemaVersion: book.state.schemaVersion,
             isEncrypted: isEncrypted ? true : nil,
             encryptionVersion: isEncrypted ? LedgerCryptoService.currentEncryptionVersion : nil,
-            keyFingerprint: key.map { LedgerKeyStore.fingerprint(for: $0, ledgerID: book.id) }
+            keyFingerprint: key.map { LedgerKeyStore.fingerprint(for: $0, ledgerID: book.id) },
+            encryptionUpdatedAt: book.encryptionUpdatedAt
         )
 
-        records.append(try record(
-            type: CloudRecordType.book,
-            name: "book-\(book.id.uuidString)",
-            value: metadata,
-            zoneID: zone,
-            updatedAt: book.updatedAt,
-            version: 1,
-            ledgerID: book.id,
-            key: key
-        ))
-
-        records += try book.state.accounts.map {
+        if recordNames?.contains("book-\(book.id.uuidString)") ?? true {
+            records.append(try record(
+                type: CloudRecordType.book,
+                name: "book-\(book.id.uuidString)",
+                value: metadata,
+                zoneID: zone,
+                updatedAt: book.updatedAt,
+                version: 1,
+                ledgerID: book.id,
+                key: key
+            ))
+        }
+        records += try book.state.accounts.filter { recordNames?.contains("account-\($0.id.uuidString)") ?? true }.map {
             try record(
                 type: CloudRecordType.account,
                 name: "account-\($0.id.uuidString)",
@@ -89,7 +122,7 @@ enum CloudRecordMapper {
             )
         }
 
-        for transaction in book.state.transactions {
+        for transaction in book.state.transactions where recordNames?.contains("transaction-\(transaction.id.uuidString)") ?? true {
             let transactionRecord = try record(
                 type: CloudRecordType.transaction,
                 name: "transaction-\(transaction.id.uuidString)",
@@ -102,7 +135,7 @@ enum CloudRecordMapper {
             )
 
             if let identifier = transaction.noteAttachmentID, let folder = attachmentFolder {
-                let file = folder.appending(path: identifier)
+                let file = try AttachmentPath.url(identifier, in: folder)
                 if FileManager.default.fileExists(atPath: file.path) {
                     if let key {
                         let fileData = try Data(contentsOf: file)
@@ -113,7 +146,7 @@ enum CloudRecordMapper {
                             associatedID: transaction.id.uuidString,
                             key: key
                         )
-                        let tempFile = FileManager.default.temporaryDirectory.appending(path: "enc-\(identifier)")
+                        let tempFile = FileManager.default.temporaryDirectory.appending(path: "enc-\(UUID().uuidString)-\(identifier)")
                         try encryptedData.write(to: tempFile, options: .atomic)
                         transactionRecord["noteAttachment"] = CKAsset(fileURL: tempFile)
                     } else {
@@ -124,7 +157,7 @@ enum CloudRecordMapper {
             records.append(transactionRecord)
         }
 
-        records += try book.state.categories.map {
+        records += try book.state.categories.filter { recordNames?.contains("category-\($0.id.rawValue)") ?? true }.map {
             try record(
                 type: CloudRecordType.category,
                 name: "category-\($0.id.rawValue)",
@@ -137,29 +170,31 @@ enum CloudRecordMapper {
             )
         }
 
-        records.append(try record(
-            type: CloudRecordType.settings,
-            name: "settings",
-            value: book.state.settings,
-            zoneID: zone,
-            updatedAt: book.state.settings.updatedAt,
-            version: 1,
-            ledgerID: book.id,
-            key: key
-        ))
-
-        records.append(try record(
-            type: CloudRecordType.budget,
-            name: "budget",
-            value: book.state.settings.budgetPlan,
-            zoneID: zone,
-            updatedAt: book.state.settings.updatedAt,
-            version: 1,
-            ledgerID: book.id,
-            key: key
-        ))
-
-        records += try (book.state.recurringRules ?? []).map {
+        if recordNames?.contains("settings") ?? true {
+            records.append(try record(
+                type: CloudRecordType.settings,
+                name: "settings",
+                value: book.state.settings,
+                zoneID: zone,
+                updatedAt: book.state.settings.updatedAt,
+                version: 1,
+                ledgerID: book.id,
+                key: key
+            ))
+        }
+        if recordNames?.contains("budget") ?? true {
+            records.append(try record(
+                type: CloudRecordType.budget,
+                name: "budget",
+                value: book.state.settings.budgetPlan,
+                zoneID: zone,
+                updatedAt: book.state.settings.updatedAt,
+                version: 1,
+                ledgerID: book.id,
+                key: key
+            ))
+        }
+        records += try (book.state.recurringRules ?? []).filter { recordNames?.contains("recurring-\($0.id.uuidString)") ?? true }.map {
             try record(
                 type: CloudRecordType.recurring,
                 name: "recurring-\($0.id.uuidString)",
@@ -172,7 +207,7 @@ enum CloudRecordMapper {
             )
         }
 
-        for session in book.state.purchaseSessions ?? [] {
+        for session in book.state.purchaseSessions ?? [] where recordNames?.contains("purchase-\(session.id.uuidString)") ?? true {
             let header = CloudPurchaseSessionHeader(
                 id: session.id,
                 ledgerBookID: session.ledgerBookID,
@@ -200,7 +235,7 @@ enum CloudRecordMapper {
             )
 
             if let identifier = session.receiptAttachmentID, let folder = attachmentFolder {
-                let file = folder.appending(path: identifier)
+                let file = try AttachmentPath.url(identifier, in: folder)
                 if FileManager.default.fileExists(atPath: file.path) {
                     if let key {
                         let fileData = try Data(contentsOf: file)
@@ -211,7 +246,7 @@ enum CloudRecordMapper {
                             associatedID: session.id.uuidString,
                             key: key
                         )
-                        let tempFile = FileManager.default.temporaryDirectory.appending(path: "enc-\(identifier)")
+                        let tempFile = FileManager.default.temporaryDirectory.appending(path: "enc-\(UUID().uuidString)-\(identifier)")
                         try encryptedData.write(to: tempFile, options: .atomic)
                         sessionRecord["receipt"] = CKAsset(fileURL: tempFile)
                     } else {
@@ -235,6 +270,7 @@ enum CloudRecordMapper {
                 )
             }
         }
+        completed = true
         return records
     }
 
@@ -276,7 +312,7 @@ enum CloudRecordMapper {
                     cloudZoneName: metadataRecord.recordID.zoneID.zoneName,
                     cloudZoneOwnerName: metadataRecord.recordID.zoneID.ownerName,
                     isEncrypted: true,
-                    encryptionVersion: metadataRecord["encryptionVersion"] as? Int ?? 1,
+                    encryptionVersion: (metadataRecord["encryptionVersion"] as? Int) ?? 1,
                     keyFingerprint: recordFingerprint,
                     encryptionState: .authorizationRequired
                 )
@@ -293,40 +329,18 @@ enum CloudRecordMapper {
         let bookID = metadata.id
         let accounts: [LedgerAccount] = try decodeAll(CloudRecordType.account, records, ledgerID: bookID)
         var transactions: [LedgerTransaction] = try decodeAll(CloudRecordType.transaction, records, ledgerID: bookID)
+        var attachmentWrites: [(record: CKRecord, source: URL, destination: URL, identifier: String, associatedID: String)] = []
 
         if let attachmentFolder {
-            let key = try? LedgerKeyStore.loadKey(for: bookID)
-            let recordsByID = Dictionary(uniqueKeysWithValues: records.filter { $0.recordType == CloudRecordType.transaction }.compactMap { record -> (UUID, CKRecord)? in
-                guard let value: LedgerTransaction = try? decode(record, ledgerID: bookID) else { return nil }
-                return (value.id, record)
-            })
-
+            let recordsByName = Dictionary(grouping: records, by: { $0.recordID.recordName })
             for index in transactions.indices {
-                guard let record = recordsByID[transactions[index].id],
+                guard let record = recordsByName["transaction-\(transactions[index].id.uuidString)"]?.first,
                       let asset = record["noteAttachment"] as? CKAsset,
-                      let sourceURL = asset.fileURL else { continue }
+                      let source = asset.fileURL else { continue }
                 let identifier = transactions[index].noteAttachmentID ?? "transaction-note-cloud-\(transactions[index].id.uuidString).jpg"
-                let destination = attachmentFolder.appending(path: identifier)
-                try? FileManager.default.createDirectory(at: attachmentFolder, withIntermediateDirectories: true)
-
-                if let assetData = try? Data(contentsOf: sourceURL) {
-                    if let key, record["ciphertextV1"] != nil {
-                        if let decrypted = try? LedgerCryptoService.decryptAttachment(
-                            assetData,
-                            ledgerID: bookID,
-                            attachmentID: identifier,
-                            associatedID: transactions[index].id.uuidString,
-                            key: key
-                        ) {
-                            try? decrypted.write(to: destination, options: .atomic)
-                        }
-                    } else {
-                        try? assetData.write(to: destination, options: .atomic)
-                    }
-                }
-                if FileManager.default.fileExists(atPath: destination.path) {
-                    transactions[index].noteAttachmentID = identifier
-                }
+                let destination = try AttachmentPath.url(identifier, in: attachmentFolder)
+                attachmentWrites.append((record, source, destination, identifier, transactions[index].id.uuidString))
+                transactions[index].noteAttachmentID = identifier
             }
         }
 
@@ -343,15 +357,17 @@ enum CloudRecordMapper {
         let recurring: [RecurringRule] = try decodeAll(CloudRecordType.recurring, records, ledgerID: bookID)
         let headers: [CloudPurchaseSessionHeader] = try decodeAll(CloudRecordType.purchaseSession, records, ledgerID: bookID)
         let allItems: [PurchaseItem] = try decodeAll(CloudRecordType.purchaseItem, records, ledgerID: bookID)
-        let itemRecordByID: [UUID: CKRecord] = Dictionary(uniqueKeysWithValues: records.filter { $0.recordType == CloudRecordType.purchaseItem }.compactMap { record -> (UUID, CKRecord)? in
-            guard let value: PurchaseItem = try? decode(record, ledgerID: bookID) else { return nil }
-            return (value.id, record)
-        })
-
-        let sessions = headers.map { header in
-            let items = allItems.filter { item in
+        var itemRecordByID: [UUID: CKRecord] = [:]
+        for record in records where record.recordType == CloudRecordType.purchaseItem {
+            guard let value: PurchaseItem = try decode(record, ledgerID: bookID) else { continue }
+            guard itemRecordByID.updateValue(record, forKey: value.id) == nil else { throw BackupError.duplicateID("purchase item") }
+        }
+        let itemsByParent = Dictionary(grouping: allItems, by: { itemRecordByID[$0.id]?.parent?.recordID.recordName ?? "" })
+        let sessions = try headers.map { header in
+            let allowedIDs = header.itemIDs.map { Set($0) }
+            let items = (itemsByParent["purchase-\(header.id.uuidString)"] ?? []).filter { item in
                 guard let record = itemRecordByID[item.id], let parent = record.parent else { return false }
-                return parent.recordID.recordName == "purchase-\(header.id.uuidString)" && (header.itemIDs?.contains(item.id) ?? true)
+                return parent.recordID.recordName == "purchase-\(header.id.uuidString)" && (allowedIDs?.contains(item.id) ?? true)
             }
             var receiptIdentifier = header.receiptAttachmentID
             if let attachmentFolder,
@@ -359,25 +375,9 @@ enum CloudRecordMapper {
                let asset = sessionRecord["receipt"] as? CKAsset,
                let sourceURL = asset.fileURL {
                 let identifier = header.receiptAttachmentID ?? "receipt-cloud-\(header.id.uuidString).jpg"
-                let destination = attachmentFolder.appending(path: identifier)
-                try? FileManager.default.createDirectory(at: attachmentFolder, withIntermediateDirectories: true)
-                if let assetData = try? Data(contentsOf: sourceURL) {
-                    let key = try? LedgerKeyStore.loadKey(for: bookID)
-                    if let key, sessionRecord["ciphertextV1"] != nil {
-                        if let decrypted = try? LedgerCryptoService.decryptAttachment(
-                            assetData,
-                            ledgerID: bookID,
-                            attachmentID: identifier,
-                            associatedID: header.id.uuidString,
-                            key: key
-                        ) {
-                            try? decrypted.write(to: destination, options: .atomic)
-                        }
-                    } else {
-                        try? assetData.write(to: destination, options: .atomic)
-                    }
-                }
-                if FileManager.default.fileExists(atPath: destination.path) { receiptIdentifier = identifier }
+                let destination = try AttachmentPath.url(identifier, in: attachmentFolder)
+                attachmentWrites.append((sessionRecord, sourceURL, destination, identifier, header.id.uuidString))
+                receiptIdentifier = identifier
             }
             return PurchaseSession(
                 id: header.id,
@@ -410,6 +410,16 @@ enum CloudRecordMapper {
         PurchaseRules.migrateDevelopmentSessions(in: &state)
         SchemaMigration.normalize(&state)
         try BackupCodec.validate(state)
+        let attachmentKey = attachmentWrites.contains { $0.record["ciphertextV1"] != nil } ? try LedgerKeyStore.loadKey(for: bookID) : nil
+        for write in attachmentWrites {
+            var data = try Data(contentsOf: write.source)
+            if write.record["ciphertextV1"] != nil {
+                guard let attachmentKey else { throw LedgerCryptoError.authorizationRequired(ledgerID: bookID, fingerprint: recordFingerprint) }
+                data = try LedgerCryptoService.decryptAttachment(data, ledgerID: bookID, attachmentID: write.identifier, associatedID: write.associatedID, key: attachmentKey)
+            }
+            try FileManager.default.createDirectory(at: write.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: write.destination, options: [.atomic, .completeFileProtection])
+        }
 
         return LedgerBook(
             id: metadata.id,
@@ -423,7 +433,8 @@ enum CloudRecordMapper {
             isEncrypted: isRecordEncrypted ? true : nil,
             encryptionVersion: metadataRecord["encryptionVersion"] as? Int,
             keyFingerprint: recordFingerprint,
-            encryptionState: isRecordEncrypted ? .enabled : .disabled
+            encryptionState: isRecordEncrypted ? .enabled : .disabled,
+            encryptionUpdatedAt: metadata.encryptionUpdatedAt
         )
     }
 
@@ -472,7 +483,7 @@ enum CloudRecordMapper {
             guard let key = try LedgerKeyStore.loadKey(for: bookID) else {
                 throw LedgerCryptoError.authorizationRequired(ledgerID: bookID, fingerprint: record["keyFingerprint"] as? String)
             }
-            let version = record["encryptionVersion"] as? Int ?? 1
+            let version = (record["encryptionVersion"] as? Int) ?? 1
             let expectedFp = record["keyFingerprint"] as? String
             let decryptedData = try LedgerCryptoService.decryptRecord(
                 ciphertext,
@@ -483,11 +494,25 @@ enum CloudRecordMapper {
                 version: version,
                 expectedFingerprint: expectedFp
             )
-            return try BackupCodec.decoder().decode(T.self, from: decryptedData)
+            return try decodePayload(T.self, data: decryptedData, record: record)
         }
 
         guard let data = record["payload"] as? Data else { return nil }
-        return try BackupCodec.decoder().decode(T.self, from: data)
+        return try decodePayload(T.self, data: data, record: record)
+    }
+
+    private static func decodePayload<T: Decodable>(_ type: T.Type, data: Data, record: CKRecord) throws -> T {
+        let decoded = try BackupCodec.decoder().decode(type, from: data)
+        // Legacy payload dates have second precision; CKRecord dates retain the original
+        // timestamp. Use them for conflict resolution without changing the wire format.
+        guard let updatedAt = record["updatedAt"] as? Date else { return decoded }
+        if var value = decoded as? LedgerAccount { value.updatedAt = updatedAt; return (value as? T) ?? decoded }
+        if var value = decoded as? LedgerTransaction { value.updatedAt = updatedAt; return (value as? T) ?? decoded }
+        if var value = decoded as? LedgerSettings { value.updatedAt = updatedAt; return (value as? T) ?? decoded }
+        if var value = decoded as? RecurringRule { value.updatedAt = updatedAt; return (value as? T) ?? decoded }
+        if var value = decoded as? CloudBookMetadata { value.updatedAt = updatedAt; return (value as? T) ?? decoded }
+        if var value = decoded as? CloudPurchaseSessionHeader { value.updatedAt = updatedAt; return (value as? T) ?? decoded }
+        return decoded
     }
 
     private static func decodeAll<T: Decodable>(_ type: String, _ records: [CKRecord], ledgerID: UUID? = nil) throws -> [T] {

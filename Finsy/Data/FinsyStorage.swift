@@ -74,11 +74,19 @@ enum FinsyStorage {
 actor LedgerPersistence {
     static let shared = LedgerPersistence()
     private var latestRevision: UInt64 = 0
+    private var previous: LedgerLibrary?
+
+    func invalidate(revision: UInt64) {
+        latestRevision = max(latestRevision, revision)
+        previous = nil
+    }
 
     func save(_ library: LedgerLibrary, revision: UInt64) throws {
         guard revision >= latestRevision else { return }
-        latestRevision = revision
         try FinsyStorage.prepare()
-        try LocalLedgerRepository().saveLibrary(library)
+        if !FileManager.default.fileExists(atPath: FinsyStorage.folder.appending(path: "ledger.sqlite").path) { previous = nil }
+        try LocalLedgerRepository().saveLibrary(library, previous: previous)
+        previous = library
+        latestRevision = revision
     }
 }

@@ -53,6 +53,7 @@ extension LedgerStore {
         books[index].encryptionVersion = LedgerCryptoService.currentEncryptionVersion
         books[index].keyFingerprint = fingerprint
         books[index].encryptionState = .enabled
+        books[index].encryptionUpdatedAt = .now
         books[index].updatedAt = .now
         scheduleSave()
     }
@@ -61,21 +62,47 @@ extension LedgerStore {
         guard let index = books.firstIndex(where: { $0.id == activeBookID }) else { return }
         books[index].isEncrypted = false
         books[index].encryptionState = .disabled
+        books[index].encryptionUpdatedAt = .now
         books[index].updatedAt = .now
         scheduleSave()
     }
 
-    func addOrMergeCloudBook(_ book: LedgerBook) {
+    func detachCloudZone(_ zone: CKRecordZone.ID) {
         commitActiveBook()
-        if let index = books.firstIndex(where: { $0.id == book.id }) {
-            guard book.updatedAt >= books[index].updatedAt else { return }
-            books[index] = book
-        } else { books.append(book) }
-        activeBookID = book.id
-        mutateState { state in state = book.state }
+        for index in books.indices where books[index].cloudZoneName == zone.zoneName && books[index].cloudZoneOwnerName == zone.ownerName {
+            // Preserve the last local copy and unsent edits when a share is removed.
+            books[index].storageKind = .local
+            books[index].cloudZoneName = nil
+            books[index].cloudZoneOwnerName = nil
+        }
         scheduleSave()
     }
 
+    @discardableResult
+    func addOrMergeCloudBook(_ book: LedgerBook, deletedRecordNames: Set<String> = [], selectNewBook: Bool = true) -> Bool {
+        commitActiveBook()
+        do {
+            if let index = books.firstIndex(where: { $0.id == book.id }) {
+                let merged = try CloudBookMerge.merge(local: books[index], remote: book, deletedRecordNames: deletedRecordNames)
+                guard books[index] != merged else { return true }
+                books[index] = merged
+                if activeBookID == book.id { mutateState { $0 = merged.state } }
+            } else {
+                books.append(book)
+                // Keep the existing share-acceptance behavior for a newly joined ledger.
+                if selectNewBook {
+                    activeBookID = book.id
+                    mutateState { $0 = book.state }
+                }
+            }
+            scheduleSave()
+            return true
+        } catch {
+            lastSyncError = error.localizedDescription
+            LedgerDiagnostics.failure(error, operation: "cloud-merge", logger: LedgerDiagnostics.cloud)
+            return false
+        }
+    }
 
     func persistDurableAsync() async throws {
         #if DEBUG
@@ -90,10 +117,11 @@ extension LedgerStore {
         let revision = saveRevision
         let snapshot = librarySnapshot()
         try await LedgerPersistence.shared.save(snapshot, revision: revision)
+        guard persistenceEnabled else { return }
         OverviewWidgetRelay.updateSnapshot(store: self)
-        if let active = snapshot.books.first(where: { $0.id == snapshot.activeBookID }), active.effectiveStorageKind != .local {
+        for active in snapshot.books where active.effectiveStorageKind != .local {
             Task {
-                do { try await CloudLedgerService.shared.synchronize(book: active); self.lastSyncError = nil }
+                do { try await CloudLedgerService.shared.synchronize(book: active, revision: revision) }
                 catch { self.lastSyncError = error.localizedDescription }
             }
         }
@@ -111,9 +139,14 @@ extension LedgerStore {
             let snapshot = self.librarySnapshot()
             OverviewWidgetRelay.updateSnapshot(store: self)
             do { try await LedgerPersistence.shared.save(snapshot, revision: revision) }
-            catch { self.presentedError = String(format: String(localized: "Local save failed: %@"), error.localizedDescription) }
-            if let active = snapshot.books.first(where: { $0.id == snapshot.activeBookID }), active.effectiveStorageKind != .local {
-                do { try await CloudLedgerService.shared.synchronize(book: active); self.lastSyncError = nil }
+            catch {
+                self.presentedError = String(format: String(localized: "Local save failed: %@"), error.localizedDescription)
+                LedgerDiagnostics.failure(error, operation: "local-save", logger: LedgerDiagnostics.persistence)
+                return
+            }
+            guard !Task.isCancelled, self.persistenceEnabled else { return }
+            for active in snapshot.books where active.effectiveStorageKind != .local {
+                do { try await CloudLedgerService.shared.synchronize(book: active, revision: revision) }
                 catch { self.lastSyncError = error.localizedDescription }
             }
         }
@@ -121,15 +154,19 @@ extension LedgerStore {
 
     func commitActiveBook() {
         guard let index = books.firstIndex(where: { $0.id == activeBookID }) else { return }
-        books[index].state = state
-        books[index].updatedAt = .now
+        if books[index].state != state {
+            books[index].state = state
+            books[index].updatedAt = .now
+        }
     }
 
     func librarySnapshot() -> LedgerLibrary {
         var snapshotBooks = books
         if let index = snapshotBooks.firstIndex(where: { $0.id == activeBookID }) {
-            snapshotBooks[index].state = state
-            snapshotBooks[index].updatedAt = .now
+            if snapshotBooks[index].state != state {
+                snapshotBooks[index].state = state
+                snapshotBooks[index].updatedAt = .now
+            }
         }
         return LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion, activeBookID: activeBookID, books: snapshotBooks)
     }

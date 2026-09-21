@@ -495,19 +495,19 @@ struct SettingsView: View {
     }
 
     private func performExportBackup() {
-        let key = (store.activeBook.effectiveEncryptionState == .enabled) ? (try? LedgerKeyStore.loadKey(for: store.activeBook.id)) : nil
-        exportDocument = BackupDocument(
-            envelope: store.backupEnvelope(),
-            ledgerID: store.activeBook.id,
-            key: key
-        )
-        showingExporter = true
+        do {
+            let book = store.activeBook
+            let key = try CloudRecordMapper.encryptionKey(for: book)
+            let data = try BackupCodec.encodeFsy(envelope: store.backupEnvelope(), ledgerID: book.id, key: key)
+            exportDocument = BackupDocument(data: data)
+            showingExporter = true
+        } catch { store.presentedError = error.localizedDescription }
     }
 
     private func performICloudBackup() async {
         working = true; defer { working = false }
         do {
-            let key = (store.activeBook.effectiveEncryptionState == .enabled) ? (try? LedgerKeyStore.loadKey(for: store.activeBook.id)) : nil
+            let key = try CloudRecordMapper.encryptionKey(for: store.activeBook)
             let date = try await ICloudBackupService.shared.backup(
                 store.backupEnvelope(),
                 ledgerID: store.activeBook.id,
@@ -546,7 +546,7 @@ struct SettingsView: View {
             protectionEnabled: preferences.value.biometricLockEnabled
         ) else { return }
         do {
-            try store.resetLocalData()
+            try await store.resetLocalData()
             preferences.reset()
             privacy.protectionWasDisabled()
             statusMessage = "Local app data was reset. Shared CloudKit data was not deleted."
