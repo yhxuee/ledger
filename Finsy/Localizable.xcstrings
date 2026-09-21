@@ -2158,19 +2158,19 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "记一笔"
+            "value": "添加交易"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "記一筆"
+            "value": "新增交易"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "取引追加"
+            "value": "取引を追加"
           }
         },
         "ko": {
@@ -2188,7 +2188,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir transacción"
+            "value": "Agregar transacción"
           }
         },
         "de": {
@@ -21983,13 +21983,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开 Finsy 记录一笔新交易。"
+            "value": "打开 Finsy 记录新交易。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開啟 Finsy 記錄一筆新交易。"
+            "value": "打開 Finsy 記錄新交易。"
           }
         },
         "ja": {
@@ -22001,13 +22001,13 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finsy를 열어 새 거래를 기록하세요."
+            "value": "Finsy를 열어 새 거래를 기록합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Откройте Finsy, чтобы записать транзакцию."
+            "value": "Откройте Finsy для записи новой транзакции."
           }
         },
         "es": {
@@ -22019,13 +22019,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Öffnen Sie Finsy, um eine Transaktion zu erfassen."
+            "value": "Finsy öffnen, um eine neue Transaktion zu erfassen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrez Finsy pour enregistrer une transaction."
+            "value": "Ouvrir Finsy pour enregistrer une nouvelle transaction."
           }
         },
         "th": {
@@ -39907,6 +39907,1241 @@
           "stringUnit": {
             "state": "translated",
             "value": "ทุกๆ %lld วัน"
+          }
+        }
+      }
+    },
+    "Record Transaction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record Transaction"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速记账"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速記帳"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取引を記録"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "거래 기록"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записать транзакцию"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrar transacción"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transaktion erfassen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer une transaction"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกธุรกรรม"
+          }
+        }
+      }
+    },
+    "Transaction Category": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transaction Category"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "交易分类"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "交易分類"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取引カテゴリ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "거래 카테고리"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Категория транзакции"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Categoría de transacción"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transaktionskategorie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Catégorie de transaction"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หมวดหมู่ธุรกรรม"
+          }
+        }
+      }
+    },
+    "Recorded %@ · %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded %1$@ · %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已记录 %1$@ · %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已記錄 %1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ を記録しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ 기록 완료"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записано: %1$@ · %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrado %1$@ · %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfasst: %1$@ · %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistré : %1$@ · %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกแล้ว %1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "%@: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        }
+      }
+    },
+    "Transaction saved.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transaction saved."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "交易已保存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "交易已儲存。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取引を保存しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "거래가 저장되었습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Транзакция сохранена."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transacción guardada."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transaktion gespeichert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transaction enregistrée."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกธุรกรรมแล้ว"
+          }
+        }
+      }
+    },
+    "Transaction saved. Live Activity confirmation is unavailable.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transaction saved. Live Activity confirmation is unavailable."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "交易已保存。实时活动确认不可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "交易已儲存。即時動態確認不可用。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取引を保存しました。ライブアクティビティによる確認は利用できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "거래가 저장되었습니다. 실시간 현황 확인을 사용할 수 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Транзакция сохранена. Подтверждение через Live Activity недоступно."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transacción guardada. La confirmación de Actividad en vivo no está disponible."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transaktion gespeichert. Live-Aktivitätsbestätigung nicht verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transaction enregistrée. Confirmation de l'activité en direct indisponible."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกธุรกรรมแล้ว ไม่สามารถยืนยันผ่านกิจกรรมสดได้"
+          }
+        }
+      }
+    },
+    "No default account is configured for this category. Set one in Finsy > Settings > Default Accounts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No default account is configured for this category. Set one in Finsy > Settings > Default Accounts."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此分类未配置默认账户。请在 Finsy > 设置 > 默认账户 中设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此分類未設定預設帳戶。請在 Finsy > 設定 > 預設帳戶 中設定。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このカテゴリにはデフォルト口座が設定されていません。Finsy > 設定 > デフォルト口座 で設定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 카테고리에 설정된 기본 계좌가 없습니다. Finsy > 설정 > 기본 계좌에서 설정하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для этой категории не настроен счет по умолчанию. Укажите его в Finsy > Настройки > Счета по умолчанию."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay una cuenta predeterminada configurada para esta categoría. Configura una en Finsy > Configuración > Cuentas predeterminadas."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für diese Kategorie ist kein Standardkonto eingerichtet. Richten Sie eines unter Finsy > Einstellungen > Standardkonten ein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun compte par défaut n'est configuré pour cette catégorie. Définissez-en un dans Finsy > Réglages > Comptes par défaut."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้กำหนดบัญชีเริ่มต้นสำหรับหมวดหมู่นี้ โปรดตั้งค่าใน Finsy > การตั้งค่า > บัญชีเริ่มต้น"
+          }
+        }
+      }
+    },
+    "The configured default account is unavailable or frozen. Check Finsy > Settings > Default Accounts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The configured default account is unavailable or frozen. Check Finsy > Settings > Default Accounts."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置的默认账户不可用或已冻结。请在 Finsy > 设置 > 默认账户 中检查。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定的預設帳戶不可用或已凍結。請在 Finsy > 設定 > 預設帳戶 中檢查。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定されたデフォルト口座は利用不可または凍結されています。Finsy > 設定 > デフォルト口座 を確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정된 기본 계좌를 사용할 수 없거나 동결되었습니다. Finsy > 설정 > 기본 계좌를 확인하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настроенный счет по умолчанию недоступен или заморожен. Проверьте Finsy > Настройки > Счета по умолчанию."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cuenta predeterminada configurada no está disponible o está congelada. Revisa Finsy > Configuración > Cuentas predeterminadas."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das konfigurierte Standardkonto ist nicht verfügbar oder eingefroren. Prüfen Sie Finsy > Einstellungen > Standardkonten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le compte par défaut configuré est indisponible ou gelé. Vérifiez dans Finsy > Réglages > Comptes par défaut."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บัญชีเริ่มต้นที่กำหนดไว้ไม่พร้อมใช้งานหรือถูกระงับ ตรวจสอบใน Finsy > การตั้งค่า > บัญชีเริ่มต้น"
+          }
+        }
+      }
+    },
+    "Unlock and open Finsy to load this ledger before recording a transaction.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock and open Finsy to load this ledger before recording a transaction."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记账前请先解锁并打开 Finsy 加载此账本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記帳前請先解鎖並打開 Finsy 載入此帳本。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取引を記録する前に、Finsyのロックを解除して開き、この帳簿を読み込んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "거래를 기록하기 전에 Finsy의 잠금을 해제하고 열어 이 가계부를 불러오세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разблокируйте и откройте Finsy для загрузки этой книги перед записью транзакции."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desbloquea y abre Finsy para cargar este libro antes de registrar una transacción."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entsperren und öffnen Sie Finsy, um dieses Buch vor dem Erfassen zu laden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déverrouillez et ouvrez Finsy pour charger ce livre avant d'enregistrer une transaction."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปลดล็อกและเปิด Finsy เพื่อโหลดสมุดบัญชีนี้ก่อนบันทึกธุรกรรม"
+          }
+        }
+      }
+    },
+    "Enter a finite amount greater than zero.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a finite amount greater than zero."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入大于零的有效金额。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入大於零的有效金額。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0より大きい有効な金額を入力してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0보다 큰 유효한 금액을 입력하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введите сумму больше нуля."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingresa un monto válido mayor que cero."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geben Sie einen Betrag größer als null ein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez un montant valide supérieur à zéro."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ป้อนจำนวนเงินที่ถูกต้องและมากกว่าศูนย์"
+          }
+        }
+      }
+    },
+    "Choose an available category from the current ledger.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose an available category from the current ledger."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请从当前账本中选择有效分类。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請從當前帳本中選擇有效分類。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の帳簿から利用可能なカテゴリを選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 가계부에서 사용 가능한 카테고리를 선택하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите доступную категорию из текущей книги."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una categoría disponible del libro actual."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wählen Sie eine verfügbare Kategorie aus dem aktuellen Buch."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez une catégorie disponible dans le livre actuel."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกหมวดหมู่ที่พร้อมใช้งานจากสมุดบัญชีปัจจุบัน"
+          }
+        }
+      }
+    },
+    "Create or unfreeze a payment account in Finsy first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create or unfreeze a payment account in Finsy first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先在 Finsy 中创建或解冻支付账户。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請先在 Finsy 中建立或解凍支付帳戶。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初にFinsyで支払い口座を作成または凍結解除してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 Finsy에서 결제 계좌를 생성하거나 동결을 해제하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала создайте или разморозьте платежный счет в Finsy."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primero crea o desbloquea una cuenta de pago en Finsy."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstellen oder reaktivieren Sie zuerst ein Zahlungskonto in Finsy."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créez ou dégelez d'abord un compte de paiement dans Finsy."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สร้างหรือยกเลิกการระงับบัญชีการชำระเงินใน Finsy ก่อน"
+          }
+        }
+      }
+    },
+    "Set an exchange rate for the selected currency in Finsy first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set an exchange rate for the selected currency in Finsy first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先在 Finsy 中为所选货币设置汇率。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請先在 Finsy 中為所選貨幣設定匯率。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初にFinsyで選択した通貨の換算レートを設定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 Finsy에서 선택한 통화의 환율을 설정하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала настройте обменный курс для выбранной валюты в Finsy."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primero establece un tipo de cambio para la moneda seleccionada en Finsy."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legen Sie zuerst in Finsy einen Wechselkurs für die ausgewählte Währung fest."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Définissez d'abord un taux de change pour la devise sélectionnée dans Finsy."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งค่าอัตราแลกเปลี่ยนสำหรับสกุลเงินที่เลือกใน Finsy ก่อน"
+          }
+        }
+      }
+    },
+    "Quick transaction in \\(.applicationName)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick transaction in \\(.applicationName)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在\\(.applicationName)中快速记账"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在\\(.applicationName)中快速記帳"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\\(.applicationName)で素早く記録"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\\(.applicationName)에서 빠른 거래 기록"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Быстрая транзакция в \\(.applicationName)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transacción rápida en \\(.applicationName)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schnelltransaktion in \\(.applicationName)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transaction rapide dans \\(.applicationName)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ธุรกรรมด่วนใน \\(.applicationName)"
+          }
+        }
+      }
+    },
+    "Add transaction in \\(.applicationName)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add transaction in \\(.applicationName)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在\\(.applicationName)中记账"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在\\(.applicationName)中記帳"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\\(.applicationName)で取引を追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\\(.applicationName)에서 거래 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить транзакцию в \\(.applicationName)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agregar transacción en \\(.applicationName)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transaktion hinzufügen in \\(.applicationName)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter une transaction dans \\(.applicationName)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่มธุรกรรมใน \\(.applicationName)"
+          }
+        }
+      }
+    },
+    "Record expense in \\(.applicationName)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record expense in \\(.applicationName)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在\\(.applicationName)中记录支出"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在\\(.applicationName)中記錄支出"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\\(.applicationName)で支出を記録"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\\(.applicationName)에서 지출 기록"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записать расход в \\(.applicationName)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrar gasto en \\(.applicationName)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgabe erfassen in \\(.applicationName)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer une dépense dans \\(.applicationName)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกค่าใช้จ่ายใน \\(.applicationName)"
+          }
+        }
+      }
+    },
+    "New transaction in \\(.applicationName)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New transaction in \\(.applicationName)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在\\(.applicationName)中新建交易"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在\\(.applicationName)中新建交易"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\\(.applicationName)で新規取引"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\\(.applicationName)에서 새 거래"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая транзакция в \\(.applicationName)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva transacción en \\(.applicationName)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Transaktion in \\(.applicationName)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle transaction dans \\(.applicationName)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ธุรกรรมใหม่ใน \\(.applicationName)"
+          }
+        }
+      }
+    },
+    "Log transaction in \\(.applicationName)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log transaction in \\(.applicationName)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在\\(.applicationName)中登记交易"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在\\(.applicationName)中登記交易"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\\(.applicationName)で取引を記入"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\\(.applicationName)에서 거래 입력"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Внести транзакцию в \\(.applicationName)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anotar transacción en \\(.applicationName)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transaktion buchen in \\(.applicationName)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noter une transaction dans \\(.applicationName)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงรายการธุรกรรมใน \\(.applicationName)"
+          }
+        }
+      }
+    },
+    "Save an expense or income without opening Finsy. The amount is the final posted amount; the category determines expense or income. Uses the category's configured default account.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save an expense or income without opening Finsy. The amount is the final posted amount; the category determines expense or income. Uses the category's configured default account."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无需打开 Finsy 即可保存支出或收入。金额为最终记账金额；分类决定支出或收入。使用该分类配置的默认账户。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無需打開 Finsy 即可儲存支出或收入。金額為最終記帳金額；分類決定支出或收入。使用該分類設定的預設帳戶。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finsyを開かずに支出や収入を保存します。金額は最終記帳金額となり、カテゴリによって支出か収入が決まります。カテゴリに設定されたデフォルト口座を使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finsy를 열지 않고 지출 또는 수입을 저장합니다. 금액은 최종 기장 금액이며, 카테고리에 따라 지출 또는 수입이 결정됩니다. 카테고리에 구성된 기본 계좌를 사용합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохраняйте расходы или доходы, не открывая Finsy. Сумма является окончательной; категория определяет расход или доход. Использует настроенный счет по умолчанию для этой категории."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guarda un gasto o ingreso sin abrir Finsy. El monto es el importe final contabilizado; la categoría determina si es gasto o ingreso. Usa la cuenta predeterminada configurada para la categoría."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgabe oder Einnahme speichern, ohne Finsy zu öffnen. Der Betrag ist der endgültige Buchungsbetrag; die Kategorie bestimmt Ausgabe oder Einnahme. Verwendet das für die Kategorie eingerichtete Standardkonto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrez une dépense ou un revenu sans ouvrir Finsy. Le montant correspond au montant final comptabilisé ; la catégorie détermine s'il s'agit d'une dépense ou d'un revenu. Utilise le compte par défaut configuré pour la catégorie."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกค่าใช้จ่ายหรือรายได้โดยไม่ต้องเปิด Finsy จำนวนเงินคือยอดสุทธิที่ลงรายการ หมวดหมู่เป็นตัวกำหนดรายจ่ายหรือรายได้ ใช้บัญชีเริ่มต้นที่กำหนดไว้สำหรับหมวดหมู่นั้น"
           }
         }
       }

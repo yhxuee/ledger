@@ -12,7 +12,7 @@ struct TransactionCurrencyQuery: EntityQuery {
     @MainActor func suggestedEntities() async throws -> [TransactionCurrencyEntity] {
         LedgerStore.shared.availableCurrencies.map { TransactionCurrencyEntity(id: $0.rawValue) }
     }
-    func entities(for identifiers: [String]) async throws -> [TransactionCurrencyEntity] {
+    @MainActor func entities(for identifiers: [String]) async throws -> [TransactionCurrencyEntity] {
         try await suggestedEntities().filter { identifiers.contains($0.id) }
     }
 }
@@ -31,32 +31,57 @@ struct TransactionCategoryQuery: EntityQuery {
         let store = LedgerStore.shared
         return store.state.categories.filter {
             !$0.id.isSystemLinked && !store.state.settings.archivedCategoryIDs.contains($0.id)
-        }.map {
-            TransactionCategoryEntity(id: "\(store.activeBookID.uuidString)/\($0.id.rawValue)",
-                                      name: "\($0.kind == .expense ? "Expense" : "Income"): \($0.name)")
+        }.map { category in
+            let displayName: String
+            if LedgerCategoryID.builtIns.contains(category.id) {
+                let kindTitle = category.kind == .expense ? String(localized: "Expense") : String(localized: "Income")
+                displayName = String(format: String(localized: "%@: %@"), kindTitle, category.displayName)
+            } else {
+                displayName = category.displayName
+            }
+            return TransactionCategoryEntity(
+                id: "\(store.activeBookID.uuidString)/\(category.id.rawValue)",
+                name: displayName
+            )
         }
     }
-    func entities(for identifiers: [String]) async throws -> [TransactionCategoryEntity] {
+    @MainActor func entities(for identifiers: [String]) async throws -> [TransactionCategoryEntity] {
         try await suggestedEntities().filter { identifiers.contains($0.id) }
     }
 }
 
-enum QuickTransactionError: LocalizedError {
-    case unavailable, invalidAmount, categoryUnavailable, accountUnavailable, currencyUnavailable
+enum QuickTransactionError: LocalizedError, Equatable {
+    case unavailable
+    case invalidAmount
+    case categoryUnavailable
+    case noDefaultAccountConfigured
+    case defaultAccountUnavailable
+    case accountUnavailable
+    case currencyUnavailable
+
     var errorDescription: String? {
         switch self {
-        case .unavailable: "Unlock and open Finsy to load this ledger before recording a transaction."
-        case .invalidAmount: "Enter a finite amount greater than zero."
-        case .categoryUnavailable: "Choose an available category from the current ledger."
-        case .accountUnavailable: "Create or unfreeze a payment account in Finsy first."
-        case .currencyUnavailable: "Set an exchange rate for the selected currency in Finsy first."
+        case .unavailable:
+            String(localized: "Unlock and open Finsy to load this ledger before recording a transaction.")
+        case .invalidAmount:
+            String(localized: "Enter a finite amount greater than zero.")
+        case .categoryUnavailable:
+            String(localized: "Choose an available category from the current ledger.")
+        case .noDefaultAccountConfigured:
+            String(localized: "No default account is configured for this category. Set one in Finsy > Settings > Default Accounts.")
+        case .defaultAccountUnavailable:
+            String(localized: "The configured default account is unavailable or frozen. Check Finsy > Settings > Default Accounts.")
+        case .accountUnavailable:
+            String(localized: "Create or unfreeze a payment account in Finsy first.")
+        case .currencyUnavailable:
+            String(localized: "Set an exchange rate for the selected currency in Finsy first.")
         }
     }
 }
 
 struct RecordTransactionIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Record Transaction"
-    static let description = IntentDescription("Save an expense or income without opening Finsy. The amount is the final posted amount; the category determines expense or income. Uses the category's default account, or the first available account.")
+    static let description = IntentDescription("Save an expense or income without opening Finsy. The amount is the final posted amount; the category determines expense or income. Uses the category's configured default account.")
     static let openAppWhenRun = false
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
 
@@ -69,11 +94,15 @@ struct RecordTransactionIntent: LiveActivityIntent {
         let recorded = try await store.recordQuickTransaction(amount: amount, currencyID: currency.id, categoryID: category.id)
         let outcome = await RecentTransactionActivityCoordinator.shared.didRecordTransaction(
             recorded.transaction, account: recorded.account, category: recorded.category, ledgerBookID: recorded.bookID)
+        let formattedAmount = LedgerMoneyFormat.code(abs(recorded.transaction.amount), currency: recorded.transaction.currency)
+        let categoryName = recorded.category?.displayName ?? String(localized: "Transaction")
+        let baseDialog = String(format: String(localized: "Recorded %@ · %@"), formattedAmount, categoryName)
         switch outcome {
         case .activitiesDisabled, .requestFailed:
-            return .result(dialog: "Transaction saved. Live Activity confirmation is unavailable.")
+            let notice = String(localized: "Transaction saved. Live Activity confirmation is unavailable.")
+            return .result(dialog: IntentDialog("\(baseDialog)\n\(notice)"))
         case .started, .skippedPurchaseTransaction, .superseded:
-            return .result(dialog: "Transaction saved.")
+            return .result(dialog: IntentDialog("\(baseDialog)"))
         }
     }
 }
@@ -109,9 +138,15 @@ extension LedgerStore {
         guard let currency = CurrencyCode(rawValue: currencyID), CurrencyRates.reference(currency, in: state.settings.rates) != nil else { throw QuickTransactionError.currencyUnavailable }
         guard let category = state.categories.first(where: { "\(activeBookID.uuidString)/\($0.id.rawValue)" == categoryID }),
               !category.id.isSystemLinked, !state.settings.archivedCategoryIDs.contains(category.id) else { throw QuickTransactionError.categoryUnavailable }
-        let available = state.accounts.filter { $0.isAvailableForNewTransactions }
-        let defaultID = category.kind == .expense ? state.settings.defaultExpenseAccountByCategory[category.id] : nil
-        guard let account = available.first(where: { $0.id == defaultID }) ?? available.first else { throw QuickTransactionError.accountUnavailable }
+        guard let defaultID = state.settings.defaultExpenseAccountByCategory[category.id] else {
+            throw QuickTransactionError.noDefaultAccountConfigured
+        }
+        guard let account = state.accounts.first(where: { $0.id == defaultID }),
+              account.deletedAt == nil,
+              !account.effectiveIsFrozen,
+              account.isAvailableForNewTransactions else {
+            throw QuickTransactionError.defaultAccountUnavailable
+        }
         let type: LedgerTransactionType = category.kind == .expense ? .expense : .income
         let tax = TaxCalculations.resolve(entered: amount, type: type, rate: state.settings.taxRate(for: category), mode: .finalAmount)
         return try buildTransaction(type: type, accountID: account.id, destinationAccountID: nil,

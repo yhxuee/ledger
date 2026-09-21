@@ -196,6 +196,30 @@ final class PersistenceSecurityTests: XCTestCase {
         XCTAssertFalse(CloudLedgerSyncCoordinator.localWins(remoteRecord, over: localRecord))
     }
 
+    func testEqualVersionTieBreaksByUpdatedAtLimitation() throws {
+        // Equal-version concurrent writes from two devices fall back to timestamps (imperfect causal ordering limitation).
+        var local = book()
+        var remote = local
+        local.state.transactions[0].version = 5
+        local.state.transactions[0].updatedAt = Date(timeIntervalSince1970: 1000)
+        local.state.transactions[0].note = "Earlier timestamp"
+        remote.state.transactions[0].version = 5
+        remote.state.transactions[0].updatedAt = Date(timeIntervalSince1970: 2000)
+        remote.state.transactions[0].note = "Later timestamp"
+
+        let merged = try CloudBookMerge.merge(local: local, remote: remote)
+        XCTAssertEqual(merged.state.transactions[0].note, "Later timestamp")
+
+        let localRecord = CKRecord(recordType: "LedgerTransaction")
+        let remoteRecord = CKRecord(recordType: "LedgerTransaction")
+        localRecord["version"] = 5 as CKRecordValue
+        localRecord["updatedAt"] = Date(timeIntervalSince1970: 2000) as CKRecordValue
+        remoteRecord["version"] = 5 as CKRecordValue
+        remoteRecord["updatedAt"] = Date(timeIntervalSince1970: 1000) as CKRecordValue
+        XCTAssertTrue(CloudLedgerSyncCoordinator.localWins(localRecord, over: remoteRecord))
+        XCTAssertFalse(CloudLedgerSyncCoordinator.localWins(remoteRecord, over: localRecord))
+    }
+
     func testBulkReadPreservesRequestedOrderAndRejectsMissingRows() throws {
         let database = try LedgerDiskDatabase(url: temporaryFolder().appending(path: "bulk.sqlite"))
         try database.put("book", "second", Data("2".utf8))
@@ -226,6 +250,7 @@ final class PersistenceSecurityTests: XCTestCase {
         defer { store.persistenceEnabled = false; store.saveTask?.cancel() }
         let category = try XCTUnwrap(store.state.categories.first { $0.kind == .expense && !$0.id.isSystemLinked })
         let account = try XCTUnwrap(store.state.accounts.first { $0.isAvailableForNewTransactions })
+        store.mutateState { $0.settings.defaultExpenseAccountByCategory[category.id] = account.id }
         let originalIDs = store.state.transactions.map(\.id)
         store.persistenceTestHook = {
             store.mutateState { $0.transactions[1].note = "Concurrent edit" }
@@ -250,14 +275,50 @@ final class PersistenceSecurityTests: XCTestCase {
         defer { store.persistenceEnabled = false }
         let category = try XCTUnwrap(store.state.categories.first { $0.kind == .expense && !$0.id.isSystemLinked })
         let account = try XCTUnwrap(store.state.accounts.last { $0.isAvailableForNewTransactions })
-        store.mutateState { $0.settings.defaultExpenseAccountByCategory[category.id] = account.id }
         let categoryID = "\(store.activeBookID.uuidString)/\(category.id.rawValue)"
+
+        // 1. Without configured default account -> throws noDefaultAccountConfigured
+        XCTAssertThrowsError(try store.buildQuickTransaction(amount: 12.5, currencyID: account.currency.rawValue, categoryID: categoryID)) { error in
+            XCTAssertEqual(error as? QuickTransactionError, .noDefaultAccountConfigured)
+        }
+
+        // 2. Configure default account -> succeeds
+        store.mutateState { $0.settings.defaultExpenseAccountByCategory[category.id] = account.id }
         let count = store.state.transactions.count
         let transaction = try store.buildQuickTransaction(amount: 12.5, currencyID: account.currency.rawValue, categoryID: categoryID)
         XCTAssertEqual(transaction.accountID, account.id)
         XCTAssertEqual(transaction.type, .expense)
         XCTAssertEqual(transaction.amount, 12.5)
         XCTAssertEqual(store.state.transactions.count, count)
+
+        // 3. Frozen or unavailable default account -> throws defaultAccountUnavailable
+        store.mutateState {
+            if let idx = $0.accounts.firstIndex(where: { $0.id == account.id }) {
+                $0.accounts[idx].isFrozen = true
+            }
+        }
+        XCTAssertThrowsError(try store.buildQuickTransaction(amount: 12.5, currencyID: account.currency.rawValue, categoryID: categoryID)) { error in
+            XCTAssertEqual(error as? QuickTransactionError, .defaultAccountUnavailable)
+        }
+        store.mutateState {
+            if let idx = $0.accounts.firstIndex(where: { $0.id == account.id }) {
+                $0.accounts[idx].isFrozen = false
+            }
+        }
+
+        // 4. Income category with configured default account -> succeeds
+        let incomeCategory = try XCTUnwrap(store.state.categories.first { $0.kind == .income && !$0.id.isSystemLinked })
+        let incomeCategoryID = "\(store.activeBookID.uuidString)/\(incomeCategory.id.rawValue)"
+        XCTAssertThrowsError(try store.buildQuickTransaction(amount: 50, currencyID: account.currency.rawValue, categoryID: incomeCategoryID)) { error in
+            XCTAssertEqual(error as? QuickTransactionError, .noDefaultAccountConfigured)
+        }
+        store.mutateState { $0.settings.defaultExpenseAccountByCategory[incomeCategory.id] = account.id }
+        let incomeTx = try store.buildQuickTransaction(amount: 50, currencyID: account.currency.rawValue, categoryID: incomeCategoryID)
+        XCTAssertEqual(incomeTx.accountID, account.id)
+        XCTAssertEqual(incomeTx.type, .income)
+        XCTAssertEqual(incomeTx.amount, 50)
+
+        // 5. Invalid amounts and edge cases
         for amount in [0, -1, Double.infinity, Double.nan] {
             XCTAssertThrowsError(try store.buildQuickTransaction(amount: amount, currencyID: account.currency.rawValue, categoryID: categoryID))
         }
