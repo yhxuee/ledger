@@ -199,8 +199,9 @@ struct TaxAnalyticsPage: View {
     }
 
     private func percent(_ value: Double, total: Double) -> String {
-        guard total > 0 else { return "0%" }
+        guard value.isFinite, value >= 0, total.isFinite, total > 0 else { return "0%" }
         let p = (value / total * 100).rounded()
+        guard p.isFinite else { return "0%" }
         return "\(Int(p))%"
     }
 

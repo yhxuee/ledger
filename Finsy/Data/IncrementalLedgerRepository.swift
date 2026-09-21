@@ -85,6 +85,25 @@ struct IncrementalLedgerRepository: Sendable {
         return LedgerLibrary(schemaVersion: manifest.schemaVersion, activeBookID: manifest.activeBookID, books: books)
     }
 
+    /// Reads only book headers when CloudKit needs to restore migration barriers.
+    /// Transaction payloads can dominate startup memory and are irrelevant to this decision.
+    func cloudMigrationBlocks() throws -> [(zoneName: String, ownerName: String?)] {
+        try database.transaction(write: false) {
+            guard let data = try database.data("library", "manifest") else { return [] }
+            let manifest = try decoder.decode(Manifest.self, from: data)
+            guard manifest.schemaVersion <= BackupCodec.currentSchemaVersion else {
+                throw BackupError.futureSchema(manifest.schemaVersion)
+            }
+            return try manifest.bookIDs.compactMap { id in
+                let header: Header = try read(id.uuidString, "header")
+                let book = header.book
+                guard book.effectiveEncryptionState == .enabling || book.effectiveEncryptionState == .migrationFailed,
+                      let zoneName = book.cloudZoneName else { return nil }
+                return (zoneName: zoneName, ownerName: book.cloudZoneOwnerName)
+            }
+        }
+    }
+
     private func read<T: Decodable>(_ namespace: String, ids: [UUID], prefix: String) throws -> [T] {
         try database.values(namespace, keys: ids.lazy.map { "\(prefix)-\($0)" }) {
             try decoder.decode(T.self, from: $0)

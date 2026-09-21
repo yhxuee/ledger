@@ -2,20 +2,50 @@ import CloudKit
 import Foundation
 import CryptoKit
 
+/// CI's unsigned artifact may be re-signed without CloudKit entitlements. CKContainer raises an
+/// Objective-C exception in that configuration, so Swift error handling cannot recover from it.
+enum CloudLedgerRuntime {
+    static var isAvailable: Bool {
+        #if FINSY_UNSIGNED_BUILD
+        false
+        #else
+        true
+        #endif
+    }
+
+}
+
 actor CloudLedgerService {
     static let shared = CloudLedgerService()
-    let container = CKContainer(identifier: "iCloud.com.finsy.app")
+    // Singleton initialization must remain safe in builds without CloudKit entitlements.
+    private lazy var container = CKContainer(identifier: "iCloud.com.finsy.app")
     private lazy var ownerSync = CloudLedgerSyncCoordinator(database: container.privateCloudDatabase, stateName: "private")
     private lazy var participantSync = CloudLedgerSyncCoordinator(database: container.sharedCloudDatabase, stateName: "shared")
     private var callbacksConfigured = false
+    private var loggedUnavailableRuntime = false
+
+    private func requireAvailable() throws {
+        guard CloudLedgerRuntime.isAvailable else {
+            if !loggedUnavailableRuntime {
+                LedgerDiagnostics.cloud.notice("CloudKit disabled: build has no usable CloudKit entitlement")
+                loggedUnavailableRuntime = true
+            }
+            throw CloudLedgerError.unavailableInUnsignedBuild
+        }
+    }
 
     func resetLocalState() async {
+        guard CloudLedgerRuntime.isAvailable else { return }
         await ownerSync.stop()
         await participantSync.stop()
         callbacksConfigured = false
     }
 
     func recoverSyncIfNeeded() async {
+        guard CloudLedgerRuntime.isAvailable else {
+            try? requireAvailable()
+            return
+        }
         guard callbacksConfigured else { return }
         do {
             try await ownerSync.recoverIfNeeded()
@@ -28,6 +58,7 @@ actor CloudLedgerService {
     }
 
     private func configureCallbacksIfNeeded() async throws {
+        try requireAvailable()
         guard !callbacksConfigured else { return }
         callbacksConfigured = true
         do {
@@ -107,8 +138,8 @@ actor CloudLedgerService {
     }
 
     func synchronize(book: LedgerBook, revision: UInt64? = nil) async throws {
-        try await configureCallbacksIfNeeded()
         guard book.effectiveStorageKind != .local, let zoneName = book.cloudZoneName else { return }
+        try await configureCallbacksIfNeeded()
         let securityMatches = await MainActor.run {
             guard LedgerStore.shared.persistenceEnabled, let current = LedgerStore.shared.books.first(where: { $0.id == book.id }) else { return false }
             return current.effectiveEncryptionState == book.effectiveEncryptionState && current.keyFingerprint == book.keyFingerprint
@@ -142,8 +173,8 @@ actor CloudLedgerService {
     }
 
     func flushAndFetch(book: LedgerBook) async throws -> LedgerBook? {
-        try await configureCallbacksIfNeeded()
         guard book.effectiveStorageKind != .local, let zoneName = book.cloudZoneName else { return nil }
+        try await configureCallbacksIfNeeded()
         let owner = book.cloudZoneOwnerName ?? (book.effectiveStorageKind == .cloudOwner ? CKCurrentUserDefaultName : "")
         guard !owner.isEmpty else { return nil }
         let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: owner)
@@ -226,6 +257,7 @@ actor CloudLedgerService {
 
     func postEnrollmentRequest(_ request: FinsyPairingRequest, book: LedgerBook) async throws {
         guard let zoneName = book.cloudZoneName, let owner = book.cloudZoneOwnerName else { return }
+        try requireAvailable()
         let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: owner)
         let record = CKRecord(recordType: CloudRecordType.enrollmentRequest, recordID: CKRecord.ID(recordName: "enroll-\(request.requestID.uuidString)", zoneID: zoneID))
         record["requestID"] = request.requestID.uuidString as CKRecordValue
@@ -238,6 +270,7 @@ actor CloudLedgerService {
 
     func postKeyEnvelope(_ envelope: FinsyKeyGrantEnvelope, book: LedgerBook) async throws {
         guard let zoneName = book.cloudZoneName else { return }
+        try requireAvailable()
         let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: book.cloudZoneOwnerName ?? CKCurrentUserDefaultName)
         let record = CKRecord(recordType: CloudRecordType.keyEnvelope, recordID: CKRecord.ID(recordName: "envelope-\(envelope.requestID.uuidString)", zoneID: zoneID))
         record["requestID"] = envelope.requestID.uuidString as CKRecordValue
@@ -284,7 +317,7 @@ actor CloudLedgerService {
 }
 
 enum CloudLedgerError: LocalizedError {
-    case missingZone, shareUnavailable, migrationInProgress, pendingChanges, missingPendingRecord
+    case missingZone, shareUnavailable, migrationInProgress, pendingChanges, missingPendingRecord, unavailableInUnsignedBuild
     var errorDescription: String? {
         switch self {
         case .migrationInProgress: "Encryption migration is still in progress."
@@ -292,6 +325,7 @@ enum CloudLedgerError: LocalizedError {
         case .missingPendingRecord: "A pending iCloud record could not be loaded from local storage."
         case .missingZone: "This shared ledger is missing its CloudKit zone metadata."
         case .shareUnavailable: "The CloudKit sharing record is unavailable."
+        case .unavailableInUnsignedBuild: "Cloud sync requires a signed build with the CloudKit entitlement. Local ledgers remain available."
         }
     }
 }

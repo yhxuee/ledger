@@ -50,4 +50,11 @@ struct LocalLedgerRepository: LedgerRepository {
         let database = try LedgerDiskDatabase(url: folder.appending(path: "ledger.sqlite"))
         return IncrementalLedgerRepository(database: database)
     }
+
+    func cloudMigrationBlocks() throws -> [(zoneName: String, ownerName: String?)] {
+        try FinsyStorage.prepare()
+        let databaseURL = folder.appending(path: "ledger.sqlite")
+        guard FileManager.default.fileExists(atPath: databaseURL.path) else { return [] }
+        return try IncrementalLedgerRepository(database: LedgerDiskDatabase(url: databaseURL)).cloudMigrationBlocks()
+    }
 }

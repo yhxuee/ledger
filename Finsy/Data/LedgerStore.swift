@@ -159,19 +159,9 @@ final class LedgerStore: ObservableObject {
 
     var accounts: [AccountViewModel] {
         if let cachedAccountViews { return cachedAccountViews }
-        let result: [AccountViewModel]
-        if persistenceEnabled, let repo = try? Self.localRepository.transactionRepository() {
-            let activeAccounts = index.activeAccounts
-            result = activeAccounts.map { acc in
-                if let bal = try? repo.accountBalance(for: acc, bookID: activeBookID, rates: state.settings.rates) {
-                    return AccountViewModel(account: acc, balance: bal)
-                } else {
-                    return AccountViewModel(account: acc, balance: LedgerCalculations.balance(for: acc, in: state, index: index))
-                }
-            }
-        } else {
-            result = LedgerCalculations.accountViews(state, index: index)
-        }
+        // The domain engine is the posting authority for refunds, installments and grouped
+        // transactions. The SQLite aggregate intentionally lacks that presentation metadata.
+        let result = LedgerCalculations.accountViews(state, index: index)
         cachedAccountViews = result
         return result
     }
@@ -235,9 +225,11 @@ final class LedgerStore: ObservableObject {
         }
         guard let nextDueDate = futureInstallments.map(\.occurredAt).min() else { return }
 
-        let delay = max(0.1, nextDueDate.timeIntervalSince(now))
+        // Wake periodically for very distant schedules and clock changes. Converting an
+        // unbounded interval to UInt64 nanoseconds can trap during startup.
+        let delay = min(max(0.1, nextDueDate.timeIntervalSince(now)), 86_400)
         installmentTimerTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
             self?.refreshDueInstallments(now: .now)
         }
@@ -252,36 +244,14 @@ final class LedgerStore: ObservableObject {
     }
 
     func transactions(from: Date? = nil, to: Date? = nil) -> [LedgerTransaction] {
-        if !persistenceEnabled {
-            return state.transactions.filter { tx in
-                tx.deletedAt == nil &&
-                (from == nil || tx.occurredAt >= from!) &&
-                (to == nil || tx.occurredAt <= to!)
-            }.sorted { $0.occurredAt > $1.occurredAt }
-        }
-
-        let diskTransactions = (try? Self.localRepository.transactionRepository().transactions(
-            bookID: activeBookID,
-            from: from,
-            to: to,
-            limit: nil,
-            offset: nil
-        )) ?? []
-
-        var map = Dictionary(diskTransactions.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
-        for tx in state.transactions {
-            let inRange = (from == nil || tx.occurredAt >= from!) && (to == nil || tx.occurredAt <= to!)
-            if inRange {
-                if tx.deletedAt != nil {
-                    map.removeValue(forKey: tx.id)
-                } else {
-                    map[tx.id] = tx
-                }
-            } else {
-                map.removeValue(forKey: tx.id)
-            }
-        }
-        return map.values.sorted {
+        // Startup guarantees a fully materialized state. Reading the same rows from SQLite here
+        // doubles I/O and memory for analytics and statement ranges without adding correctness.
+        return state.transactions.filter { tx in
+            guard tx.deletedAt == nil else { return false }
+            if let from, tx.occurredAt < from { return false }
+            if let to, tx.occurredAt > to { return false }
+            return true
+        }.sorted {
             if $0.occurredAt != $1.occurredAt {
                 return $0.occurredAt > $1.occurredAt
             }

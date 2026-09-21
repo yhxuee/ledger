@@ -66,12 +66,12 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
     private func syncEngine() throws -> CKSyncEngine {
         if let engine { return engine }
         let storage = try storage()
-        if let library = try LocalLedgerRepository().loadLibrary() {
-            for book in library.books where book.effectiveEncryptionState == .enabling || book.effectiveEncryptionState == .migrationFailed {
-                guard let name = book.cloudZoneName else { continue }
-                let zone = CKRecordZone.ID(zoneName: name, ownerName: book.cloudZoneOwnerName ?? CKCurrentUserDefaultName)
-                try storage.database.put("blocked", zoneKey(zone), Data([1]))
-            }
+        for metadata in try LocalLedgerRepository().cloudMigrationBlocks() {
+            let zone = CKRecordZone.ID(
+                zoneName: metadata.zoneName,
+                ownerName: metadata.ownerName ?? CKCurrentUserDefaultName
+            )
+            try storage.database.put("blocked", zoneKey(zone), Data([1]))
         }
         let serialization = try storage.database.data("engine", "state").map {
             try JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: $0)

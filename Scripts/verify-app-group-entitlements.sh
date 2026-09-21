@@ -7,6 +7,7 @@ set -euo pipefail
 
 APP_PATH="${1:-}"
 APP_GROUP="group.com.finsy.app"
+CLOUD_CONTAINER="iCloud.com.finsy.app"
 APP_ID="com.finsy.app"
 WIDGET_ID="com.finsy.app.Widget"
 
@@ -29,7 +30,7 @@ entitlements_of() {
 }
 
 check_target() {
-  local product="$1" identifier="$2" label="$3"
+  local product="$1" identifier="$2" label="$3" require_cloudkit="${4:-false}"
   if [[ ! -e "$product" ]]; then
     bad "$label product not found at $product"
     return
@@ -57,13 +58,25 @@ check_target() {
   else
     bad "$label signature does not contain $APP_GROUP"
   fi
+  if [[ "$require_cloudkit" == "true" ]]; then
+    if grep -q "com.apple.developer.icloud-services" <<<"$entitlements" && grep -q "CloudKit" <<<"$entitlements"; then
+      ok "$label signature enables CloudKit"
+    else
+      bad "$label signature does not enable CloudKit"
+    fi
+    if grep -q "com.apple.developer.icloud-container-identifiers" <<<"$entitlements" && grep -q "$CLOUD_CONTAINER" <<<"$entitlements"; then
+      ok "$label signature contains $CLOUD_CONTAINER"
+    else
+      bad "$label signature does not contain $CLOUD_CONTAINER"
+    fi
+  fi
 }
 
 echo "== Inspecting $APP_PATH =="
-check_target "$APP_PATH" "$APP_ID" "app"
+check_target "$APP_PATH" "$APP_ID" "app" true
 
 WIDGET_PATH="$APP_PATH/PlugIns/FinsyWidget.appex"
-check_target "$WIDGET_PATH" "$WIDGET_ID" "widget extension"
+check_target "$WIDGET_PATH" "$WIDGET_ID" "widget extension" false
 
 if [[ -d "$WIDGET_PATH" ]]; then
   ok "widget extension is embedded in the app's PlugIns directory"
@@ -71,8 +84,8 @@ fi
 
 echo
 if [[ "$failures" -gt 0 ]]; then
-  echo "$failures entitlement problem(s) found. A signed build with the App Group capability"
-  echo "enabled for BOTH bundle IDs (and provisioning profiles including $APP_GROUP) is required."
+  echo "$failures entitlement problem(s) found. A signed build requires App Groups for both"
+  echo "bundle IDs and CloudKit container $CLOUD_CONTAINER for the main app."
   exit 1
 fi
-echo "Both products declare the App Group entitlement with $APP_GROUP."
+echo "Both products declare $APP_GROUP, and the main app declares CloudKit with $CLOUD_CONTAINER."
