@@ -44,4 +44,10 @@ struct LocalLedgerRepository: LedgerRepository {
         guard target.deletingLastPathComponent() == applicationSupport else { throw CocoaError(.fileWriteNoPermission) }
         if FileManager.default.fileExists(atPath: target.path) { try FileManager.default.removeItem(at: target) }
     }
+
+    func transactionRepository() throws -> IncrementalLedgerRepository {
+        try FinsyStorage.prepare()
+        let database = try LedgerDiskDatabase(url: folder.appending(path: "ledger.sqlite"))
+        return IncrementalLedgerRepository(database: database)
+    }
 }

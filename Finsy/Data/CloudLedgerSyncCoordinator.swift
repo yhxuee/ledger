@@ -110,6 +110,13 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         let records = try CloudRecordMapper.records(for: book, zoneID: zoneID, attachmentFolder: AttachmentStore.folderURL, recordNames: changed)
         defer { CloudRecordMapper.removeTemporaryAssets(records) }
         var removals: [CKRecord.ID] = []
+        let allKnownTxIDs: Set<String>
+        if let repo = try? LocalLedgerRepository().transactionRepository(),
+           let ids = try? repo.allTransactionIDs(bookID: book.id) {
+            allKnownTxIDs = Set(ids.map { "transaction-\($0.uuidString)" })
+        } else {
+            allKnownTxIDs = Set(book.state.transactions.map { "transaction-\($0.id.uuidString)" })
+        }
         try storage.database.transaction {
             for incoming in records {
                 let record = try storage.record(incoming.recordID) ?? incoming
@@ -123,6 +130,9 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
             // Only remove records that this device previously included in its local snapshot.
             // Unseen remote records must never be deleted by a stale device.
             for id in try storage.knownLocalIDs(in: zoneID) where fingerprints[id.recordName] == nil {
+                if id.recordName.hasPrefix("transaction-") && allKnownTxIDs.contains(id.recordName) {
+                    continue
+                }
                 try storage.markDeleted(id); removals.append(id)
                 try storage.database.remove("fingerprints", CloudRecordJournal.key(id))
             }

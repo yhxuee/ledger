@@ -44,7 +44,7 @@ extension LedgerStore {
         scheduleSave()
     }
 
-    func backupEnvelope() -> LedgerBackupEnvelope { BackupCodec.envelope(for: state) }
+    func backupEnvelope() -> LedgerBackupEnvelope { BackupCodec.envelope(for: materializeFullState()) }
 
 
 }

@@ -16,10 +16,22 @@ extension LedgerStore {
         commitActiveBook()
         guard let book = books.first(where: { $0.id == id }) else { return }
         activeBookID = book.id
-        mutateState { state in state = book.state }
+        var targetState = book.state
+        if targetState.transactions.isEmpty, persistenceEnabled {
+            if let repo = try? Self.localRepository.transactionRepository(),
+               let initialPage = try? repo.recentTransactions(bookID: id, before: nil, beforeID: nil, limit: 300),
+               !initialPage.isEmpty {
+                targetState.transactions = initialPage
+                if let idx = books.firstIndex(where: { $0.id == id }) {
+                    books[idx].state.transactions = initialPage
+                }
+            }
+        }
+        mutateState { state in state = targetState }
         undoTransactions = []
         activeUndoOperation = nil
         undoMessage = nil
+        refreshHasMoreTransactions()
         processDueRecurring()
         scheduleSave()
     }

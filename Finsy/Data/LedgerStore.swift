@@ -87,6 +87,8 @@ final class LedgerStore: ObservableObject {
     @Published var requestedAnalyticsType: LedgerTransactionType? = nil
     @Published var requestedAnalyticsRange: AnalyticsRange? = nil
     @Published var requestedAnalyticsCustomRange: ClosedRange<Date>? = nil
+    @Published var hasMoreTransactions: Bool = false
+    @Published var isLoadingMoreTransactions: Bool = false
     var saveTask: Task<Void, Never>?
     var undoTransactions: [LedgerTransaction] = []
     var activeUndoOperation: LedgerUndoOperation?
@@ -117,6 +119,7 @@ final class LedgerStore: ObservableObject {
                 state = legacy; books[0].state = legacy
             }
             persistenceEnabled = true
+            refreshHasMoreTransactions()
             processDueRecurring()
             scheduleSave()
             scheduleNextInstallmentRefresh()
@@ -145,7 +148,19 @@ final class LedgerStore: ObservableObject {
 
     var accounts: [AccountViewModel] {
         if let cachedAccountViews { return cachedAccountViews }
-        let result = LedgerCalculations.accountViews(state, index: index)
+        let result: [AccountViewModel]
+        if persistenceEnabled, let repo = try? Self.localRepository.transactionRepository() {
+            let activeAccounts = index.activeAccounts
+            result = activeAccounts.map { acc in
+                if let bal = try? repo.accountBalance(for: acc, bookID: activeBookID, rates: state.settings.rates) {
+                    return AccountViewModel(account: acc, balance: bal)
+                } else {
+                    return AccountViewModel(account: acc, balance: LedgerCalculations.balance(for: acc, in: state, index: index))
+                }
+            }
+        } else {
+            result = LedgerCalculations.accountViews(state, index: index)
+        }
         cachedAccountViews = result
         return result
     }
@@ -215,5 +230,113 @@ final class LedgerStore: ObservableObject {
             guard !Task.isCancelled else { return }
             self?.refreshDueInstallments(now: .now)
         }
+    }
+
+    func transaction(id: UUID) -> LedgerTransaction? {
+        if let inMemory = state.transactions.first(where: { $0.id == id }) {
+            return inMemory
+        }
+        guard persistenceEnabled else { return nil }
+        return try? Self.localRepository.transactionRepository().transaction(id: id, bookID: activeBookID)
+    }
+
+    func transactions(from: Date? = nil, to: Date? = nil) -> [LedgerTransaction] {
+        if !persistenceEnabled {
+            return state.transactions.filter { tx in
+                tx.deletedAt == nil &&
+                (from == nil || tx.occurredAt >= from!) &&
+                (to == nil || tx.occurredAt <= to!)
+            }.sorted { $0.occurredAt > $1.occurredAt }
+        }
+
+        let diskTransactions = (try? Self.localRepository.transactionRepository().transactions(
+            bookID: activeBookID,
+            from: from,
+            to: to,
+            limit: nil,
+            offset: nil
+        )) ?? []
+
+        var map = Dictionary(diskTransactions.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+        for tx in state.transactions {
+            let inRange = (from == nil || tx.occurredAt >= from!) && (to == nil || tx.occurredAt <= to!)
+            if inRange {
+                if tx.deletedAt != nil {
+                    map.removeValue(forKey: tx.id)
+                } else {
+                    map[tx.id] = tx
+                }
+            } else {
+                map.removeValue(forKey: tx.id)
+            }
+        }
+        return map.values.sorted {
+            if $0.occurredAt != $1.occurredAt {
+                return $0.occurredAt > $1.occurredAt
+            }
+            return $0.id.uuidString > $1.id.uuidString
+        }
+    }
+
+    func materializeFullState() -> LedgerState {
+        guard persistenceEnabled,
+              let repo = try? Self.localRepository.transactionRepository(),
+              let fullBook = try? repo.materializeFullBook(id: activeBookID) else {
+            return state
+        }
+        var full = state
+        var map = Dictionary(fullBook.state.transactions.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+        for tx in state.transactions {
+            map[tx.id] = tx
+        }
+        full.transactions = Array(map.values).sorted { $0.occurredAt > $1.occurredAt }
+        full.accounts = state.accounts
+        full.categories = state.categories
+        full.settings = state.settings
+        full.recurringRules = state.recurringRules
+        full.purchaseSessions = state.purchaseSessions
+        return full
+    }
+
+    func loadNextTransactionPage(pageSize: Int = 250) {
+        guard persistenceEnabled, !isLoadingMoreTransactions, hasMoreTransactions else { return }
+        isLoadingMoreTransactions = true
+        defer { isLoadingMoreTransactions = false }
+        guard let repo = try? Self.localRepository.transactionRepository() else { return }
+
+        let activeSorted = state.transactions.filter { $0.deletedAt == nil }.sorted { $0.occurredAt > $1.occurredAt }
+        let oldest = activeSorted.last
+
+        guard let nextPage = try? repo.recentTransactions(
+            bookID: activeBookID,
+            before: oldest?.occurredAt,
+            beforeID: oldest?.id,
+            limit: pageSize
+        ), !nextPage.isEmpty else {
+            hasMoreTransactions = false
+            return
+        }
+
+        let existingIDs = Set(state.transactions.map(\.id))
+        let newTransactions = nextPage.filter { !existingIDs.contains($0.id) }
+        guard !newTransactions.isEmpty else {
+            hasMoreTransactions = false
+            return
+        }
+
+        mutateState { state in
+            state.transactions.append(contentsOf: newTransactions)
+        }
+        refreshHasMoreTransactions()
+    }
+
+    func refreshHasMoreTransactions() {
+        guard persistenceEnabled, let repo = try? Self.localRepository.transactionRepository() else {
+            hasMoreTransactions = false
+            return
+        }
+        let loadedCount = state.transactions.filter { $0.deletedAt == nil }.count
+        let totalCount = (try? repo.transactionCount(bookID: activeBookID)) ?? loadedCount
+        hasMoreTransactions = totalCount > loadedCount
     }
 }
