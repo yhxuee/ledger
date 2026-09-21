@@ -219,7 +219,7 @@ struct ExchangeRateEditorView: View {
             try await store.refreshCurrencyCatalogIfNeeded(force: true)
             let date = try await store.refreshExchangeRatesIfNeeded(force: true) ?? "the latest available date"
             if showConfirmation { statusMessage = "Reference rates updated for \(date)." }
-        } catch { store.presentedError = "Exchange-rate update failed: \(error.localizedDescription)" }
+        } catch { store.presentedError = String(format: String(localized: "Exchange-rate update failed: %@"), error.localizedDescription) }
     }
 }
 

@@ -127,35 +127,35 @@ struct EncryptionSecurityView: View {
     private var statusText: String {
         switch activeBook.effectiveEncryptionState {
         case .enabled:
-            return "Enabled"
+            return String(localized: "Enabled")
         case .disabled:
-            return "Disabled"
+            return String(localized: "Disabled")
         case .authorizationRequired:
-            return "Authorization Required"
+            return String(localized: "Authorization Required")
         case .enabling:
-            return "Enabling…"
+            return String(localized: "Enabling…")
         case .disabling:
-            return "Disabling…"
+            return String(localized: "Disabling…")
         case .migrationFailed:
-            return "Migration Failed"
+            return String(localized: "Migration Failed")
         }
     }
 
     private var keyStatusText: String {
-        hasLocalKey ? "Available" : "Missing"
+        hasLocalKey ? String(localized: "Available") : String(localized: "Missing")
     }
 
     private var thisDeviceStatusText: String {
         if activeBook.effectiveEncryptionState == .enabled && hasLocalKey {
-            return "Authorized"
+            return String(localized: "Authorized")
         }
         if activeBook.effectiveEncryptionState == .authorizationRequired || (activeBook.effectiveEncryptionState == .enabled && !hasLocalKey) {
-            return "Authorization Required"
+            return String(localized: "Authorization Required")
         }
         if hasLocalKey {
-            return "Key Available"
+            return String(localized: "Key Available")
         }
-        return "Missing"
+        return String(localized: "Missing")
     }
 
     private var e2eeBinding: Binding<Bool> {

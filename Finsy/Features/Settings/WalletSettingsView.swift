@@ -28,11 +28,11 @@ struct WalletSettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Apple Wallet Account Pass")
                             .font(.headline)
-                        Text(walletManager.isAccountPassInstalled() ? "Pass Installed in Apple Wallet" : "Pass Not Added")
+                        Text(walletManager.isAccountPassInstalled() ? LocalizedStringKey("Pass Installed in Apple Wallet") : LocalizedStringKey("Pass Not Added"))
                             .font(.caption)
                             .foregroundStyle(walletManager.isAccountPassInstalled() ? Color.green : Color.secondary)
                         if let refreshed = preferences.value.walletPassLastRefreshedAt {
-                            Text("Last Refreshed: \(refreshed.formatted(date: .abbreviated, time: .shortened))")
+                            Text(String(format: String(localized: "Last Refreshed: %@"), refreshed.formatted(date: .abbreviated, time: .shortened)))
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -93,7 +93,7 @@ struct WalletSettingsView: View {
                     }
                 }
             } header: {
-                Text("Relevant Locations (\(preferences.value.walletPassLocations.count)/10)")
+                Text(String(format: String(localized: "Relevant Locations (%lld/10)"), Int64(preferences.value.walletPassLocations.count)))
             } footer: {
                 Text("Apple Wallet can display the pass on your Lock Screen when you are near up to 10 configured locations.")
             }

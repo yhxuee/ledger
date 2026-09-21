@@ -205,15 +205,15 @@ enum CSVTransactionImporter {
         var warnings: [String] = []
         if !missingAccounts.isEmpty {
             for missing in missingAccounts.sorted() {
-                warnings.append("Account '\(missing)' does not exist. Please create it or verify mapping before importing.")
+                warnings.append(String(format: String(localized: "Account '%@' does not exist. Please create it or verify mapping before importing."), missing))
             }
         }
         if !missingCategories.isEmpty {
             for missing in missingCategories.sorted() {
-                warnings.append("Category '\(missing)' does not exist.")
+                warnings.append(String(format: String(localized: "Category '%@' does not exist."), missing))
             }
         }
-        warnings.append("CSV imports transactions only. Group, split, installment, and CloudKit links are not reconstructed.")
+        warnings.append(String(localized: "CSV imports transactions only. Group, split, installment, and CloudKit links are not reconstructed."))
 
         var importedState = existingState
         importedState.transactions.append(contentsOf: transactions)

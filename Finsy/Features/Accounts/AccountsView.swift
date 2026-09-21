@@ -4,6 +4,7 @@ import UIKit
 
 struct AccountsView: View {
     @EnvironmentObject private var store: LedgerStore
+    @EnvironmentObject private var preferences: AppPreferencesStore
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var stockRefresh = StockQuoteRefreshService.shared
     @State private var editing: AccountViewModel?
@@ -90,7 +91,7 @@ struct AccountsView: View {
                 Section {
                     ForEach(store.accounts) { item in
                         accountRowContent(item)
-                            .contentShape(Rectangle())
+                            .contentShape(.interaction, RoundedRectangle(cornerRadius: 20, style: .continuous))
                             .onTapGesture {
                                 if !isReordering {
                                     editing = item
@@ -140,6 +141,11 @@ struct AccountsView: View {
         .scrollContentBackground(.hidden)
         .background(LedgerBackground())
         .environment(\.editMode, isReordering ? .constant(.active) : .constant(.inactive))
+        .onChange(of: isReordering) { oldValue, newValue in
+            if !oldValue && newValue {
+                HapticFeedback.selection(enabled: preferences.value.hapticFeedbackEnabled)
+            }
+        }
         .navigationTitle("Accounts")
         .toolbar {
             if isReordering {
@@ -248,7 +254,7 @@ struct AccountsView: View {
             }
         }
         .padding(15)
-        .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .ledgerGlass(interactive: false, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .opacity(item.account.effectiveIsFrozen ? 0.7 : 1.0)
     }
 
@@ -556,7 +562,7 @@ private struct AccountEditorView: View {
                         Toggle("Recurring Interest", isOn: $interestEnabled)
                         if interestEnabled {
                             Picker("Interest Frequency", selection: loanInterval) { ForEach(RecurringInterval.allCases) { Text($0.title).tag($0) } }
-                            if loanInterval.wrappedValue == .customDays { Stepper("Every \(loanCustomDays.wrappedValue) days", value: loanCustomDays, in: 1...365) }
+                            if loanInterval.wrappedValue == .customDays { Stepper(String(format: String(localized: "Every %lld days"), Int64(loanCustomDays.wrappedValue)), value: loanCustomDays, in: 1...365) }
                         }
                         Text("Interest is recalculated from the current outstanding principal each time it runs.").font(.caption).foregroundStyle(.secondary)
                     }
@@ -673,7 +679,7 @@ private struct AccountEditorView: View {
                 Task {
                     do {
                         if let data = try await item.loadTransferable(type: Data.self), let resized = resizeCardImage(data) { account.cardImageData = resized }
-                    } catch { store.presentedError = "Photo import failed: \(error.localizedDescription)" }
+                    } catch { store.presentedError = String(format: String(localized: "Photo import failed: %@"), error.localizedDescription) }
                 }
             }
             .sheet(isPresented: $creatingCoupon) {

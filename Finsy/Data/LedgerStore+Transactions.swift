@@ -126,9 +126,9 @@ extension LedgerStore {
                     )
                     switch outcome {
                     case .requestFailed(_, let code, let message):
-                        self.recentActivityWarning = "The transaction was saved, but its Live Activity could not start (\(code): \(message))."
+                        self.recentActivityWarning = String(format: String(localized: "The transaction was saved, but its Live Activity could not start (%lld: %@)."), Int64(code), message)
                     case .activitiesDisabled:
-                        self.recentActivityWarning = "Live Activities are disabled for Finsy."
+                        self.recentActivityWarning = String(localized: "Live Activities are disabled for Finsy.")
                     case .started, .skippedPurchaseTransaction:
                         break
                     }
@@ -347,15 +347,16 @@ extension LedgerStore {
             markDeleted(in: &state, at: index, date: now)
         }
 
+        let deleteMsg = String(localized: "Transaction deleted")
         activeUndoOperation = LedgerUndoOperation(
-            message: "Transaction deleted",
+            message: deleteMsg,
             transactionSnapshots: txSnapshots,
             accountSnapshots: accountSnapshots,
             expectedTransactionVersions: expectedTxVersions,
             expectedAccountVersions: expectedAccVersions
         )
         undoTransactions = deletedSnapshot
-        undoMessage = "Transaction deleted"
+        undoMessage = deleteMsg
         scheduleSave()
     }
 
@@ -405,7 +406,7 @@ extension LedgerStore {
             expectedTxVersions[child.id] = child.version + 1
         }
 
-        var message = "Payment removed from Combined Payment"
+        var message = String(localized: "Payment removed from Combined Payment")
 
         mutateState { state in
             releaseCouponIfPresent(in: &state, on: state.transactions[index])
@@ -424,7 +425,7 @@ extension LedgerStore {
                 state.transactions[parentIndex].updatedAt = now
                 state.transactions[parentIndex].version += 1
                 state.transactions[parentIndex].syncStatus = .pending
-                message = "Payment removed from Combined Payment"
+                message = String(localized: "Payment removed from Combined Payment")
             } else if rem.count == 1 {
                 if let lastChildIndex = state.transactions.firstIndex(where: { $0.id == rem[0].id }) {
                     state.transactions[lastChildIndex].parentTransactionID = nil
@@ -437,10 +438,10 @@ extension LedgerStore {
                 for idx in state.transactions.indices where state.transactions[idx].parentTransactionID == parentID && state.transactions[idx].deletedAt == nil {
                     markDeleted(in: &state, at: idx, date: now)
                 }
-                message = "Combined Payment dissolved"
+                message = String(localized: "Combined Payment dissolved")
             } else {
                 markDeleted(in: &state, at: parentIndex, date: now)
-                message = "Combined Payment deleted"
+                message = String(localized: "Combined Payment deleted")
             }
         }
 
@@ -530,7 +531,7 @@ extension LedgerStore {
                 undoTransactions = []
                 undoMessage = nil
             } else {
-                presentedError = "Cannot undo: item was subsequently modified."
+                presentedError = String(localized: "Cannot undo: item was subsequently modified.")
             }
             return
         }

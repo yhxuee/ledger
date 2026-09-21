@@ -30,7 +30,7 @@ enum PurchaseSharedContainerState: Equatable, Sendable {
         switch self {
         case .available: nil
         case .containerUnavailable, .writeFailed, .readFailed:
-            "Lock Screen item controls require a signed build with App Group access."
+            String(localized: "Lock Screen item controls require a signed build with App Group access.")
         }
     }
 }

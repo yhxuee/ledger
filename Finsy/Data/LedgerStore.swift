@@ -121,7 +121,7 @@ final class LedgerStore: ObservableObject {
             scheduleNextInstallmentRefresh()
         } catch {
             // Keep disk data untouched. The existing error presentation reports the failure.
-            presentedError = "The ledger could not be loaded. Existing data has been preserved. \(error.localizedDescription)"
+            presentedError = String(format: String(localized: "The ledger could not be loaded. Existing data has been preserved. %@"), error.localizedDescription)
         }
     }
 

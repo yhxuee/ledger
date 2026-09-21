@@ -222,7 +222,7 @@ enum CashFlowForecastEngine {
                     risks.append(
                         BudgetForecastRisk(
                             lineID: "category:\(categoryID.rawValue)",
-                            title: categoryMap[categoryID]?.name ?? categoryID.rawValue,
+                            title: categoryMap[categoryID]?.displayName ?? categoryID.rawValue,
                             currency: baseCurrency,
                             budget: allocation,
                             actualSpent: actualSpent,

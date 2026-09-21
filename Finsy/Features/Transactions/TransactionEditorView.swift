@@ -1124,6 +1124,12 @@ struct TransactionEditorView: View {
             .menuStyle(.button)
             .buttonStyle(.plain)
             .contentShape(.interaction, RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.42, maximumDistance: 18)
+                    .onEnded { _ in
+                        HapticFeedback.selection(enabled: preferences.value.hapticFeedbackEnabled)
+                    }
+            )
         } else {
             Button {
                 withAnimation(.snappy) {
@@ -1209,7 +1215,7 @@ struct TransactionEditorView: View {
         } else {
             guard store.addTransaction(type: type, accountID: accountID, destinationAccountID: destinationID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: savedAttachmentID, accountCurrency: sourceAccountCurrency, accountAmount: sourcePostingValue, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: type == .transfer ? destinationPostingValue : nil, taxSnapshot: taxSnapshot, couponSnapshot: selectedCouponSnapshot) != nil else {
                 if noteImageChanged, let savedAttachmentID { try? await AttachmentStore.shared.delete(identifier: savedAttachmentID) }
-                store.presentedError = "The transaction could not be saved."
+                store.presentedError = String(localized: "The transaction could not be saved.")
                 return
             }
         }

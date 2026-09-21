@@ -111,7 +111,7 @@ extension LedgerStore {
             let snapshot = self.librarySnapshot()
             OverviewWidgetRelay.updateSnapshot(store: self)
             do { try await LedgerPersistence.shared.save(snapshot, revision: revision) }
-            catch { self.presentedError = "Local save failed: \(error.localizedDescription)" }
+            catch { self.presentedError = String(format: String(localized: "Local save failed: %@"), error.localizedDescription) }
             if let active = snapshot.books.first(where: { $0.id == snapshot.activeBookID }), active.effectiveStorageKind != .local {
                 do { try await CloudLedgerService.shared.synchronize(book: active); self.lastSyncError = nil }
                 catch { self.lastSyncError = error.localizedDescription }

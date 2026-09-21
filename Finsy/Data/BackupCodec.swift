@@ -138,7 +138,7 @@ enum BackupCodec {
         envelope.metadata.categoryCount = envelope.data.categories.count
         envelope.metadata.baseCurrency = envelope.data.settings.baseCurrency
         var warnings: [String] = []
-        if envelope.metadata.app == FinsyCompatibility.webBackupApp { warnings.append("Web backup converted to the native iOS schema.") }
+        if envelope.metadata.app == FinsyCompatibility.webBackupApp { warnings.append(String(localized: "Web backup converted to the native iOS schema.")) }
         return .init(sourceName: sourceName, envelope: envelope, warnings: warnings)
     }
 

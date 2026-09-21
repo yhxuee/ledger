@@ -26,7 +26,7 @@ extension LedgerStore {
             rules[index].updatedAt = .now
             state.recurringRules = rules
         }
-        undoMessage = "Recurring transaction deleted"
+        undoMessage = String(localized: "Recurring transaction deleted")
         scheduleSave()
     }
 

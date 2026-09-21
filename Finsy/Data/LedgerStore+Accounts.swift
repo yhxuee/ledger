@@ -8,7 +8,7 @@ extension LedgerStore {
         for pocket in existing.normalizedPockets where !kept.contains(pocket.currency) {
             let balance = LedgerCalculations.pocketBalance(pocket.currency, for: existing, in: state)
             guard balance.isFinite, abs(balance) > 0.005 else { continue }
-            return "\(pocket.currency.rawValue) pocket still holds \(LedgerFormat.money(balance, currency: pocket.currency)). Clear or transfer it first."
+            return String(format: String(localized: "%@ pocket still holds %@. Clear or transfer it first."), pocket.currency.rawValue, LedgerFormat.money(balance, currency: pocket.currency))
         }
         return nil
     }
@@ -34,7 +34,7 @@ extension LedgerStore {
             }
             guard let stock = account.stockMetadata, stock.costBasis.isFinite, stock.value.isFinite,
                   stock.averageCost >= 0, stock.quantity >= 0 else {
-                presentedError = "Enter a valid cost price and quantity."
+                presentedError = String(localized: "Enter a valid cost price and quantity.")
                 return
             }
             account.currency = market.settlementCurrency
@@ -163,7 +163,7 @@ extension LedgerStore {
                 Task { await PurchaseLiveActivityController.shared.end(sessionID: stopped.id) }
             }
         }
-        undoMessage = "Account deleted"
+        undoMessage = String(localized: "Account deleted")
         scheduleSave()
     }
 
@@ -172,7 +172,7 @@ extension LedgerStore {
         var account = state.accounts[index]
         guard !account.effectiveIsFrozen else { return }
         activeUndoOperation = LedgerUndoOperation(
-            message: "Account frozen",
+            message: String(localized: "Account frozen"),
             accountSnapshots: [id: account],
             expectedAccountVersions: [id: account.version + 1]
         )
@@ -199,7 +199,7 @@ extension LedgerStore {
         var account = state.accounts[index]
         guard account.effectiveIsFrozen else { return }
         activeUndoOperation = LedgerUndoOperation(
-            message: "Account unfrozen",
+            message: String(localized: "Account unfrozen"),
             accountSnapshots: [id: account],
             expectedAccountVersions: [id: account.version + 1]
         )

@@ -448,12 +448,13 @@ extension LedgerStore {
                 expectedVersions[item.id] = current.version
             }
         }
+        let detachMsg = String(localized: "Detached payment")
         activeUndoOperation = LedgerUndoOperation(
-            message: "Detached payment",
+            message: detachMsg,
             transactionSnapshots: snapshots,
             expectedTransactionVersions: expectedVersions
         )
-        undoMessage = "Detached payment"
+        undoMessage = detachMsg
         scheduleSave()
         return true
     }
@@ -492,12 +493,13 @@ extension LedgerStore {
                 expectedVersions[item.id] = current.version
             }
         }
+        let ungroupMsg = String(localized: "Ungrouped Combined Payment")
         activeUndoOperation = LedgerUndoOperation(
-            message: "Ungrouped Combined Payment",
+            message: ungroupMsg,
             transactionSnapshots: snapshots,
             expectedTransactionVersions: expectedVersions
         )
-        undoMessage = "Ungrouped Combined Payment"
+        undoMessage = ungroupMsg
         scheduleSave()
     }
 
@@ -596,13 +598,14 @@ extension LedgerStore {
             state.transactions.append(contentsOf: supportReversals)
         }
         let updatedParentVersion = state.transactions[parentIndex].version
+        let refundMsg = String(localized: "Combined Payment refunded")
         activeUndoOperation = LedgerUndoOperation(
-            message: "Combined Payment refunded",
+            message: refundMsg,
             transactionSnapshots: snapshots,
             createdTransactionIDs: createdIDs,
             expectedTransactionVersions: [parent.id: updatedParentVersion]
         )
-        undoMessage = "Combined Payment refunded"
+        undoMessage = refundMsg
         scheduleSave()
         return true
     }

@@ -80,7 +80,7 @@ extension LedgerStore {
             try await persistDurableAsync()
             return true
         } catch {
-            presentedError = "Local save failed: \(error.localizedDescription)"
+            presentedError = String(format: String(localized: "Local save failed: %@"), error.localizedDescription)
             return false
         }
     }
