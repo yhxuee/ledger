@@ -666,7 +666,7 @@ struct SettingsLabel: View {
     let title: LocalizedStringKey
     let systemImage: String
     init(_ title: LocalizedStringKey, systemImage: String) { self.title = title; self.systemImage = systemImage }
-    init<S: StringProtocol>(_ title: S, systemImage: String) { self.title = LocalizedStringKey(String(title)); self.systemImage = systemImage }
+    init(_ title: String, systemImage: String) { self.title = LocalizedStringKey(title); self.systemImage = systemImage }
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
@@ -685,8 +685,8 @@ struct SettingsLinkRow: View {
         self.systemImage = systemImage
         self.detail = detail
     }
-    init<S: StringProtocol>(_ title: S, systemImage: String, detail: String? = nil) {
-        self.title = LocalizedStringKey(String(title))
+    init(_ title: String, systemImage: String, detail: String? = nil) {
+        self.title = LocalizedStringKey(title)
         self.systemImage = systemImage
         self.detail = detail
     }
@@ -715,9 +715,9 @@ struct SettingsGlassSection<Content: View>: View {
         self.content = content()
     }
 
-    init<S1: StringProtocol, S2: StringProtocol>(_ title: S1?, footer: S2? = nil, @ViewBuilder content: () -> Content) {
-        self.title = title.map { LocalizedStringKey(String($0)) }
-        self.footer = footer.map { LocalizedStringKey(String($0)) }
+    init(_ title: String?, footer: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title.map { LocalizedStringKey($0) }
+        self.footer = footer.map { LocalizedStringKey($0) }
         self.content = content()
     }
 

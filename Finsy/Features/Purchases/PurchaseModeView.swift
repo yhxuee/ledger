@@ -108,12 +108,6 @@ struct PurchaseModeView: View {
     }
 }
 
-private extension PurchaseSessionStatus {
-    var title: String {
-        switch self { case .draft: "Draft"; case .active: "Active"; case .awaitingSummary: "Awaiting Summary"; case .completed: "Completed"; case .cancelled: "Cancelled" }
-    }
-}
-
 struct PurchaseSessionFlowView: View {
     @EnvironmentObject private var store: LedgerStore
     let sessionID: UUID
