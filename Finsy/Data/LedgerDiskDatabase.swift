@@ -80,6 +80,29 @@ final class LedgerDiskDatabase {
         guard sqlite3_step(query) == SQLITE_DONE else { throw error() }
     }
 
+    /// Reuse one bound SQLite statement and decode one blob at a time during hydration.
+    /// Missing manifest entries are corruption, never silently omitted transactions.
+    func values<Keys: Sequence, Value>(_ namespace: String, keys: Keys,
+                                      decode: (Data) throws -> Value) throws -> [Value] where Keys.Element == String {
+        let query = try statement("SELECT value FROM documents WHERE namespace = ? AND key = ?", strings: [namespace])
+        defer { sqlite3_finalize(query) }
+        var values: [Value] = []
+        values.reserveCapacity(keys.underestimatedCount)
+        for key in keys {
+            guard sqlite3_reset(query) == SQLITE_OK,
+                  sqlite3_bind_text(query, 2, key, -1, transient) == SQLITE_OK else { throw error() }
+            let status = sqlite3_step(query)
+            guard status != SQLITE_DONE else { throw CocoaError(.fileReadCorruptFile) }
+            guard status == SQLITE_ROW else { throw error() }
+            let count = Int(sqlite3_column_bytes(query, 0))
+            let data: Data
+            if count > 0, let bytes = sqlite3_column_blob(query, 0) { data = Data(bytes: bytes, count: count) }
+            else { data = Data() }
+            values.append(try autoreleasepool { try decode(data) })
+        }
+        return values
+    }
+
     func hasAny(_ namespace: String) throws -> Bool {
         let query = try statement("SELECT 1 FROM documents WHERE namespace = ? LIMIT 1", strings: [namespace])
         defer { sqlite3_finalize(query) }

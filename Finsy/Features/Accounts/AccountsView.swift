@@ -110,11 +110,25 @@ struct AccountsView: View {
                                     editing = item
                                 }
                             }
-                            .onLongPressGesture {
-                                if !isReordering {
-                                    isReordering = true
-                                }
+                            .onDrag {
+                                isReordering = true
+                                return NSItemProvider(object: "finsy-account:\(store.activeBookID):\(item.id)" as NSString)
+                            } preview: {
+                                accountRowContent(item)
+                                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                             }
+                            .dropDestination(for: String.self) { values, _ in
+                                guard isReordering, values.count == 1,
+                                      let value = values.first else { return false }
+                                let prefix = "finsy-account:\(store.activeBookID):"
+                                guard value.hasPrefix(prefix),
+                                      let sourceID = UUID(uuidString: String(value.dropFirst(prefix.count))),
+                                      store.accounts.contains(where: { $0.id == sourceID }) else { return false }
+                                withAnimation { store.moveAccount(from: sourceID, to: item.id) }
+                                return true
+                            }
+                            .accessibilityAction(named: "Move up") { moveAccount(item.id, by: -1) }
+                            .accessibilityAction(named: "Move down") { moveAccount(item.id, by: 1) }
                             .swipeActions(edge: .leading, allowsFullSwipe: true) {
                                 if item.account.effectiveIsFrozen {
                                     Button {
@@ -143,9 +157,6 @@ struct AccountsView: View {
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
                     }
-                    .onMove { offsets, destination in
-                        store.moveAccounts(from: offsets, to: destination)
-                    }
                 }
             }
             threeMonthMetricsSection
@@ -153,7 +164,6 @@ struct AccountsView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(LedgerBackground())
-        .environment(\.editMode, isReordering ? .constant(.active) : .constant(.inactive))
         .onChange(of: isReordering) { oldValue, newValue in
             if !oldValue && newValue {
                 HapticFeedback.selection(enabled: preferences.value.hapticFeedbackEnabled)
@@ -201,6 +211,12 @@ struct AccountsView: View {
         .confirmationDialog("Delete \(deleting?.name ?? "account")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
             Button("Delete Account and Linked Transactions", role: .destructive) { if let deleting { store.deleteAccount(deleting) }; deleting = nil }
         } message: { Text("The account and linked transactions will be soft-deleted and excluded from all totals.") }
+    }
+
+    private func moveAccount(_ id: UUID, by offset: Int) {
+        let ids = store.accounts.map(\.id)
+        guard let index = ids.firstIndex(of: id), ids.indices.contains(index + offset) else { return }
+        store.moveAccount(from: id, to: ids[index + offset])
     }
 
     private func statementCard(title: String, subtitle: String, icon: String, color: Color, action: @escaping () -> Void) -> some View {

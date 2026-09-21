@@ -163,6 +163,15 @@ actor CloudLedgerService {
     }
 
     func migrateToEncrypted(book: LedgerBook, key: SymmetricKey) async throws -> LedgerBook {
+        func validateStoredKey() throws {
+            try Task.checkCancellation()
+            let expected = LedgerKeyStore.fingerprint(for: key, ledgerID: book.id)
+            guard let stored = try LedgerKeyStore.loadKey(for: book.id),
+                  LedgerKeyStore.fingerprint(for: stored, ledgerID: book.id) == expected else {
+                throw LedgerCryptoError.authorizationRequired(ledgerID: book.id, fingerprint: expected)
+            }
+        }
+        try validateStoredKey()
         guard book.effectiveStorageKind == .cloudOwner, let zoneName = book.cloudZoneName else { return book }
         try await configureCallbacksIfNeeded()
         let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: book.cloudZoneOwnerName ?? CKCurrentUserDefaultName)
@@ -197,11 +206,14 @@ actor CloudLedgerService {
             }
             var saved: [CKRecord] = []
             for batch in updates.chunked(into: 100) {
+                try validateStoredKey()
                 let response = try await container.privateCloudDatabase.modifyRecords(saving: batch, deleting: [], savePolicy: .ifServerRecordUnchanged, atomically: true)
                 // One atomic record replacement removes plaintext and publishes ciphertext
                 // and encrypted assets together. Every per-record failure aborts completion.
                 saved += try response.saveResults.values.map { try $0.get() }
+                LedgerDiagnostics.security.info("Encryption migration acknowledged records=\(saved.count) total=\(updates.count)")
             }
+            try validateStoredKey()
             try await ownerSync.completeMigration(records: saved, book: encrypted, zoneID: zoneID)
             LedgerDiagnostics.security.info("Encryption migration completed records=\(saved.count)")
             return encrypted

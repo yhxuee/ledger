@@ -6,6 +6,7 @@ enum LedgerDiagnostics {
     static let cloud = Logger(subsystem: "com.finsy.app", category: "cloud-sync")
     static let security = Logger(subsystem: "com.finsy.app", category: "security")
     static let market = Logger(subsystem: "com.finsy.app", category: "market-data")
+    static let activity = Logger(subsystem: "com.finsy.app", category: "live-activity")
 
     // Never log payloads, financial values, attachment names, or credential-bearing URLs.
     static func failure(_ error: Error, operation: String, logger: Logger) {

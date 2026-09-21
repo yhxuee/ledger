@@ -170,6 +170,104 @@ final class PersistenceSecurityTests: XCTestCase {
         XCTAssertEqual(records.count, 1)
     }
 
+    func testHigherEntityVersionsWinDespiteClockSkew() throws {
+        var local = book()
+        var remote = local
+        local.state.accounts[0].version = 10
+        local.state.accounts[0].updatedAt = .distantPast
+        local.state.accounts[0].name = "Newer revision"
+        remote.state.accounts[0].version = 9
+        remote.state.accounts[0].updatedAt = .distantFuture
+        local.state.transactions[0].version = 4
+        local.state.transactions[0].updatedAt = .distantFuture
+        remote.state.transactions[0].version = 5
+        remote.state.transactions[0].updatedAt = .distantPast
+        remote.state.transactions[0].note = "Newer revision"
+        let merged = try CloudBookMerge.merge(local: local, remote: remote)
+        XCTAssertEqual(merged.state.accounts[0].name, "Newer revision")
+        XCTAssertEqual(merged.state.transactions[0].note, "Newer revision")
+        let localRecord = CKRecord(recordType: "LedgerTransaction")
+        let remoteRecord = CKRecord(recordType: "LedgerTransaction")
+        localRecord["version"] = 5 as CKRecordValue
+        localRecord["updatedAt"] = Date.distantPast as CKRecordValue
+        remoteRecord["version"] = 4 as CKRecordValue
+        remoteRecord["updatedAt"] = Date.distantFuture as CKRecordValue
+        XCTAssertTrue(CloudLedgerSyncCoordinator.localWins(localRecord, over: remoteRecord))
+        XCTAssertFalse(CloudLedgerSyncCoordinator.localWins(remoteRecord, over: localRecord))
+    }
+
+    func testBulkReadPreservesRequestedOrderAndRejectsMissingRows() throws {
+        let database = try LedgerDiskDatabase(url: temporaryFolder().appending(path: "bulk.sqlite"))
+        try database.put("book", "second", Data("2".utf8))
+        try database.put("book", "first", Data("1".utf8))
+        let values = try database.values("book", keys: ["first", "second", "first"]) { String(decoding: $0, as: UTF8.self) }
+        XCTAssertEqual(values, ["1", "2", "1"])
+        XCTAssertThrowsError(try database.values("book", keys: ["first", "missing"]) { $0 })
+    }
+
+    func testSavingStaleTransactionDraftAdvancesCurrentVersion() throws {
+        let store = LedgerStore(stateForTesting: SeedData.make())
+        let account = try XCTUnwrap(store.state.accounts.first { $0.isAvailableForNewTransactions })
+        var draft = try store.buildTransaction(type: .expense, accountID: account.id, destinationAccountID: nil,
+            amount: 10, currency: account.currency, categoryID: .food, occurredAt: .now, note: nil, in: store.state)
+        store.mutateState {
+            $0.transactions.insert(draft, at: 0)
+            $0.transactions[0].version = 8
+        }
+        draft.note = "Saved after remote update"
+        store.updateTransaction(draft)
+        XCTAssertEqual(store.state.transactions.first { $0.id == draft.id }?.version, 9)
+    }
+
+    func testFailedShortcutPersistenceRemovesOnlyItsInsertion() async throws {
+        #if DEBUG
+        let store = LedgerStore(stateForTesting: SeedData.make())
+        store.persistenceEnabled = true
+        defer { store.persistenceEnabled = false; store.saveTask?.cancel() }
+        let category = try XCTUnwrap(store.state.categories.first { $0.kind == .expense && !$0.id.isSystemLinked })
+        let account = try XCTUnwrap(store.state.accounts.first { $0.isAvailableForNewTransactions })
+        let originalIDs = store.state.transactions.map(\.id)
+        store.persistenceTestHook = {
+            store.mutateState { $0.transactions[1].note = "Concurrent edit" }
+            throw CocoaError(.fileWriteOutOfSpace)
+        }
+        do {
+            _ = try await store.recordQuickTransaction(amount: 1, currencyID: account.currency.rawValue,
+                categoryID: "\(store.activeBookID.uuidString)/\(category.id.rawValue)")
+            XCTFail("Failed persistence must throw")
+        } catch {
+            XCTAssertEqual((error as NSError).code, CocoaError.fileWriteOutOfSpace.rawValue)
+        }
+        XCTAssertEqual(store.state.transactions.map(\.id), originalIDs)
+        XCTAssertEqual(store.state.transactions[0].note, "Concurrent edit")
+        store.persistenceTestHook = nil
+        #endif
+    }
+
+    func testQuickTransactionValidationAndDefaultAccountResolution() throws {
+        let store = LedgerStore(stateForTesting: SeedData.make())
+        store.persistenceEnabled = true // This test only builds, never saves.
+        defer { store.persistenceEnabled = false }
+        let category = try XCTUnwrap(store.state.categories.first { $0.kind == .expense && !$0.id.isSystemLinked })
+        let account = try XCTUnwrap(store.state.accounts.last { $0.isAvailableForNewTransactions })
+        store.mutateState { $0.settings.defaultExpenseAccountByCategory[category.id] = account.id }
+        let categoryID = "\(store.activeBookID.uuidString)/\(category.id.rawValue)"
+        let count = store.state.transactions.count
+        let transaction = try store.buildQuickTransaction(amount: 12.5, currencyID: account.currency.rawValue, categoryID: categoryID)
+        XCTAssertEqual(transaction.accountID, account.id)
+        XCTAssertEqual(transaction.type, .expense)
+        XCTAssertEqual(transaction.amount, 12.5)
+        XCTAssertEqual(store.state.transactions.count, count)
+        for amount in [0, -1, Double.infinity, Double.nan] {
+            XCTAssertThrowsError(try store.buildQuickTransaction(amount: amount, currencyID: account.currency.rawValue, categoryID: categoryID))
+        }
+        XCTAssertThrowsError(try store.buildQuickTransaction(amount: 1, currencyID: account.currency.rawValue, categoryID: "\(UUID())/\(category.id.rawValue)"))
+        store.mutateState { $0.settings.archivedCategoryIDs.insert(category.id) }
+        XCTAssertThrowsError(try store.buildQuickTransaction(amount: 1, currencyID: account.currency.rawValue, categoryID: categoryID))
+        store.persistenceEnabled = false
+        XCTAssertThrowsError(try store.buildQuickTransaction(amount: 1, currencyID: account.currency.rawValue, categoryID: categoryID))
+    }
+
     func testFingerprintsSurviveDictionaryReconstruction() throws {
         let original = book()
         let reloaded = try JSONDecoder().decode(LedgerBook.self, from: JSONEncoder().encode(original))

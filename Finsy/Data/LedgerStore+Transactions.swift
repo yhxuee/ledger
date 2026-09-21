@@ -113,6 +113,7 @@ extension LedgerStore {
         let recordedItem = item
         let acc = state.accounts.first(where: { $0.id == recordedItem.accountID })
         let cat = state.categories.first(where: { $0.id == recordedItem.categoryID })
+        let recordedBookID = activeBookID
 
         if origin == .user {
             Task {
@@ -122,14 +123,14 @@ extension LedgerStore {
                         recordedItem,
                         account: acc,
                         category: cat,
-                        ledgerBookID: self.activeBookID
+                        ledgerBookID: recordedBookID
                     )
                     switch outcome {
                     case .requestFailed(_, let code, let message):
                         self.recentActivityWarning = String(format: String(localized: "The transaction was saved, but its Live Activity could not start (%lld: %@)."), Int64(code), message)
                     case .activitiesDisabled:
                         self.recentActivityWarning = String(localized: "Live Activities are disabled for Finsy.")
-                    case .started, .skippedPurchaseTransaction:
+                    case .started, .skippedPurchaseTransaction, .superseded:
                         break
                     }
                 } catch {
@@ -222,7 +223,8 @@ extension LedgerStore {
         }
         updated.exchangeRateAtTransaction = item.currency == original.currency ? original.exchangeRateAtTransaction : (CurrencyRates.reference(item.currency, in: state.settings.rates) ?? 1)
         updated.updatedAt = .now
-        updated.version += 1
+        // The editor may have opened before a remote update arrived.
+        updated.version = original.version + 1
         updated.syncStatus = .pending
 
         mutateState { state in

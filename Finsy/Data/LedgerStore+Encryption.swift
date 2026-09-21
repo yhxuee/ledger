@@ -31,6 +31,10 @@ extension LedgerStore {
             try await persistDurableAsync()
             guard let snapshot = books.first(where: { $0.id == bookID }) else { return }
             let migrated = try await CloudLedgerService.shared.migrateToEncrypted(book: snapshot, key: key)
+            guard let storedKey = try LedgerKeyStore.loadKey(for: bookID),
+                  LedgerKeyStore.fingerprint(for: storedKey, ledgerID: bookID) == fingerprint else {
+                throw LedgerCryptoError.authorizationRequired(ledgerID: bookID, fingerprint: fingerprint)
+            }
             commitActiveBook()
             guard let currentIndex = books.firstIndex(where: { $0.id == bookID }) else { return }
             // Preserve edits and book switches made while network operations were suspended.
@@ -44,7 +48,11 @@ extension LedgerStore {
         } catch {
             if let currentIndex = books.firstIndex(where: { $0.id == bookID }) {
                 books[currentIndex].encryptionState = .migrationFailed
-                scheduleSave()
+                do { try await persistDurableAsync() }
+                catch {
+                    LedgerDiagnostics.failure(error, operation: "Persist encryption recovery state", logger: LedgerDiagnostics.security)
+                    scheduleSave()
+                }
             }
             throw error
         }

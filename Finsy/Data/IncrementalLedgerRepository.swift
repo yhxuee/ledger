@@ -36,7 +36,8 @@ struct IncrementalLedgerRepository {
     }
 
     func load() throws -> LedgerLibrary? {
-        try database.transaction(write: false) {
+        let started = Date.now
+        let library: LedgerLibrary? = try database.transaction(write: false) {
             guard let data = try database.data("library", "manifest") else { return nil }
             let manifest = try decoder.decode(Manifest.self, from: data)
             guard manifest.schemaVersion <= BackupCodec.currentSchemaVersion else { throw BackupError.futureSchema(manifest.schemaVersion) }
@@ -44,13 +45,24 @@ struct IncrementalLedgerRepository {
                 let namespace = id.uuidString
                 let header: Header = try read(namespace, "header")
                 var book = header.book
-                book.state.accounts = try header.accountIDs.map { try read(namespace, "account-\($0)") }
-                book.state.transactions = try header.transactionIDs.map { try read(namespace, "transaction-\($0)") }
-                book.state.recurringRules = try header.recurringIDs.map { try $0.map { try read(namespace, "recurring-\($0)") } }
-                book.state.purchaseSessions = try header.purchaseIDs.map { try $0.map { try read(namespace, "purchase-\($0)") } }
+                book.state.accounts = try read(namespace, ids: header.accountIDs, prefix: "account")
+                book.state.transactions = try read(namespace, ids: header.transactionIDs, prefix: "transaction")
+                book.state.recurringRules = try header.recurringIDs.map { try read(namespace, ids: $0, prefix: "recurring") }
+                book.state.purchaseSessions = try header.purchaseIDs.map { try read(namespace, ids: $0, prefix: "purchase") }
                 return book
             }
             return LedgerLibrary(schemaVersion: manifest.schemaVersion, activeBookID: manifest.activeBookID, books: books)
+        }
+        if let library {
+            let count = library.books.reduce(0) { $0 + $1.state.transactions.count }
+            LedgerDiagnostics.persistence.info("Loaded library books=\(library.books.count) transactions=\(count) elapsed=\(Date.now.timeIntervalSince(started))")
+        }
+        return library
+    }
+
+    private func read<T: Decodable>(_ namespace: String, ids: [UUID], prefix: String) throws -> [T] {
+        try database.values(namespace, keys: ids.lazy.map { "\(prefix)-\($0)" }) {
+            try decoder.decode(T.self, from: $0)
         }
     }
 

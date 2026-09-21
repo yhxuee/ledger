@@ -6,6 +6,7 @@ public enum RecentTransactionActivityOutcome: Equatable, Sendable {
     case started(activityID: String)
     case activitiesDisabled
     case skippedPurchaseTransaction
+    case superseded
     case requestFailed(domain: String, code: Int, message: String)
 }
 
@@ -62,7 +63,8 @@ final class RecentTransactionActivityCoordinator {
     func handleActionTriggered() {
         lifecycleTask?.cancel()
         lifecycleTask = nil
-        currentOperationID = nil
+        let operationID = UUID()
+        currentOperationID = operationID
         transientActivityID = nil
         compactActivityID = nil
     }
@@ -111,8 +113,7 @@ final class RecentTransactionActivityCoordinator {
         // End any active recent transaction activity immediately
         await endRecentActivities()
 
-        let operationID = UUID()
-        currentOperationID = operationID
+        guard currentOperationID == operationID else { return .superseded }
 
         let createdAt = Date.now
         let expandedEndsAt = createdAt.addingTimeInterval(3)
@@ -166,6 +167,7 @@ final class RecentTransactionActivityCoordinator {
         RecentTransactionSharedStore.saveSnapshot(snapshot)
 
         guard isLiveActivityAvailable else {
+            LedgerDiagnostics.activity.notice("Recent transaction activity unavailable")
             #if DEBUG
             let appGroupAvailable = RecentTransactionSharedStore.containerURL() != nil
             print("[RecentActivity] activitiesEnabled=false applicationState=n/a appGroupAvailable=\(appGroupAvailable) requestResult=activitiesDisabled")
@@ -190,13 +192,21 @@ final class RecentTransactionActivityCoordinator {
         )
 
         do {
-            if #available(iOS 18.0, *) {
+            if #available(iOS 18.0, *), UIApplication.shared.applicationState == .active {
                 let activity = try startTransientActivity(
                     attributes: attributes,
                     state: state,
                     staleDate: expandedEndsAt
                 )
                 transientActivityID = activity.id
+
+                await Self.updateActivityAlert(
+                    activityID: activity.id,
+                    content: ActivityContent(state: state, staleDate: expandedEndsAt),
+                    alertConfiguration: AlertConfiguration(title: "\(amountText)", body: "\(title)", sound: .default)
+                )
+                guard currentOperationID == operationID else { return .started(activityID: activity.id) }
+                LedgerDiagnostics.activity.info("Foreground transient activity requested with alert")
 
                 #if DEBUG
                 let appState = await UIApplication.shared.applicationState
@@ -214,6 +224,7 @@ final class RecentTransactionActivityCoordinator {
                     if let snap = RecentTransactionSharedStore.loadSnapshot(id: transactionID),
                        snap.isUndone || snap.isRefunded {
                         await self.endRecentActivities()
+                        guard self.currentOperationID == operationID else { return }
                         self.transientActivityID = nil
                         self.currentOperationID = nil
                         return
@@ -247,13 +258,14 @@ final class RecentTransactionActivityCoordinator {
                     guard self.currentOperationID == operationID else { return }
 
                     await self.endRecentActivities()
+                    guard self.currentOperationID == operationID else { return }
                     self.compactActivityID = nil
                     self.currentOperationID = nil
                 }
 
                 return .started(activityID: activity.id)
             } else {
-                // Fallback for iOS < 18: start standard activity and update with alertConfiguration
+                // Background intents need a standard activity; transient presentation is foreground-only.
                 let activity = try startCompactActivity(
                     attributes: attributes,
                     state: state,
@@ -272,6 +284,8 @@ final class RecentTransactionActivityCoordinator {
                     content: ActivityContent(state: state, staleDate: expiresAt),
                     alertConfiguration: alertConfig
                 )
+                guard currentOperationID == operationID else { return .started(activityID: activityID) }
+                LedgerDiagnostics.activity.info("Standard activity requested with alert")
 
                 lifecycleTask = Task { [weak self, operationID] in
                     try? await Task.sleep(for: .seconds(8))
@@ -279,6 +293,7 @@ final class RecentTransactionActivityCoordinator {
                     guard let self = self, self.currentOperationID == operationID else { return }
 
                     await self.endRecentActivities()
+                    guard self.currentOperationID == operationID else { return }
                     self.compactActivityID = nil
                     self.currentOperationID = nil
                 }
@@ -286,6 +301,7 @@ final class RecentTransactionActivityCoordinator {
                 return .started(activityID: activityID)
             }
         } catch {
+            LedgerDiagnostics.failure(error, operation: "Start recent transaction activity", logger: LedgerDiagnostics.activity)
             let nsError = error as NSError
             #if DEBUG
             let appState = await UIApplication.shared.applicationState

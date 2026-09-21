@@ -1,8 +1,89 @@
 import XCTest
+import CloudKit
 @testable import Finsy
 
 @MainActor
 final class LargeLedgerPerformanceTests: XCTestCase {
+    func test10kSQLiteStartupAndIncrementalSave() throws { try exercisePersistence(count: 10_000) }
+    func test50kSQLiteStartupAndIncrementalSave() throws { try exercisePersistence(count: 50_000) }
+    func test100kSQLiteStartupAndIncrementalSave() throws { try exercisePersistence(count: 100_000) }
+
+    private func exercisePersistence(count: Int) throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "FinsyScale-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appending(path: "ledger.sqlite")
+        let book = LedgerBook(id: UUID(), name: "Scale", state: makeLargeLedger(count: count), createdAt: .now, updatedAt: .now)
+        let library = LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion, activeBookID: book.id, books: [book])
+        let initialStart = Date.now
+        do {
+            let repository = IncrementalLedgerRepository(database: try LedgerDiskDatabase(url: url))
+            try repository.save(library, previous: nil)
+        }
+        let initialDuration = Date.now.timeIntervalSince(initialStart)
+        let options = XCTMeasureOptions()
+        options.iterationCount = 3
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()], options: options) {
+            do {
+                try autoreleasepool {
+                    let repository = IncrementalLedgerRepository(database: try LedgerDiskDatabase(url: url))
+                    let loaded = try XCTUnwrap(repository.load())
+                    XCTAssertEqual(loaded.books[0].state.transactions.count, count)
+                    XCTAssertEqual(loaded.books[0].state.transactions.last?.id, book.state.transactions.last?.id)
+                }
+            } catch { XCTFail("Startup failed: \(error)") }
+        }
+        var edited = library
+        edited.books[0].state.transactions[count / 2].note = "One changed record"
+        edited.books[0].state.transactions[count / 2].version += 1
+        let deltaStart = Date.now
+        do {
+            let repository = IncrementalLedgerRepository(database: try LedgerDiskDatabase(url: url))
+            try repository.save(edited, previous: library)
+            XCTAssertEqual(try repository.load(), edited)
+            // Capture live WAL size before closing the last connection checkpoints it.
+            let report = "transactions=\(count) initialSaveSeconds=\(initialDuration) deltaSaveAndVerifySeconds=\(Date.now.timeIntervalSince(deltaStart)) databaseBytes=\(fileSize(url)) walBytes=\(fileSize(URL(fileURLWithPath: url.path + "-wal")))"
+            let attachment = XCTAttachment(string: report)
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
+    private func fileSize(_ url: URL) -> Int {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+    }
+
+    func test10kOfflineOutboxSurvivesReopenAndAcknowledgement() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "FinsyOutboxScale-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let zone = CKRecordZone.ID(zoneName: "Scale", ownerName: CKCurrentUserDefaultName)
+        do {
+            let journal = try CloudRecordJournal(folder: folder)
+            try journal.database.transaction {
+                for index in 0..<10_000 {
+                    try autoreleasepool {
+                        let record = CKRecord(recordType: "LedgerTransaction", recordID: .init(recordName: "transaction-\(index)", zoneID: zone))
+                        record["payload"] = Data(repeating: 42, count: 512) as CKRecordValue
+                        try journal.store(record)
+                        try journal.markPending(record.recordID)
+                    }
+                }
+            }
+        }
+        do {
+            let journal = try CloudRecordJournal(folder: folder)
+            let ids = try journal.pendingIDs()
+            XCTAssertEqual(ids.count, 10_000)
+            try journal.database.transaction {
+                for id in ids.prefix(200) {
+                    XCTAssertNotNil(try journal.record(id))
+                    try journal.acknowledge(id)
+                }
+            }
+        }
+        let recovered = try CloudRecordJournal(folder: folder)
+        XCTAssertEqual(try recovered.pendingIDs().count, 9_800)
+    }
+
     private func makeLargeLedger(count: Int) -> LedgerState {
         var state = SeedData.makeEmpty()
         let accountID = UUID()

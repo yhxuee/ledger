@@ -361,10 +361,13 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
     }
 
     nonisolated static func localWins(_ local: CKRecord, over remote: CKRecord) -> Bool {
+        let localVersion = (local["version"] as? Int) ?? 0
+        let remoteVersion = (remote["version"] as? Int) ?? 0
+        if localVersion != remoteVersion { return localVersion > remoteVersion }
         let localDate = local["updatedAt"] as? Date ?? .distantPast
         let remoteDate = remote["updatedAt"] as? Date ?? .distantPast
         if localDate != remoteDate { return localDate > remoteDate }
-        return ((local["version"] as? Int) ?? 0) >= ((remote["version"] as? Int) ?? 0)
+        return true
     }
 
     nonisolated static func sameContent(_ lhs: CKRecord, _ rhs: CKRecord) -> Bool {
