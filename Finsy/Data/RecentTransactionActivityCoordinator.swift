@@ -32,10 +32,12 @@ final class RecentTransactionActivityCoordinator {
             object: nil,
             queue: .main
         ) { [weak store] note in
+            let id = note.object as? UUID
+            let targetBookID = note.userInfo?["ledgerBookID"] as? UUID
             Task { @MainActor [weak store] in
                 RecentTransactionActivityCoordinator.shared.handleActionTriggered()
-                guard let store, let id = note.object as? UUID else { return }
-                if let targetBookID = note.userInfo?["ledgerBookID"] as? UUID {
+                guard let store, let id else { return }
+                if let targetBookID {
                     guard targetBookID == store.activeBookID else { return }
                 }
                 if let tx = store.state.transactions.first(where: { $0.id == id && $0.deletedAt == nil }) {
@@ -50,10 +52,12 @@ final class RecentTransactionActivityCoordinator {
             object: nil,
             queue: .main
         ) { [weak store] note in
+            let id = note.object as? UUID
+            let targetBookID = note.userInfo?["ledgerBookID"] as? UUID
             Task { @MainActor [weak store] in
                 RecentTransactionActivityCoordinator.shared.handleActionTriggered()
-                guard let store, let id = note.object as? UUID else { return }
-                if let targetBookID = note.userInfo?["ledgerBookID"] as? UUID {
+                guard let store, let id else { return }
+                if let targetBookID {
                     guard targetBookID == store.activeBookID else { return }
                 }
                 if let tx = store.state.transactions.first(where: { $0.id == id && $0.deletedAt == nil && $0.reversalTransactionID == nil }) {
