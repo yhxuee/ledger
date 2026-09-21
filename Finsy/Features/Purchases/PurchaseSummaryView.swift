@@ -244,7 +244,7 @@ struct PurchaseSummaryView: View {
               CurrencyRates.reference(store.state.settings.baseCurrency, in: rates) != nil else { return nil }
         return LedgerCalculations.convert(session.plannedAmount, from: session.currency, to: store.state.settings.baseCurrency, rates: rates)
     }
-    private func categoryName(_ id: LedgerCategoryID) -> String { store.state.categories.first(where: { $0.id == id })?.name ?? id.rawValue }
+    private func categoryName(_ id: LedgerCategoryID) -> String { store.state.categories.first(where: { $0.id == id })?.displayName ?? id.rawValue }
     @MainActor private func finalize() async {
         guard !saving else { return }; saving = true; defer { saving = false }
         var newlyCreatedAttachmentID: String?

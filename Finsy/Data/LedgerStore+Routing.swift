@@ -97,6 +97,54 @@ extension LedgerStore {
         return id
     }
 
+    @discardableResult
+    func updateCategory(
+        id: LedgerCategoryID,
+        name rawName: String,
+        detail rawDetail: String,
+        symbol: String,
+        colorHex: String,
+        customDisplayName: String? = nil,
+        customDisplayDetail: String? = nil
+    ) -> Bool {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !symbol.isEmpty else { return false }
+        guard let index = state.categories.firstIndex(where: { $0.id == id }) else { return false }
+        guard !id.isSystemLinked else { return false }
+
+        mutateState { state in
+            var category = state.categories[index]
+            if !LedgerCategoryID.builtIns.contains(id) {
+                category.name = name
+                category.detail = rawDetail.trimmingCharacters(in: .whitespacesAndNewlines)
+                category.customDisplayName = nil
+                category.customDisplayDetail = nil
+            } else {
+                category.customDisplayName = customDisplayName
+                category.customDisplayDetail = customDisplayDetail
+            }
+            category.symbol = symbol
+            category.colorHex = colorHex
+            state.categories[index] = category
+            state.settings.updatedAt = .now
+        }
+        scheduleSave()
+        return true
+    }
+
+    @discardableResult
+    func deleteCategory(id: LedgerCategoryID) -> Bool {
+        guard !id.isSystemLinked else { return false }
+        guard state.categories.contains(where: { $0.id == id }) else { return false }
+        mutateState { state in
+            state.settings.archivedCategoryIDs.insert(id)
+            state.settings.defaultExpenseAccountByCategory.removeValue(forKey: id)
+            state.settings.updatedAt = .now
+        }
+        scheduleSave()
+        return true
+    }
+
 
     func handleDeepLink(_ url: URL) {
         if url.isFileURL {

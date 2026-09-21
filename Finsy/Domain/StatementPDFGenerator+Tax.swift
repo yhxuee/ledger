@@ -45,7 +45,7 @@ extension StatementPDFGenerator {
             }
 
             let cat = categoriesByID[taxResult.categoryID]
-            let catName = cat?.name ?? "General"
+            let catName = cat?.displayName ?? String(localized: "General")
             let accName = accountsByID[transaction.accountID]?.name ?? "Account"
             let note = transaction.note ?? ""
             let rate = transaction.taxRate ?? (cat.map { state.settings.taxRate(for: $0) } ?? 0)
@@ -55,13 +55,13 @@ extension StatementPDFGenerator {
             let baseInTarget = LedgerCalculations.convert(baseInTxCurrency, from: transaction.currency, to: targetCurrency, rates: state.settings.rates)
             let taxAmt = taxResult.amount
 
-            var status = "Taxable"
+            var status = String(localized: "Taxable")
             if transaction.isTaxExempt == true {
-                status = "Tax-Free"
+                status = String(localized: "Tax-Free")
             } else if transaction.isReversal {
-                status = "Refund Support"
+                status = String(localized: "Refund Support")
             } else if transaction.groupMode == .combinedPayment {
-                status = "Combined"
+                status = String(localized: "Combined")
             }
 
             taxItems.append(TaxItem(
@@ -189,9 +189,14 @@ extension StatementPDFGenerator {
             contentWidth * 0.225,
             contentWidth * 0.225
         ]
-        let headers = ["Category", "Records", "Tax Base (\(currency.rawValue))", "Tax Amount (\(currency.rawValue))"]
+        let headers = [
+            String(localized: "Category"),
+            String(localized: "Records"),
+            String(format: String(localized: "Tax Base (%@)"), currency.rawValue),
+            String(format: String(localized: "Tax Amount (%@)"), currency.rawValue)
+        ]
         let headerAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 10, weight: .bold),
+            .font: UIFont.systemFont(ofSize: 9.5, weight: .bold),
             .foregroundColor: secondaryTextColor
         ]
         let cellAttrs: [NSAttributedString.Key: Any] = [
@@ -228,7 +233,8 @@ extension StatementPDFGenerator {
             x = margin
             drawText(cat, in: CGRect(x: x, y: yOffset, width: colWidths[0], height: 16), attrs: cellAttrs, alignment: .left)
             x += colWidths[0]
-            drawText("\(val.count) records", in: CGRect(x: x, y: yOffset, width: colWidths[1], height: 16), attrs: cellAttrs, alignment: .left)
+            let recordsText = String(format: String(localized: "%lld records"), val.count)
+            drawText(recordsText, in: CGRect(x: x, y: yOffset, width: colWidths[1], height: 16), attrs: cellAttrs, alignment: .left)
             x += colWidths[1]
             drawText("\(currency.rawValue) \(formatMoney(val.base))", in: CGRect(x: x, y: yOffset, width: colWidths[2], height: 16), attrs: numAttrs, alignment: .right)
             x += colWidths[2]
@@ -248,7 +254,7 @@ extension StatementPDFGenerator {
             .foregroundColor: textColor
         ]
         x = margin
-        drawText("Total", in: CGRect(x: x, y: yOffset, width: colWidths[0], height: 16), attrs: boldTextAttrs, alignment: .left)
+        drawText(String(localized: "Total"), in: CGRect(x: x, y: yOffset, width: colWidths[0], height: 16), attrs: boldTextAttrs, alignment: .left)
         x += colWidths[0] + colWidths[1]
         drawText("\(currency.rawValue) \(formatMoney(totalBase))", in: CGRect(x: x, y: yOffset, width: colWidths[2], height: 16), attrs: boldNumAttrs, alignment: .right)
         x += colWidths[2]
@@ -270,9 +276,19 @@ extension StatementPDFGenerator {
             contentWidth * 0.10,
             contentWidth * 0.08
         ]
-        let headers = ["Date", "Account", "Category", "Description / Note", "Gross Amt", "Tax Base", "Rate", "Tax Amount", "Status"]
+        let headers = [
+            String(localized: "Date"),
+            String(localized: "Account"),
+            String(localized: "Category"),
+            String(localized: "Description / Note"),
+            String(localized: "Gross Amt"),
+            String(localized: "Tax Base"),
+            String(localized: "Rate"),
+            String(localized: "Tax Amount"),
+            String(localized: "Status")
+        ]
         let headerAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 10, weight: .bold),
+            .font: UIFont.systemFont(ofSize: 9.0, weight: .bold),
             .foregroundColor: secondaryTextColor
         ]
 

@@ -516,9 +516,18 @@ extension StatementPDFGenerator {
         colWidths: [CGFloat],
         yOffset: inout CGFloat
     ) {
-        let headers = [String(localized: "DATE"), String(localized: "ACCOUNT"), String(localized: "CATEGORY"), String(localized: "DESCRIPTION"), String(localized: "CURR"), String(localized: "FX RATE"), "AMOUNT \(baseCurrency.rawValue)"]
+        let baseAmountHeader = String(format: String(localized: "BASE AMT %@", comment: "Base currency amount column header in statement"), baseCurrency.rawValue)
+        let headers = [
+            String(localized: "DATE"),
+            String(localized: "ACCOUNT"),
+            String(localized: "CATEGORY"),
+            String(localized: "DESCRIPTION"),
+            String(localized: "CURR"),
+            String(localized: "FX RATE"),
+            baseAmountHeader
+        ]
         let headerAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 9.5, weight: .bold),
+            .font: UIFont.systemFont(ofSize: 9.0, weight: .bold),
             .foregroundColor: secondaryTextColor
         ]
 
@@ -601,7 +610,7 @@ extension StatementPDFGenerator {
         }
         let dateStr = df.string(from: posting.date)
         let accName = (accountsByID?[posting.accountID] ?? state.accounts.first { $0.id == posting.accountID })?.name ?? "Account"
-        let catName = posting.isTransfer ? "Transfer" : ((categoriesByID?[posting.categoryID] ?? state.categories.first { $0.id == posting.categoryID })?.name ?? "General")
+        let catName = posting.isTransfer ? String(localized: "Transfer") : ((categoriesByID?[posting.categoryID] ?? state.categories.first { $0.id == posting.categoryID })?.displayName ?? String(localized: "General"))
         let curStr = posting.originalCurrency.rawValue
         let fxStr = formatFXRate(posting.effectiveFXRate)
 
@@ -691,9 +700,10 @@ extension StatementPDFGenerator {
         colWidths: [CGFloat],
         yOffset: inout CGFloat
     ) {
-        let headers = [String(localized: "DATE"), String(localized: "CATEGORY"), String(localized: "DESCRIPTION"), String(localized: "CURR"), "AMOUNT \(pocketCurrency.rawValue)"]
+        let pocketAmountHeader = String(format: String(localized: "BASE AMT %@", comment: "Base currency amount column header in statement"), pocketCurrency.rawValue)
+        let headers = [String(localized: "DATE"), String(localized: "CATEGORY"), String(localized: "DESCRIPTION"), String(localized: "CURR"), pocketAmountHeader]
         let headerAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 9.5, weight: .bold),
+            .font: UIFont.systemFont(ofSize: 9.0, weight: .bold),
             .foregroundColor: secondaryTextColor
         ]
 
@@ -774,7 +784,7 @@ extension StatementPDFGenerator {
             df.dateFormat = "yyyy-MM-dd"
         }
         let dateStr = df.string(from: posting.date)
-        let catName = posting.isTransfer ? "Transfer" : ((categoriesByID?[posting.categoryID] ?? state.categories.first { $0.id == posting.categoryID })?.name ?? "General")
+        let catName = posting.isTransfer ? String(localized: "Transfer") : ((categoriesByID?[posting.categoryID] ?? state.categories.first { $0.id == posting.categoryID })?.displayName ?? String(localized: "General"))
         let curStr = posting.originalCurrency.rawValue
 
         let amtVal = formatMoney(posting.nativeAmount)

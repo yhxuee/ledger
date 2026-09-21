@@ -4,10 +4,10 @@ struct DefaultExpenseAccountsView: View {
     @EnvironmentObject private var store: LedgerStore
 
     private var expenseCategories: [LedgerCategory] {
-        store.state.categories.filter { $0.kind == .expense }
+        store.state.categories.filter { $0.kind == .expense && !$0.id.isSystemLinked && !store.state.settings.archivedCategoryIDs.contains($0.id) }
     }
     private var incomeCategories: [LedgerCategory] {
-        store.state.categories.filter { $0.kind == .income }
+        store.state.categories.filter { $0.kind == .income && !$0.id.isSystemLinked && !store.state.settings.archivedCategoryIDs.contains($0.id) }
     }
 
     var body: some View {
@@ -59,7 +59,7 @@ struct DefaultExpenseAccountsView: View {
             )
             .frame(width: 32, height: 32, alignment: .center)
 
-            Text(category.name)
+            Text(category.displayName)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Menu {
@@ -238,14 +238,14 @@ struct BudgetEditorView: View {
                 }
 
                 if store.state.settings.budgetPlan.mode == .category {
-                    let cats = store.state.categories.filter { $0.kind == .expense }
+                    let cats = store.state.categories.filter { $0.kind == .expense && !$0.id.isSystemLinked && !store.state.settings.archivedCategoryIDs.contains($0.id) }
                     SettingsGlassSection("Monthly Category Budgets") {
                         VStack(spacing: 0) {
                             ForEach(Array(cats.enumerated()), id: \.element.id) { index, category in
                                 HStack {
                                     CategoryIcon(category: category)
                                         .frame(width: 28, height: 28, alignment: .center)
-                                    Text(category.name)
+                                    Text(category.displayName)
                                     Spacer()
                                     amountField(categoryAllocation(category.id), currency: store.state.settings.baseCurrency)
                                 }
@@ -605,7 +605,7 @@ struct RecurringRuleEditorView: View {
                                                 title: "To Account Currency")
                         }
                     }
-                    if type != .transfer { Picker("Category", selection: $categoryID) { ForEach(store.state.categories) { Text($0.name).tag($0.id) } } }
+                    if type != .transfer { Picker("Category", selection: $categoryID) { ForEach(store.state.categories.filter { !$0.id.isSystemLinked && !store.state.settings.archivedCategoryIDs.contains($0.id) }) { Text($0.displayName).tag($0.id) } } }
                     TextField("Note (optional)", text: $note)
                 }
                 Section("Schedule") {

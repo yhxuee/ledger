@@ -250,13 +250,13 @@ struct PurchaseSessionEditorView: View {
                     } header: {
                         HStack {
                             CategoryIcon(category: category(section.categoryID))
-                            Text(category(section.categoryID).name)
+                            Text(category(section.categoryID).displayName)
                             Spacer()
                             Menu {
                                 Button("Move Up") { moveSection(section.id, by: -1) }
                                 Button("Move Down") { moveSection(section.id, by: 1) }
                             } label: { Image(systemName: "arrow.up.arrow.down") }
-                            .accessibilityLabel("Reorder \(category(section.categoryID).name)")
+                            .accessibilityLabel("Reorder \(category(section.categoryID).displayName)")
                         }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Color(hex: category(section.categoryID).colorHex))
@@ -374,13 +374,13 @@ struct PurchaseSessionEditorView: View {
             Menu {
                 ForEach(availableCategories) { value in
                     Button { setCategory(itemID: item.id, categoryID: value.id) } label: {
-                        Label(value.name, systemImage: value.symbol)
+                        Label(value.displayName, systemImage: value.symbol)
                     }
                 }
             } label: {
                 HStack(spacing: 3) {
                     CategoryIcon(category: category(item.categoryID))
-                    Text(category(item.categoryID).name).lineLimit(1)
+                    Text(category(item.categoryID).displayName).lineLimit(1)
                 }.font(.caption).foregroundStyle(Color(hex: category(item.categoryID).colorHex))
                     .frame(maxWidth: 90)
             }.accessibilityLabel("Category")
@@ -576,7 +576,7 @@ struct ActivePurchaseView: View {
                                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                             }
                         } header: {
-                            Text(category(section.categoryID).name)
+                            Text(category(section.categoryID).displayName)
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(Color(hex: category(section.categoryID).colorHex))
                         }

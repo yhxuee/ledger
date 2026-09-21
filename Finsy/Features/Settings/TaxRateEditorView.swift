@@ -30,7 +30,7 @@ struct TaxRateEditorView: View {
     }
 
     private func ratesGlassSection(_ title: String, kind: LedgerCategoryKind) -> some View {
-        let categories = store.state.categories.filter { $0.kind == kind }
+        let categories = store.state.categories.filter { $0.kind == kind && !$0.id.isSystemLinked && !store.state.settings.archivedCategoryIDs.contains($0.id) }
         return SettingsGlassSection(title) {
             VStack(spacing: 0) {
                 ForEach(Array(categories.enumerated()), id: \.element.id) { index, category in
@@ -77,14 +77,14 @@ private struct TaxRateField: View {
                     .foregroundStyle(Color(hex: category.colorHex))
                     .frame(width: 32, height: 32)
                     .background(Color(hex: category.colorHex).opacity(0.14), in: Circle())
-                Text(category.name)
+                Text(category.displayName)
                 Spacer()
                 TextField("Rate", text: $text)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 70)
                     .focused($focused)
-                    .accessibilityLabel(Text(category.name) + Text(" Tax rate"))
+                    .accessibilityLabel(Text(category.displayName) + Text(" Tax rate"))
                 Text("%")
                     .foregroundStyle(.secondary)
             }

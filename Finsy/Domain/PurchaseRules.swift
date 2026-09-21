@@ -9,15 +9,16 @@ enum PurchaseRules {
               CurrencyRates.reference(account.currency, in: state.settings.rates) != nil else { throw PurchaseFinalizationError.missingRate }
     }
 
-    static func validItemCategory(_ id: LedgerCategoryID, in state: LedgerState) -> Bool {
+    static func validItemCategory(_ id: LedgerCategoryID, in state: LedgerState, allowArchived: Bool = false) -> Bool {
         guard let category = state.categories.first(where: { $0.id == id }) else { return false }
-        return category.kind == .expense && !category.id.isSystemLinked
+        let notArchived = allowArchived || !state.settings.archivedCategoryIDs.contains(id)
+        return category.kind == .expense && !category.id.isSystemLinked && notArchived
     }
 
     static func validateItems(_ session: PurchaseSession, in state: LedgerState) throws {
         guard !session.items.isEmpty, session.plannedAmount.isFinite,
               session.items.allSatisfy({ $0.amount.isFinite && $0.amount > 0 && !$0.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { throw PurchaseFinalizationError.invalidItem }
-        guard session.items.allSatisfy({ validItemCategory($0.categoryID, in: state) }) else { throw PurchaseFinalizationError.invalidItem }
+        guard session.items.allSatisfy({ validItemCategory($0.categoryID, in: state, allowArchived: true) }) else { throw PurchaseFinalizationError.invalidItem }
     }
 
     /// A shared App Group snapshot may replace local Purchase state only when it belongs to

@@ -33,6 +33,36 @@
             "state": "translated",
             "value": "Finsy"
           }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finsy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finsy"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finsy"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finsy"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finsy"
+          }
         }
       }
     },
@@ -67,6 +97,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "잔액, 거래 내역, 예산, 분석 등 금융 데이터를 Face ID로 안전하게 보호합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Используйте Face ID для защиты балансов, транзакций, бюджетов, аналитики и других финансовых данных."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa Face ID para proteger saldos, transacciones, presupuestos, análisis y otros datos financieros."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwenden Sie Face ID, um Guthaben, Transaktionen, Budgets, Analysen und andere Finanzdaten zu schützen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez Face ID pour protéger les soldes, les transactions, les budgets, les analyses et autres données financières."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ Face ID เพื่อปกป้องยอดคงเหลือ ธุรกรรม งบประมาณ การวิเคราะห์ และข้อมูลทางการเงินอื่นๆ"
           }
         }
       }
@@ -103,6 +163,36 @@
             "state": "translated",
             "value": "반복 거래를 자동으로 입력하기 위해 캘린더 일정을 참조합니다. Finsy는 캘린더 일정을 변경하지 않습니다."
           }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите повторяющееся событие календаря для автозаполнения регулярной транзакции. Finsy никогда не изменяет события календаря."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige un evento recurrente del calendario para autocompletar una transacción financiera recurrente. Finsy nunca modifica el evento del calendario."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wählen Sie ein wiederkehrendes Kalenderereignis, um eine wiederkehrende Finanztransaktion vorauszufüllen. Finsy ändert niemals Kalenderereignisse."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez un événement de calendrier récurrent pour préremplir une transaction financière récurrente. Finsy ne modifie jamais les événements de calendrier."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกกิจกรรมในปฏิทินที่เกิดซ้ำเพื่อกรอกธุรกรรมทางการเงินที่เกิดซ้ำล่วงหน้า Finsy จะไม่แก้ไขกิจกรรมในปฏิทินของคุณ"
+          }
         }
       }
     },
@@ -138,6 +228,36 @@
             "state": "translated",
             "value": "거래 메모 또는 구매 영수증 사진을 촬영하기 위해 카메라를 사용합니다."
           }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сделайте фото для заметки к транзакции или чека о покупке."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toma una foto para una nota de transacción o un recibo de compra completada."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nehmen Sie ein Foto für eine Transaktionsnotiz oder einen Einkaufsbeleg auf."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prenez une photo pour une note de transaction ou un reçu d'achat finalisé."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถ่ายภาพเพื่อแนบกับบันทึกธุรกรรมหรือใบเสร็จการซื้อสินค้า"
+          }
         }
       }
     },
@@ -172,6 +292,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "카메라를 사용할 수 없을 때 사진 보관함에서 영수증 이미지를 선택합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите изображение чека, если камера недоступна."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una imagen de recibo cuando la cámara no esté disponible."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wählen Sie ein Belegbild aus, wenn die Kamera nicht verfügbar ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez une image de reçu lorsque l'appareil photo n'est pas disponible."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกรูปภาพใบเสร็จเมื่อไม่สามารถใช้กล้องได้"
           }
         }
       }

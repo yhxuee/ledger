@@ -24,7 +24,8 @@ struct TransactionEditorView: View {
     @State private var note: String
     @State private var minorUnits: String
     @State private var isNegative: Bool
-    @State private var showingCategoryEditor = false
+    @State private var categoryEditorMode: CategoryEditorMode?
+    @State private var categoryPendingDeletion: LedgerCategory?
     @State private var accountExplicitlyOverridden: Bool
     @State private var applyingDefaultAccount = false
     @State private var accountAmountText: String
@@ -190,7 +191,11 @@ struct TransactionEditorView: View {
     private var destinationAccount: LedgerAccount? { destinationID.flatMap { id in activeAccounts.first { $0.id == id } } }
 
     private var activeKind: LedgerCategoryKind { type == .income ? .income : .expense }
-    private var availableCategories: [LedgerCategory] { store.state.categories.filter { $0.kind == activeKind && (isLinked ? $0.id == original?.categoryID : !$0.id.isSystemLinked) } }
+    private var availableCategories: [LedgerCategory] {
+        store.state.categories.filter {
+            $0.kind == activeKind && (isLinked ? $0.id == original?.categoryID : (!$0.id.isSystemLinked && (!store.state.settings.archivedCategoryIDs.contains($0.id) || $0.id == original?.categoryID)))
+        }
+    }
 
     /// Pocket actually used on the source account. Defaults to the transaction currency when the
     /// account already holds it, otherwise to the account's primary currency.
@@ -286,8 +291,17 @@ struct TransactionEditorView: View {
                                 .accessibilityLabel("Turbo Mode enabled")
                         }
 
-                        Text(isAddingTransaction ? "Add Transaction" : "Edit Transaction")
-                            .font(.headline)
+                        if isAddingTransaction {
+                            Text("Add Transaction")
+                                .font(.headline)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        } else {
+                            Text("Edit Transaction")
+                                .font(.headline)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
                     }
                 }
                 ToolbarItem(placement: .cancellationAction) {
@@ -355,7 +369,7 @@ struct TransactionEditorView: View {
         }
         .onChange(of: type) { _, newType in
             let newKind: LedgerCategoryKind = (newType == .income) ? .income : .expense
-            let matching = store.state.categories.filter { $0.kind == newKind }
+            let matching = store.state.categories.filter { $0.kind == newKind && !$0.id.isSystemLinked && !store.state.settings.archivedCategoryIDs.contains($0.id) }
             if !matching.contains(where: { $0.id == categoryID }) {
                 if let first = matching.first { categoryID = first.id }
             }
@@ -404,8 +418,33 @@ struct TransactionEditorView: View {
             }
         }
         .onChange(of: amount) { _, _ in syncAmountFields() }
-        .sheet(isPresented: $showingCategoryEditor) {
-            CategoryEditorSheet(initialKind: activeKind) { id in categoryID = id }
+        .sheet(item: $categoryEditorMode) { mode in
+            CategoryEditorSheet(mode: mode) { id in categoryID = id }
+        }
+        .confirmationDialog(
+            Text("Delete Category?"),
+            isPresented: Binding(
+                get: { categoryPendingDeletion != nil },
+                set: { if !$0 { categoryPendingDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let category = categoryPendingDeletion {
+                    store.deleteCategory(id: category.id)
+                    if categoryID == category.id {
+                        if let next = availableCategories.first(where: { $0.id != category.id }) {
+                            categoryID = next.id
+                        }
+                    }
+                }
+                categoryPendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) {
+                categoryPendingDeletion = nil
+            }
+        } message: {
+            Text("This category will no longer appear when creating new transactions. Existing transactions will keep their category information.")
         }
         .sheet(isPresented: $showingDatePicker) { datePickerSheet }
         .fullScreenCover(isPresented: $showingCamera) {
@@ -1041,23 +1080,44 @@ struct TransactionEditorView: View {
                     Button { withAnimation(.snappy) { categoryID = category.id } } label: {
                         VStack(spacing: 4) {
                             CategoryIcon(category: category, font: .title3)
-                            Text(category.name).font(.caption.weight(.semibold))
+                            Text(category.displayName)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.72)
                         }
                         .frame(width: 112, height: 78)
                         .foregroundStyle(categoryID == category.id ? Color(hex: category.colorHex) : Color.primary)
                         .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                }
-                if !isLinked { Button { showingCategoryEditor = true } label: {
-                    VStack(spacing: 6) {
-                        Image(systemName: "plus.circle.fill").font(.title2)
-                        Text("New Category").font(.caption.weight(.semibold))
+                    .contextMenu {
+                        if !category.id.isSystemLinked {
+                            Button {
+                                categoryEditorMode = .edit(category)
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            Button(role: .destructive) {
+                                categoryPendingDeletion = category
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                     }
-                    .frame(width: 112, height: 78)
-                    .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                if !isLinked {
+                    Button { categoryEditorMode = .create(initialKind: activeKind) } label: {
+                        VStack(spacing: 6) {
+                            Image(systemName: "plus.circle.fill").font(.title2)
+                            Text("New Category")
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.72)
+                        }
+                        .frame(width: 112, height: 78)
+                        .ledgerGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.vertical, 4)
@@ -1179,6 +1239,18 @@ private struct TransactionNoteCamera: UIViewControllerRepresentable {
     }
 }
 
+private enum CategoryEditorMode: Identifiable {
+    case create(initialKind: LedgerCategoryKind)
+    case edit(LedgerCategory)
+
+    var id: String {
+        switch self {
+        case .create(let kind): return "create-\(kind.rawValue)"
+        case .edit(let cat): return "edit-\(cat.id.rawValue)"
+        }
+    }
+}
+
 private struct CategoryEditorSheet: View {
     @EnvironmentObject private var store: LedgerStore
     @Environment(\.dismiss) private var dismiss
@@ -1186,38 +1258,72 @@ private struct CategoryEditorSheet: View {
     private var primaryActionColor: Color {
         LedgerPalette.primaryAction(for: colorScheme)
     }
-    @State private var name = ""
-    @State private var detail = ""
+    let mode: CategoryEditorMode
+    @State private var name: String
+    @State private var detail: String
     @State private var kind: LedgerCategoryKind
-    @State private var mode = 0
-    @State private var emoji = "🍽️"
-    @State private var selectedSymbol = "cup.and.saucer.fill"
-    @State private var color = LedgerPalette.coral
+    @State private var presentationType: Int
+    @State private var emoji: String
+    @State private var selectedSymbol: String
+    @State private var color: Color
     let onAdd: (LedgerCategoryID) -> Void
 
-    init(initialKind: LedgerCategoryKind = .expense, onAdd: @escaping (LedgerCategoryID) -> Void) {
-        _kind = State(initialValue: initialKind)
+    init(mode: CategoryEditorMode = .create(initialKind: .expense), onAdd: @escaping (LedgerCategoryID) -> Void) {
+        self.mode = mode
         self.onAdd = onAdd
+        switch mode {
+        case .create(let initialKind):
+            _name = State(initialValue: "")
+            _detail = State(initialValue: "")
+            _kind = State(initialValue: initialKind)
+            _presentationType = State(initialValue: 0)
+            _emoji = State(initialValue: "🍽️")
+            _selectedSymbol = State(initialValue: "cup.and.saucer.fill")
+            _color = State(initialValue: LedgerPalette.coral)
+        case .edit(let category):
+            _name = State(initialValue: category.displayName)
+            _detail = State(initialValue: category.displayDetail)
+            _kind = State(initialValue: category.kind)
+            let isEmoji = category.symbol.hasPrefix("emoji:")
+            _presentationType = State(initialValue: isEmoji ? 0 : 1)
+            _emoji = State(initialValue: category.emoji ?? "🍽️")
+            _selectedSymbol = State(initialValue: isEmoji ? "cup.and.saucer.fill" : category.symbol)
+            _color = State(initialValue: Color(hex: category.colorHex))
+        }
     }
 
     private let symbols = ["cup.and.saucer.fill", "cart.fill", "house.fill", "heart.fill", "gift.fill", "airplane", "gamecontroller.fill", "cross.case.fill", "graduationcap.fill", "pawprint.fill", "figure.run", "ellipsis.circle.fill", "banknote.fill", "chart.line.uptrend.xyaxis", "percent"]
+
+    private var isEditing: Bool {
+        if case .edit = mode { return true }
+        return false
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Category") {
-                    Picker("Category Type", selection: $kind) {
-                        Text("Expense").tag(LedgerCategoryKind.expense)
-                        Text("Income").tag(LedgerCategoryKind.income)
+                    if isEditing {
+                        HStack {
+                            Text("Category Type")
+                            Spacer()
+                            Text(kind == .income ? "Income" : "Expense")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Picker("Category Type", selection: $kind) {
+                            Text("Expense").tag(LedgerCategoryKind.expense)
+                            Text("Income").tag(LedgerCategoryKind.income)
+                        }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
                     TextField("Name", text: $name)
                     TextField("Description", text: $detail)
                     ColorPicker("Color", selection: $color)
                 }
                 Section("Appearance") {
-                    Picker("Type", selection: $mode) { Text("Emoji").tag(0); Text("Icon").tag(1) }.pickerStyle(.segmented)
-                    if mode == 0 {
+                    Picker("Type", selection: $presentationType) { Text("Emoji").tag(0); Text("Icon").tag(1) }.pickerStyle(.segmented)
+                    if presentationType == 0 {
                         TextField("Emoji", text: $emoji).font(.title2)
                     } else {
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 14) {
@@ -1231,7 +1337,7 @@ private struct CategoryEditorSheet: View {
                     }
                 }
             }
-            .navigationTitle("New Category")
+            .navigationTitle(isEditing ? Text("Edit Category") : Text("New Category"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1244,8 +1350,7 @@ private struct CategoryEditorSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
-                        let value = mode == 0 ? "emoji:\(String(emoji.prefix(1)))" : selectedSymbol
-                        if let id = store.addCategory(name: name, detail: detail, symbol: value, colorHex: color.rgbHex, kind: kind) { onAdd(id); dismiss() }
+                        save()
                     } label: {
                         Image(systemName: "checkmark")
                             .fontWeight(.semibold)
@@ -1253,9 +1358,44 @@ private struct CategoryEditorSheet: View {
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.circle)
                     .tint(primaryActionColor)
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (mode == 0 && emoji.isEmpty))
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (presentationType == 0 && emoji.isEmpty))
                     .accessibilityLabel("Save")
                 }
+            }
+        }
+    }
+
+    private func save() {
+        let value = presentationType == 0 ? "emoji:\(String(emoji.prefix(1)))" : selectedSymbol
+        switch mode {
+        case .create:
+            if let id = store.addCategory(name: name, detail: detail, symbol: value, colorHex: color.rgbHex, kind: kind) {
+                onAdd(id)
+                dismiss()
+            }
+        case .edit(let existing):
+            var customName: String? = nil
+            var customDetail: String? = nil
+            if LedgerCategoryID.builtIns.contains(existing.id) {
+                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed != existing.defaultLocalizedName && trimmed != existing.canonicalName {
+                    customName = trimmed
+                }
+                let trimmedDetail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmedDetail != existing.defaultLocalizedDetail && trimmedDetail != existing.canonicalDetail {
+                    customDetail = trimmedDetail
+                }
+            }
+            if store.updateCategory(
+                id: existing.id,
+                name: name,
+                detail: detail,
+                symbol: value,
+                colorHex: color.rgbHex,
+                customDisplayName: customName,
+                customDisplayDetail: customDetail
+            ) {
+                dismiss()
             }
         }
     }

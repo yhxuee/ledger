@@ -113,7 +113,8 @@ final class FinsyNotificationScheduler: NSObject, UNUserNotificationCenterDelega
 
                 let content = UNMutableNotificationContent()
                 content.title = String(localized: "Coupon Expiring Soon")
-                content.body = "\(coupon.name) (\(LedgerFormat.money(coupon.faceValue, currency: coupon.currency))) expires tomorrow."
+                let couponVal = LedgerFormat.money(coupon.faceValue, currency: coupon.currency)
+                content.body = String(format: String(localized: "%@ (%@) expires tomorrow."), coupon.name, couponVal)
                 content.sound = .default
 
                 let targetComponents = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: finalReminderDate)
@@ -163,7 +164,7 @@ final class FinsyNotificationScheduler: NSObject, UNUserNotificationCenterDelega
 
             let content = UNMutableNotificationContent()
             content.title = String(localized: "Finsy Statement Ready")
-            content.body = String(localized: "Your Finsy Statement for \(monthName) is ready to review.")
+            content.body = String(format: String(localized: "Your Finsy Statement for %@ is ready to review."), monthName)
             content.sound = .default
 
             let triggerComponents = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)

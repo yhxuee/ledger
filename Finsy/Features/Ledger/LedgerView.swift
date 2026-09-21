@@ -130,7 +130,7 @@ struct LedgerView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Menu {
-                    Menu { ForEach(store.state.categories) { category in Toggle(category.name, isOn: categoryBinding(category.id)) } } label: { Label("Expense Categories", systemImage: "tag") }
+                    Menu { ForEach(store.state.categories) { category in Toggle(category.displayName, isOn: categoryBinding(category.id)) } } label: { Label("Expense Categories", systemImage: "tag") }
                     Menu { ForEach(store.accounts) { item in Toggle(item.account.name, isOn: accountBinding(item.id)) } } label: { Label("Accounts", systemImage: "wallet.bifold") }
                     Divider()
                     Button { showingRangePicker = true } label: { Label("Custom Range", systemImage: "calendar.badge.clock") }

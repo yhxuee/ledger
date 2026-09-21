@@ -88,6 +88,10 @@ enum SchemaMigration {
                 state.categories.append(category)
             }
         }
+        state.settings.archivedCategoryIDs = state.settings.archivedCategoryIDs.filter { !$0.isSystemLinked }
+        for archivedID in state.settings.archivedCategoryIDs {
+            state.settings.defaultExpenseAccountByCategory.removeValue(forKey: archivedID)
+        }
         for index in state.accounts.indices {
             var account = state.accounts[index]
             guard account.usesCurrencyPockets else {

@@ -580,63 +580,119 @@ struct LedgerCategory: Identifiable, Codable, Hashable, Sendable {
     var symbol: String
     var colorHex: String
     var kind: LedgerCategoryKind = .expense
+    var customDisplayName: String? = nil
+    var customDisplayDetail: String? = nil
 
     var emoji: String? {
         guard symbol.hasPrefix("emoji:") else { return nil }
         return String(symbol.dropFirst(6))
     }
 
-    var displayName: String {
-        guard LedgerCategoryID.builtIns.contains(id) else { return name }
+    var canonicalName: String {
         switch id {
-        case .food where name == "Food": return String(localized: "Food")
-        case .transport where name == "Transport": return String(localized: "Transport")
-        case .shopping where name == "Shopping": return String(localized: "Shopping")
-        case .utilities where name == "Utilities": return String(localized: "Utilities")
-        case .other where name == "Other": return String(localized: "Other")
-        case .salary where name == "Salary": return String(localized: "Salary")
-        case .dividends where name == "Dividends": return String(localized: "Dividends")
-        case .interest where name == "Interest": return String(localized: "Interest")
-        case .bonus where name == "Bonus": return String(localized: "Bonus")
-        case .otherIncome where name == "Other Income": return String(localized: "Other Income")
-        case .settlement where name == "Settlement": return String(localized: "Settlement")
-        case .reimbursement where name == "Reimbursement": return String(localized: "Reimbursement")
-        case .refund where name == "Refund": return String(localized: "Refund")
+        case .food: return "Food"
+        case .transport: return "Transport"
+        case .shopping: return "Shopping"
+        case .utilities: return "Utilities"
+        case .other: return "Other"
+        case .salary: return "Salary"
+        case .dividends: return "Dividends"
+        case .interest: return "Interest"
+        case .bonus: return "Bonus"
+        case .otherIncome: return "Other Income"
+        case .settlement: return "Settlement"
+        case .reimbursement: return "Reimbursement"
+        case .refund: return "Refund"
         default: return name
         }
     }
 
-    var displayDetail: String {
-        guard LedgerCategoryID.builtIns.contains(id) else { return detail }
+    var defaultLocalizedName: String {
         switch id {
-        case .food where detail == "Meals & drinks": return String(localized: "Meals & drinks")
-        case .transport where detail == "Travel & transit": return String(localized: "Travel & transit")
-        case .shopping where detail == "Retail & purchases": return String(localized: "Retail & purchases")
-        case .utilities where detail == "Bills & services": return String(localized: "Bills & services")
-        case .other where detail == "Everything else": return String(localized: "Everything else")
-        case .salary where detail == "Wages & earnings": return String(localized: "Wages & earnings")
-        case .dividends where detail == "Stock & fund payouts": return String(localized: "Stock & fund payouts")
-        case .interest where detail == "Savings & deposits": return String(localized: "Savings & deposits")
-        case .bonus where detail == "Incentives & rewards": return String(localized: "Incentives & rewards")
-        case .otherIncome where detail == "Miscellaneous incoming": return String(localized: "Miscellaneous incoming")
-        case .settlement where detail == "Split recovery": return String(localized: "Split recovery")
-        case .reimbursement where detail == "Expense recovery": return String(localized: "Expense recovery")
-        case .refund where detail == "Expense refund": return String(localized: "Expense refund")
+        case .food: return String(localized: "Food")
+        case .transport: return String(localized: "Transport")
+        case .shopping: return String(localized: "Shopping")
+        case .utilities: return String(localized: "Utilities")
+        case .other: return String(localized: "Other")
+        case .salary: return String(localized: "Salary")
+        case .dividends: return String(localized: "Dividends")
+        case .interest: return String(localized: "Interest")
+        case .bonus: return String(localized: "Bonus")
+        case .otherIncome: return String(localized: "Other Income")
+        case .settlement: return String(localized: "Settlement")
+        case .reimbursement: return String(localized: "Reimbursement")
+        case .refund: return String(localized: "Refund")
+        default: return name
+        }
+    }
+
+    var displayName: String {
+        if let custom = customDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty {
+            return custom
+        }
+        guard LedgerCategoryID.builtIns.contains(id) else { return name }
+        return defaultLocalizedName
+    }
+
+    var canonicalDetail: String {
+        switch id {
+        case .food: return "Meals & drinks"
+        case .transport: return "Travel & transit"
+        case .shopping: return "Retail & purchases"
+        case .utilities: return "Bills & services"
+        case .other: return "Everything else"
+        case .salary: return "Wages & earnings"
+        case .dividends: return "Stock & fund payouts"
+        case .interest: return "Savings & deposits"
+        case .bonus: return "Incentives & rewards"
+        case .otherIncome: return "Miscellaneous incoming"
+        case .settlement: return "Split recovery"
+        case .reimbursement: return "Expense recovery"
+        case .refund: return "Expense refund"
         default: return detail
         }
     }
 
-    enum CodingKeys: String, CodingKey {
-        case id, name, detail, symbol, colorHex, kind
+    var defaultLocalizedDetail: String {
+        switch id {
+        case .food: return String(localized: "Meals & drinks")
+        case .transport: return String(localized: "Travel & transit")
+        case .shopping: return String(localized: "Retail & purchases")
+        case .utilities: return String(localized: "Bills & services")
+        case .other: return String(localized: "Everything else")
+        case .salary: return String(localized: "Wages & earnings")
+        case .dividends: return String(localized: "Stock & fund payouts")
+        case .interest: return String(localized: "Savings & deposits")
+        case .bonus: return String(localized: "Incentives & rewards")
+        case .otherIncome: return String(localized: "Miscellaneous incoming")
+        case .settlement: return String(localized: "Split recovery")
+        case .reimbursement: return String(localized: "Expense recovery")
+        case .refund: return String(localized: "Expense refund")
+        default: return detail
+        }
     }
 
-    init(id: LedgerCategoryID, name: String, detail: String, symbol: String, colorHex: String, kind: LedgerCategoryKind = .expense) {
+    var displayDetail: String {
+        if let custom = customDisplayDetail?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty {
+            return custom
+        }
+        guard LedgerCategoryID.builtIns.contains(id) else { return detail }
+        return defaultLocalizedDetail
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, detail, symbol, colorHex, kind, customDisplayName, customDisplayDetail
+    }
+
+    init(id: LedgerCategoryID, name: String, detail: String, symbol: String, colorHex: String, kind: LedgerCategoryKind = .expense, customDisplayName: String? = nil, customDisplayDetail: String? = nil) {
         self.id = id
         self.name = name
         self.detail = detail
         self.symbol = symbol
         self.colorHex = colorHex
         self.kind = kind
+        self.customDisplayName = customDisplayName
+        self.customDisplayDetail = customDisplayDetail
     }
 
     init(from decoder: Decoder) throws {
@@ -647,6 +703,8 @@ struct LedgerCategory: Identifiable, Codable, Hashable, Sendable {
         symbol = try container.decode(String.self, forKey: .symbol)
         colorHex = try container.decode(String.self, forKey: .colorHex)
         kind = try container.decodeIfPresent(LedgerCategoryKind.self, forKey: .kind) ?? .expense
+        customDisplayName = try container.decodeIfPresent(String.self, forKey: .customDisplayName)
+        customDisplayDetail = try container.decodeIfPresent(String.self, forKey: .customDisplayDetail)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -657,6 +715,8 @@ struct LedgerCategory: Identifiable, Codable, Hashable, Sendable {
         try container.encode(symbol, forKey: .symbol)
         try container.encode(colorHex, forKey: .colorHex)
         try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(customDisplayName, forKey: .customDisplayName)
+        try container.encodeIfPresent(customDisplayDetail, forKey: .customDisplayDetail)
     }
 }
 
@@ -670,6 +730,7 @@ struct LedgerSettings: Codable, Hashable, Sendable {
     var backupReminders: Bool
     var lastBackupAt: Date?
     var updatedAt: Date
+    var archivedCategoryIDs: Set<LedgerCategoryID> = []
 
     var rates: [CurrencyCode: Double] {
         get { exchangeRates.rates }
@@ -682,6 +743,62 @@ struct LedgerSettings: Codable, Hashable, Sendable {
     var exchangeRatesUpdatedAt: Date? {
         get { exchangeRates.updatedAt }
         set { exchangeRates.updatedAt = newValue }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case taxSettings, userID, baseCurrency, exchangeRates, defaultExpenseAccountByCategory, budgetPlan, backupReminders, lastBackupAt, updatedAt, archivedCategoryIDs
+    }
+
+    init(
+        taxSettings: TaxSettings? = nil,
+        userID: String,
+        baseCurrency: CurrencyCode,
+        exchangeRates: ExchangeRateSettings,
+        defaultExpenseAccountByCategory: [LedgerCategoryID: UUID] = [:],
+        budgetPlan: BudgetPlan,
+        backupReminders: Bool = true,
+        lastBackupAt: Date? = nil,
+        updatedAt: Date = .now,
+        archivedCategoryIDs: Set<LedgerCategoryID> = []
+    ) {
+        self.taxSettings = taxSettings
+        self.userID = userID
+        self.baseCurrency = baseCurrency
+        self.exchangeRates = exchangeRates
+        self.defaultExpenseAccountByCategory = defaultExpenseAccountByCategory
+        self.budgetPlan = budgetPlan
+        self.backupReminders = backupReminders
+        self.lastBackupAt = lastBackupAt
+        self.updatedAt = updatedAt
+        self.archivedCategoryIDs = archivedCategoryIDs
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        taxSettings = try container.decodeIfPresent(TaxSettings.self, forKey: .taxSettings)
+        userID = try container.decode(String.self, forKey: .userID)
+        baseCurrency = try container.decode(CurrencyCode.self, forKey: .baseCurrency)
+        exchangeRates = try container.decode(ExchangeRateSettings.self, forKey: .exchangeRates)
+        defaultExpenseAccountByCategory = try container.decodeIfPresent([LedgerCategoryID: UUID].self, forKey: .defaultExpenseAccountByCategory) ?? [:]
+        budgetPlan = try container.decode(BudgetPlan.self, forKey: .budgetPlan)
+        backupReminders = try container.decode(Bool.self, forKey: .backupReminders)
+        lastBackupAt = try container.decodeIfPresent(Date.self, forKey: .lastBackupAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        archivedCategoryIDs = try container.decodeIfPresent(Set<LedgerCategoryID>.self, forKey: .archivedCategoryIDs) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(taxSettings, forKey: .taxSettings)
+        try container.encode(userID, forKey: .userID)
+        try container.encode(baseCurrency, forKey: .baseCurrency)
+        try container.encode(exchangeRates, forKey: .exchangeRates)
+        try container.encode(defaultExpenseAccountByCategory, forKey: .defaultExpenseAccountByCategory)
+        try container.encode(budgetPlan, forKey: .budgetPlan)
+        try container.encode(backupReminders, forKey: .backupReminders)
+        try container.encodeIfPresent(lastBackupAt, forKey: .lastBackupAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(archivedCategoryIDs, forKey: .archivedCategoryIDs)
     }
 }
 

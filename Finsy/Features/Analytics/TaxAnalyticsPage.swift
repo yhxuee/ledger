@@ -89,7 +89,7 @@ struct TaxAnalyticsPage: View {
             if abs($0.taxAmount - $1.taxAmount) > 0.0001 {
                 return $0.taxAmount > $1.taxAmount
             }
-            return $0.category.name.localizedStandardCompare($1.category.name) == .orderedAscending
+            return $0.category.displayName.localizedStandardCompare($1.category.displayName) == .orderedAscending
         }
     }
 

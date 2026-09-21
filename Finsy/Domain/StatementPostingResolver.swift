@@ -50,18 +50,18 @@ enum StatementPostingResolver {
                 return "Refunded Purchase"
             case .refundIncome:
                 if let pID = t.parentTransactionID, let parent = allTransactionsByID?[pID] ?? index?.transaction(pID) ?? state.transactions.first(where: { $0.id == pID }) {
-                    let catName = index?.category(parent.categoryID)?.name ?? state.categories.first(where: { $0.id == parent.categoryID })?.name ?? "Purchase"
+                    let catName = index?.category(parent.categoryID)?.displayName ?? state.categories.first(where: { $0.id == parent.categoryID })?.displayName ?? "Purchase"
                     let pNote = parent.note?.trimmingCharacters(in: .whitespacesAndNewlines)
                     return "Refund · \((pNote != nil && !pNote!.isEmpty) ? pNote! : catName)"
                 }
                 return "Refund"
             case .combinedPaymentItem:
-                return index?.category(t.categoryID)?.name ?? state.categories.first(where: { $0.id == t.categoryID })?.name ?? "General"
+                return index?.category(t.categoryID)?.displayName ?? state.categories.first(where: { $0.id == t.categoryID })?.displayName ?? "General"
             case .combinedPaymentRefund:
                 return "Combined Payment Refund"
             case .combinedPaymentRefundSupport:
                 if let pID = t.parentTransactionID, let parent = allTransactionsByID?[pID] ?? index?.transaction(pID) ?? state.transactions.first(where: { $0.id == pID }) {
-                    let catName = index?.category(parent.categoryID)?.name ?? state.categories.first(where: { $0.id == parent.categoryID })?.name ?? "General"
+                    let catName = index?.category(parent.categoryID)?.displayName ?? state.categories.first(where: { $0.id == parent.categoryID })?.displayName ?? "General"
                     return "Refund · \(catName)"
                 }
                 return "Refund"
@@ -70,7 +70,7 @@ enum StatementPostingResolver {
 
         if t.isReversal {
             if let origID = t.reversalOfTransactionID, let orig = allTransactionsByID?[origID] ?? index?.transaction(origID) ?? state.transactions.first(where: { $0.id == origID }) {
-                let catName = index?.category(orig.categoryID)?.name ?? state.categories.first(where: { $0.id == orig.categoryID })?.name ?? "Purchase"
+                let catName = index?.category(orig.categoryID)?.displayName ?? state.categories.first(where: { $0.id == orig.categoryID })?.displayName ?? "Purchase"
                 let oNote = orig.note?.trimmingCharacters(in: .whitespacesAndNewlines)
                 return "Refund · \((oNote != nil && !oNote!.isEmpty) ? oNote! : catName)"
             }
@@ -78,7 +78,7 @@ enum StatementPostingResolver {
         }
 
         // 3. Fallback to Category Name
-        return index?.category(t.categoryID)?.name ?? state.categories.first(where: { $0.id == t.categoryID })?.name ?? "General"
+        return index?.category(t.categoryID)?.displayName ?? state.categories.first(where: { $0.id == t.categoryID })?.displayName ?? "General"
     }
 
     static func resolvePostings(

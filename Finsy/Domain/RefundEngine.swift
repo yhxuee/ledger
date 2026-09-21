@@ -5,7 +5,7 @@ enum RefundEngine {
         guard original.deletedAt == nil, !original.isReversal, original.groupMode == nil,
               (original.parentTransactionID == nil || original.linkedTransactionKind == .splitSettlement || original.linkedTransactionKind == .reimbursementIncome || (original.linkedTransactionKind == .installment && original.occurredAt <= now)),
               let source = state.accounts.first(where: { $0.id == original.accountID && $0.deletedAt == nil }) else { return nil }
-        let categoryName = state.categories.first(where: { $0.id == original.categoryID })?.name ?? "Transaction"
+        let categoryName = state.categories.first(where: { $0.id == original.categoryID })?.displayName ?? String(localized: "Transaction")
         let trimmedNote = original.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let title = trimmedNote.isEmpty ? categoryName : trimmedNote
         // Exact historical pocket and account-side amounts. A refund never re-prices the
