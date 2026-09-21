@@ -42,21 +42,22 @@ final class LedgerDiskDatabase: @unchecked Sendable {
                 PRIMARY KEY (book_id, transaction_id)
             ) WITHOUT ROWID
             """)
-            let pragma = try statement("PRAGMA table_info(transactions_index)")
-            var hasAccountCurrency = false
-            while sqlite3_step(pragma) == SQLITE_ROW {
-                if let name = sqlite3_column_text(pragma, 1), String(cString: name) == "account_currency" {
-                    hasAccountCurrency = true
-                }
-            }
-            sqlite3_finalize(pragma)
-            if !hasAccountCurrency {
-                _ = try? execute("ALTER TABLE transactions_index ADD COLUMN account_currency TEXT")
+            if try !hasColumn("account_currency", in: "transactions_index") {
+                try execute("ALTER TABLE transactions_index ADD COLUMN account_currency TEXT")
+                guard try hasColumn("account_currency", in: "transactions_index") else { throw error() }
             }
             try execute("CREATE INDEX IF NOT EXISTS idx_tx_occurred ON transactions_index (book_id, is_deleted, occurred_at DESC, transaction_id DESC)")
             try execute("CREATE INDEX IF NOT EXISTS idx_tx_account ON transactions_index (book_id, account_id, is_deleted, occurred_at DESC)")
             try execute("CREATE INDEX IF NOT EXISTS idx_tx_dest_account ON transactions_index (book_id, destination_account_id, is_deleted, occurred_at DESC)")
             try execute("CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions_index (book_id, category_id, is_deleted, occurred_at DESC)")
+            try execute("""
+            CREATE TABLE IF NOT EXISTS transaction_index_state (
+                book_id TEXT PRIMARY KEY NOT NULL,
+                transaction_count INTEGER NOT NULL,
+                id_digest TEXT NOT NULL,
+                format_version INTEGER NOT NULL
+            ) WITHOUT ROWID
+            """)
             for suffix in ["", "-wal", "-shm"] {
                 let path = url.path + suffix
                 if FileManager.default.fileExists(atPath: path) {
@@ -249,6 +250,70 @@ final class LedgerDiskDatabase: @unchecked Sendable {
 
     func removeIndexedTransaction(bookID: String, transactionID: String) throws {
         let query = try statement("DELETE FROM transactions_index WHERE book_id = ? AND transaction_id = ?", strings: [bookID, transactionID])
+        defer { sqlite3_finalize(query) }
+        guard sqlite3_step(query) == SQLITE_DONE else { throw error() }
+    }
+
+    private func hasColumn(_ column: String, in table: String) throws -> Bool {
+        let pragma = try statement("PRAGMA table_info(\(table))")
+        defer { sqlite3_finalize(pragma) }
+        while true {
+            let status = sqlite3_step(pragma)
+            if status == SQLITE_DONE { return false }
+            guard status == SQLITE_ROW else { throw error() }
+            if let name = sqlite3_column_text(pragma, 1), String(cString: name) == column { return true }
+        }
+    }
+
+    func removeAllIndexedTransactions(bookID: String) throws {
+        let query = try statement("DELETE FROM transactions_index WHERE book_id = ?", strings: [bookID])
+        defer { sqlite3_finalize(query) }
+        guard sqlite3_step(query) == SQLITE_DONE else { throw error() }
+    }
+
+    struct TransactionIndexState: Equatable, Sendable {
+        var transactionCount: Int
+        var idDigest: String
+        var formatVersion: Int
+    }
+
+    func transactionIndexState(bookID: String) throws -> TransactionIndexState? {
+        let query = try statement(
+            "SELECT transaction_count, id_digest, format_version FROM transaction_index_state WHERE book_id = ?",
+            strings: [bookID]
+        )
+        defer { sqlite3_finalize(query) }
+        let status = sqlite3_step(query)
+        if status == SQLITE_DONE { return nil }
+        guard status == SQLITE_ROW, let digest = sqlite3_column_text(query, 1) else { throw error() }
+        return TransactionIndexState(
+            transactionCount: Int(sqlite3_column_int64(query, 0)),
+            idDigest: String(cString: digest),
+            formatVersion: Int(sqlite3_column_int64(query, 2))
+        )
+    }
+
+    func setTransactionIndexState(bookID: String, transactionCount: Int, idDigest: String, formatVersion: Int) throws {
+        let sql = """
+        INSERT INTO transaction_index_state(book_id, transaction_count, id_digest, format_version)
+        VALUES(?, ?, ?, ?)
+        ON CONFLICT(book_id) DO UPDATE SET
+            transaction_count=excluded.transaction_count,
+            id_digest=excluded.id_digest,
+            format_version=excluded.format_version
+        """
+        var query: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, sql, -1, &query, nil) == SQLITE_OK, let query else { throw error() }
+        defer { sqlite3_finalize(query) }
+        guard sqlite3_bind_text(query, 1, bookID, -1, transient) == SQLITE_OK,
+              sqlite3_bind_int64(query, 2, Int64(transactionCount)) == SQLITE_OK,
+              sqlite3_bind_text(query, 3, idDigest, -1, transient) == SQLITE_OK,
+              sqlite3_bind_int64(query, 4, Int64(formatVersion)) == SQLITE_OK,
+              sqlite3_step(query) == SQLITE_DONE else { throw error() }
+    }
+
+    func removeTransactionIndexState(bookID: String) throws {
+        let query = try statement("DELETE FROM transaction_index_state WHERE book_id = ?", strings: [bookID])
         defer { sqlite3_finalize(query) }
         guard sqlite3_step(query) == SQLITE_DONE else { throw error() }
     }

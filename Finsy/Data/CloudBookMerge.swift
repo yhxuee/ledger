@@ -26,8 +26,11 @@ enum CloudBookMerge {
         result.encryptionVersion = security.encryptionVersion
         result.keyFingerprint = security.keyFingerprint
         result.encryptionUpdatedAt = security.encryptionUpdatedAt
-        func mergeValues<T: Identifiable>(_ lhs: [T], _ rhs: [T], prefix: String, version: (T) -> Int = { _ in 0 }, date: (T) -> Date) -> [T] where T.ID: Hashable {
-            let incoming = Dictionary(uniqueKeysWithValues: rhs.map { ($0.id, $0) })
+        func mergeValues<T: Identifiable>(_ lhs: [T], _ rhs: [T], prefix: String, version: (T) -> Int = { _ in 0 }, date: (T) -> Date) throws -> [T] where T.ID: Hashable {
+            guard Set(lhs.map(\.id)).count == lhs.count, Set(rhs.map(\.id)).count == rhs.count else {
+                throw PersistenceIntegrityError.duplicateID("\(prefix) merge")
+            }
+            let incoming = Dictionary(rhs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             let localIDs = Set(lhs.map(\.id))
             var values = lhs.filter { !deletedRecordNames.contains("\(prefix)-\($0.id)") }.map { value in
                 if let replacement = incoming[value.id],
@@ -37,10 +40,10 @@ enum CloudBookMerge {
             values += rhs.filter { !localIDs.contains($0.id) && !deletedRecordNames.contains("\(prefix)-\($0.id)") }
             return values
         }
-        result.state.accounts = mergeValues(local.state.accounts, remote.state.accounts, prefix: "account", version: { $0.version }, date: { $0.updatedAt })
-        result.state.transactions = mergeValues(local.state.transactions, remote.state.transactions, prefix: "transaction", version: { $0.version }, date: { $0.updatedAt })
-        result.state.recurringRules = mergeValues(local.state.recurringRules ?? [], remote.state.recurringRules ?? [], prefix: "recurring", date: { $0.updatedAt })
-        result.state.purchaseSessions = mergeValues(local.state.purchaseSessions ?? [], remote.state.purchaseSessions ?? [], prefix: "purchase", date: { $0.updatedAt ?? $0.completedAt ?? $0.startedAt ?? $0.createdAt })
+        result.state.accounts = try mergeValues(local.state.accounts, remote.state.accounts, prefix: "account", version: { $0.version }, date: { $0.updatedAt })
+        result.state.transactions = try mergeValues(local.state.transactions, remote.state.transactions, prefix: "transaction", version: { $0.version }, date: { $0.updatedAt })
+        result.state.recurringRules = try mergeValues(local.state.recurringRules ?? [], remote.state.recurringRules ?? [], prefix: "recurring", date: { $0.updatedAt })
+        result.state.purchaseSessions = try mergeValues(local.state.purchaseSessions ?? [], remote.state.purchaseSessions ?? [], prefix: "purchase", date: { $0.updatedAt ?? $0.completedAt ?? $0.startedAt ?? $0.createdAt })
         let remoteSettingsWin = remote.state.settings.updatedAt >= local.state.settings.updatedAt
         result.state.settings = remoteSettingsWin ? remote.state.settings : local.state.settings
         result.state.categories = remoteSettingsWin ? remote.state.categories : local.state.categories

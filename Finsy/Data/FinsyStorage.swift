@@ -81,12 +81,20 @@ actor LedgerPersistence {
         previous = nil
     }
 
-    func save(_ library: LedgerLibrary, revision: UInt64) throws {
-        guard revision >= latestRevision else { return }
+    @discardableResult
+    func save(_ library: LedgerLibrary, revision: UInt64, previousHint: LedgerLibrary? = nil) throws -> Bool {
+        guard revision >= latestRevision else { return false }
         try FinsyStorage.prepare()
-        if !FileManager.default.fileExists(atPath: FinsyStorage.folder.appending(path: "ledger.sqlite").path) { previous = nil }
+        if !FileManager.default.fileExists(atPath: FinsyStorage.folder.appending(path: "ledger.sqlite").path) {
+            previous = nil
+        } else if previous == nil {
+            // The store already paid startup materialization cost. Reuse that exact validated
+            // snapshot so the first mutation after launch remains an incremental save.
+            previous = previousHint
+        }
         try LocalLedgerRepository().saveLibrary(library, previous: previous)
         previous = library
         latestRevision = revision
+        return true
     }
 }

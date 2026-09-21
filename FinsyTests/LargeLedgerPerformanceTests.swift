@@ -27,14 +27,17 @@ final class LargeLedgerPerformanceTests: XCTestCase {
                 try autoreleasepool {
                     let repository = IncrementalLedgerRepository(database: try LedgerDiskDatabase(url: url))
                     let loaded = try XCTUnwrap(repository.load())
-                    // Header/startup load decodes only initial bounded page (300) and NOT 100k blobs
-                    XCTAssertEqual(loaded.books[0].state.transactions.count, min(count, 300))
-                    if count > 0 {
-                        XCTAssertEqual(loaded.books[0].state.transactions.first?.id, book.state.transactions.last?.id)
-                    }
+                    // LedgerState remains the complete canonical domain state. A repository page
+                    // is a separate value and can never be persisted as if it were the ledger.
+                    XCTAssertEqual(loaded.books[0].state.transactions.count, count)
 
                     // Keyset pagination loads next page with correct ordering
-                    let firstPage = loaded.books[0].state.transactions
+                    let firstPage = try repository.recentTransactions(
+                        bookID: book.id,
+                        before: nil,
+                        beforeID: nil,
+                        limit: 300
+                    )
                     let nextPage = try repository.recentTransactions(
                         bookID: book.id,
                         before: firstPage.last?.occurredAt,

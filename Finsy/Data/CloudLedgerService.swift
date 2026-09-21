@@ -217,7 +217,10 @@ actor CloudLedgerService {
             encrypted.encryptionVersion = LedgerCryptoService.currentEncryptionVersion
             let generated = try CloudRecordMapper.records(for: encrypted, zoneID: zoneID, attachmentFolder: AttachmentStore.folderURL)
             defer { CloudRecordMapper.removeTemporaryAssets(generated) }
-            let originals = Dictionary(uniqueKeysWithValues: remoteRecords.map { ($0.recordID, $0) })
+            guard Set(remoteRecords.map(\.recordID)).count == remoteRecords.count else {
+                throw BackupError.invalidValue("duplicate CloudKit record ID")
+            }
+            let originals = Dictionary(remoteRecords.map { ($0.recordID, $0) }, uniquingKeysWith: { first, _ in first })
             var updates = generated.map { value -> CKRecord in
                 let target = originals[value.recordID] ?? value
                 CloudLedgerSyncCoordinator.copyUserFields(from: value, to: target)

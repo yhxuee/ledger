@@ -96,13 +96,20 @@ final class LedgerStore: ObservableObject {
     /// A dismissed bridge notice stays dismissed for the current purchase.
     var suppressedPurchaseSyncWarning: String?
     var persistenceEnabled: Bool
+    /// Set only when a stale legacy snapshot is exposed because SQLite failed validation.
+    /// Automatic writes and domain processing stay disabled so neither store is damaged.
+    private(set) var persistenceRecoveryMode: LedgerLibraryLoadSource?
     @Published var lastSyncError: String?
     var saveRevision: UInt64 = 0
+    /// Validated SQLite snapshot used only to seed the serialized writer after launch.
+    var persistenceBaseline: LedgerLibrary?
     nonisolated static let localRepository = LocalLedgerRepository()
 
     init() {
         let startupStart = Date.now
         persistenceEnabled = false
+        persistenceRecoveryMode = nil
+        persistenceBaseline = nil
         currencyCatalog = CurrencyDescriptor.bundled
         currencyCatalogUpdatedAt = nil
         let initial = SeedData.makeProductionEmpty()
@@ -116,16 +123,29 @@ final class LedgerStore: ObservableObject {
             currencyCatalog = CurrencyDescriptor.appCatalog(cachedCatalog?.currencies ?? [])
             currencyCatalogUpdatedAt = cachedCatalog?.fetchedAt
             let loadStart = Date.now
-            if let library = try Self.loadLibrary() {
+            if let result = try Self.loadLibraryResult() {
+                let library = result.library
                 guard let active = library.books.first(where: { $0.id == library.activeBookID }) ?? library.books.first else { throw BackupError.invalidFormat }
                 books = library.books; activeBookID = active.id; state = active.state
+                persistenceBaseline = result.writerBaseline
                 let totalTxs = library.books.reduce(0) { $0 + $1.state.transactions.count }
                 LedgerDiagnostics.recordStartupPhase("materialize", duration: Date.now.timeIntervalSince(loadStart), books: library.books.count, transactions: totalTxs)
+                if result.source == .legacyJSONReadOnlyRecovery {
+                    persistenceRecoveryMode = result.source
+                    presentedError = String(
+                        format: String(localized: "The current database could not be loaded. A legacy snapshot is open read-only so you can export it. Existing files were preserved. %@"),
+                        result.sqliteFailureDescription ?? ""
+                    )
+                }
             } else if let legacy = try Self.loadLegacyState() {
                 state = legacy; books[0].state = legacy
                 LedgerDiagnostics.recordStartupPhase("legacy-materialize", duration: Date.now.timeIntervalSince(loadStart), books: 1, transactions: legacy.transactions.count)
             }
-            persistenceEnabled = true
+            persistenceEnabled = persistenceRecoveryMode == nil
+            guard persistenceEnabled else {
+                LedgerDiagnostics.persistence.notice("Startup entered read-only legacy recovery mode")
+                return
+            }
             let recurringStart = Date.now
             processDueRecurring()
             LedgerDiagnostics.recordStartupPhase("process-recurring", duration: Date.now.timeIntervalSince(recurringStart))
@@ -142,6 +162,8 @@ final class LedgerStore: ObservableObject {
 
     init(stateForTesting initialState: LedgerState) {
         persistenceEnabled = false
+        persistenceRecoveryMode = nil
+        persistenceBaseline = nil
         let book = LedgerBook(id: UUID(), name: "Test Ledger", state: initialState, createdAt: .now, updatedAt: .now)
         state = initialState
         books = [book]

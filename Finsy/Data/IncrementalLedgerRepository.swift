@@ -1,8 +1,16 @@
 import Foundation
+import CryptoKit
 
-/// The manifest and changed entities commit together. Original JSON is retained for recovery.
+/// Canonical SQLite invariant:
+/// - the manifest, each book header, entity blobs, transaction catalog, derived index and its
+///   completeness certificate change in one SQLite transaction;
+/// - `Header.transactionIDs` names the complete canonical transaction set for the book;
+/// - the transaction index is derived and may be rebuilt, but is never trusted without a matching
+///   count + ID digest certificate and an actual row-count check;
+/// - `library.json` is a legacy import source, not a synchronized recovery replica.
 struct IncrementalLedgerRepository: Sendable {
     let database: LedgerDiskDatabase
+    private static let indexFormatVersion = 1
     private struct Manifest: Codable {
         var schemaVersion: Int
         var activeBookID: UUID
@@ -37,22 +45,42 @@ struct IncrementalLedgerRepository: Sendable {
         encoder.outputFormatting = [.sortedKeys]
     }
 
-    func load(pageSize: Int = 300) throws -> LedgerLibrary? {
+    func load() throws -> LedgerLibrary? {
         let started = Date.now
         var totalTxs = 0
         var totalBooks = 0
+        var manifestDuration: TimeInterval = 0
+        var headerDuration: TimeInterval = 0
+        var transactionHydrationDuration: TimeInterval = 0
+        var supportingHydrationDuration: TimeInterval = 0
         let library: LedgerLibrary? = try database.transaction(write: false) {
+            let manifestStart = Date.now
             guard let data = try database.data("library", "manifest") else { return nil }
             let manifest = try decoder.decode(Manifest.self, from: data)
             guard manifest.schemaVersion <= BackupCodec.currentSchemaVersion else { throw BackupError.futureSchema(manifest.schemaVersion) }
+            try requireUnique(manifest.bookIDs, label: "book")
+            guard manifest.bookIDs.contains(manifest.activeBookID) else {
+                throw PersistenceIntegrityError.identifierMismatch("active book")
+            }
+            manifestDuration = Date.now.timeIntervalSince(manifestStart)
             let books = try manifest.bookIDs.map { id -> LedgerBook in
+                let headerStart = Date.now
                 let namespace = id.uuidString
                 let header: Header = try read(namespace, "header")
+                guard header.book.id == id else { throw PersistenceIntegrityError.identifierMismatch("book") }
+                try validateCatalog(header, namespace: namespace)
+                headerDuration += Date.now.timeIntervalSince(headerStart)
                 var book = header.book
-                book.state.accounts = try read(namespace, ids: header.accountIDs, prefix: "account")
-                book.state.transactions = try read(namespace, ids: header.transactionIDs, prefix: "transaction")
-                book.state.recurringRules = try header.recurringIDs.map { try read(namespace, ids: $0, prefix: "recurring") }
-                book.state.purchaseSessions = try header.purchaseIDs.map { try read(namespace, ids: $0, prefix: "purchase") }
+                let supportingStart = Date.now
+                book.state.accounts = try readIdentified(namespace, ids: header.accountIDs, prefix: "account", label: "account")
+                supportingHydrationDuration += Date.now.timeIntervalSince(supportingStart)
+                let transactionsStart = Date.now
+                book.state.transactions = try readIdentified(namespace, ids: header.transactionIDs, prefix: "transaction", label: "transaction")
+                transactionHydrationDuration += Date.now.timeIntervalSince(transactionsStart)
+                let trailingStart = Date.now
+                book.state.recurringRules = try header.recurringIDs.map { try readIdentified(namespace, ids: $0, prefix: "recurring", label: "recurring rule") }
+                book.state.purchaseSessions = try header.purchaseIDs.map { try readIdentified(namespace, ids: $0, prefix: "purchase", label: "purchase session") }
+                supportingHydrationDuration += Date.now.timeIntervalSince(trailingStart)
                 return book
             }
             totalBooks = books.count
@@ -61,6 +89,10 @@ struct IncrementalLedgerRepository: Sendable {
         }
         if let library {
             let duration = Date.now.timeIntervalSince(started)
+            LedgerDiagnostics.recordStartupPhase("manifest", duration: manifestDuration, books: totalBooks)
+            LedgerDiagnostics.recordStartupPhase("headers-catalogs", duration: headerDuration, books: totalBooks)
+            LedgerDiagnostics.recordStartupPhase("hydrate-transactions", duration: transactionHydrationDuration, books: totalBooks, transactions: totalTxs)
+            LedgerDiagnostics.recordStartupPhase("hydrate-supporting-entities", duration: supportingHydrationDuration, books: totalBooks)
             LedgerDiagnostics.recordStartupPhase("load-library", duration: duration, books: totalBooks, transactions: totalTxs)
             LedgerDiagnostics.persistence.info("Loaded library books=\(library.books.count) transactions=\(totalTxs) elapsed=\(duration)")
         }
@@ -70,17 +102,23 @@ struct IncrementalLedgerRepository: Sendable {
     func materializeFullBook(id: UUID) throws -> LedgerBook {
         let namespace = id.uuidString
         let header: Header = try read(namespace, "header")
+        guard header.book.id == id else { throw PersistenceIntegrityError.identifierMismatch("book") }
+        try validateCatalog(header, namespace: namespace)
         var book = header.book
-        book.state.accounts = try read(namespace, ids: header.accountIDs, prefix: "account")
-        book.state.transactions = try read(namespace, ids: header.transactionIDs, prefix: "transaction")
-        book.state.recurringRules = try header.recurringIDs.map { try read(namespace, ids: $0, prefix: "recurring") }
-        book.state.purchaseSessions = try header.purchaseIDs.map { try read(namespace, ids: $0, prefix: "purchase") }
+        book.state.accounts = try readIdentified(namespace, ids: header.accountIDs, prefix: "account", label: "account")
+        book.state.transactions = try readIdentified(namespace, ids: header.transactionIDs, prefix: "transaction", label: "transaction")
+        book.state.recurringRules = try header.recurringIDs.map { try readIdentified(namespace, ids: $0, prefix: "recurring", label: "recurring rule") }
+        book.state.purchaseSessions = try header.purchaseIDs.map { try readIdentified(namespace, ids: $0, prefix: "purchase", label: "purchase session") }
         return book
     }
 
     func materializeFullLibrary() throws -> LedgerLibrary {
         guard let data = try database.data("library", "manifest") else { throw BackupError.invalidFormat }
         let manifest = try decoder.decode(Manifest.self, from: data)
+        try requireUnique(manifest.bookIDs, label: "book")
+        guard manifest.bookIDs.contains(manifest.activeBookID) else {
+            throw PersistenceIntegrityError.identifierMismatch("active book")
+        }
         let books = try manifest.bookIDs.map { try materializeFullBook(id: $0) }
         return LedgerLibrary(schemaVersion: manifest.schemaVersion, activeBookID: manifest.activeBookID, books: books)
     }
@@ -110,6 +148,20 @@ struct IncrementalLedgerRepository: Sendable {
         }
     }
 
+    private func readIdentified<T: Decodable & Identifiable>(
+        _ namespace: String,
+        ids: [UUID],
+        prefix: String,
+        label: String
+    ) throws -> [T] where T.ID == UUID {
+        try requireUnique(ids, label: label)
+        let values: [T] = try read(namespace, ids: ids, prefix: prefix)
+        guard zip(ids, values).allSatisfy({ pair in pair.0 == pair.1.id }) else {
+            throw PersistenceIntegrityError.identifierMismatch(label)
+        }
+        return values
+    }
+
     private func read<T: Decodable>(_ namespace: String, _ key: String) throws -> T {
         guard let data = try database.data(namespace, key) else { throw BackupError.invalidFormat }
         return try decoder.decode(T.self, from: data)
@@ -118,8 +170,16 @@ struct IncrementalLedgerRepository: Sendable {
     func save(_ library: LedgerLibrary, previous: LedgerLibrary?) throws {
         let start = Date.now
         try database.transaction {
-            let oldBooks = Dictionary(uniqueKeysWithValues: (previous?.books ?? []).map { ($0.id, $0) })
+            try requireUnique(library.books.map(\.id), label: "book")
+            guard library.books.contains(where: { $0.id == library.activeBookID }) else {
+                throw PersistenceIntegrityError.identifierMismatch("active book")
+            }
+            let oldBooks = try uniqueDictionary(previous?.books ?? [], label: "previous book")
             for book in library.books {
+                try requireUnique(book.state.accounts.map(\.id), label: "account")
+                try requireUnique(book.state.transactions.map(\.id), label: "transaction")
+                try requireUnique((book.state.recurringRules ?? []).map(\.id), label: "recurring rule")
+                try requireUnique((book.state.purchaseSessions ?? []).map(\.id), label: "purchase session")
                 let old = oldBooks[book.id]
                 guard book != old else { continue }
                 let namespace = book.id.uuidString
@@ -128,38 +188,16 @@ struct IncrementalLedgerRepository: Sendable {
                 try update(book.state.recurringRules ?? [], previous: old?.state.recurringRules, namespace: namespace, prefix: "recurring")
                 try update(book.state.purchaseSessions ?? [], previous: old?.state.purchaseSessions, namespace: namespace, prefix: "purchase")
 
-                var pocketBalances: [UUID: [String: Double]] = [:]
-                for account in book.state.accounts {
-                    var balances: [String: Double] = [:]
-                    for pocket in account.normalizedPockets {
-                        let sum = try database.accountPocketPostingsSum(
-                            bookID: namespace,
-                            accountID: account.id.uuidString,
-                            currency: pocket.currency.rawValue
-                        )
-                        balances[pocket.currency.rawValue] = pocket.openingBalance + sum
-                    }
-                    pocketBalances[account.id] = balances
-                }
-
-                let existingHeader: Header? = try? read(namespace, "header")
-                let headerTxIDs: [UUID]
-                if !book.state.transactions.isEmpty {
-                    headerTxIDs = book.state.transactions.map(\.id)
-                } else if let existing = existingHeader, !existing.transactionIDs.isEmpty {
-                    // Invariant: If in-memory state has 0 transactions but existing header has transactions,
-                    // NEVER overwrite with empty array! Keep the existing transaction IDs.
-                    headerTxIDs = existing.transactionIDs
-                } else {
-                    headerTxIDs = []
-                }
-                try database.put(namespace, "header", encoder.encode(Header(book, allTransactionIDs: headerTxIDs, validatedBalances: pocketBalances)))
+                try database.put(namespace, "header", encoder.encode(Header(book, allTransactionIDs: book.state.transactions.map(\.id))))
             }
             let manifest = Manifest(schemaVersion: library.schemaVersion, activeBookID: library.activeBookID, bookIDs: library.books.map(\.id))
             if let oldData = try database.data("library", "manifest") {
                 let old = try decoder.decode(Manifest.self, from: oldData)
+                try requireUnique(old.bookIDs, label: "stored book")
                 for id in Set(old.bookIDs).subtracting(manifest.bookIDs) {
                     for key in try database.keys(id.uuidString) { try database.remove(id.uuidString, key) }
+                    try database.removeAllIndexedTransactions(bookID: id.uuidString)
+                    try database.removeTransactionIndexState(bookID: id.uuidString)
                 }
             }
             try database.put("library", "manifest", encoder.encode(manifest))
@@ -168,7 +206,22 @@ struct IncrementalLedgerRepository: Sendable {
     }
 
     private func updateTransactions(_ transactions: [LedgerTransaction], previous: [LedgerTransaction]?, namespace: String) throws {
-        let old = Dictionary(uniqueKeysWithValues: (previous ?? []).map { ($0.id, $0) })
+        let old = try uniqueDictionary(previous ?? [], label: "previous transaction")
+        try requireUnique(transactions.map(\.id), label: "transaction")
+        let previousIDs = (previous ?? []).map(\.id)
+        let previousCertificate = LedgerDiskDatabase.TransactionIndexState(
+            transactionCount: previousIDs.count,
+            idDigest: Self.idDigest(previousIDs),
+            formatVersion: Self.indexFormatVersion
+        )
+        let previousIndexWasComplete: Bool
+        if previous != nil {
+            let storedCertificate = try database.transactionIndexState(bookID: namespace)
+            let storedCount = try database.transactionCount(bookID: namespace, includeDeleted: true)
+            previousIndexWasComplete = storedCertificate == previousCertificate && storedCount == previousIDs.count
+        } else {
+            previousIndexWasComplete = false
+        }
         let currentIDs = Set(transactions.map(\.id))
         for tx in transactions where old[tx.id] != tx {
             try database.put(namespace, "transaction-\(tx.id)", encoder.encode(tx))
@@ -199,11 +252,35 @@ struct IncrementalLedgerRepository: Sendable {
                 try database.remove(namespace, "transaction-\(id)")
                 try database.removeIndexedTransaction(bookID: namespace, transactionID: id.uuidString)
             }
+        } else {
+            let expectedKeys = Set(currentIDs.map { "transaction-\($0)" })
+            for key in try database.keys(namespace, prefix: "transaction-") where !expectedKeys.contains(key) {
+                try database.remove(namespace, key)
+            }
+            for indexedID in try database.allIndexedTransactionIDs(bookID: namespace) {
+                guard let id = UUID(uuidString: indexedID), currentIDs.contains(id) else {
+                    try database.removeIndexedTransaction(bookID: namespace, transactionID: indexedID)
+                    continue
+                }
+            }
         }
+        if previous != nil, !previousIndexWasComplete {
+            // Never publish a new certificate on top of an inherited partial/uncertified index.
+            // The enclosing save transaction makes the rebuild and certificate atomic.
+            try database.removeAllIndexedTransactions(bookID: namespace)
+            for transaction in transactions { try index(transaction, namespace: namespace) }
+        }
+        try database.setTransactionIndexState(
+            bookID: namespace,
+            transactionCount: transactions.count,
+            idDigest: Self.idDigest(transactions.map(\.id)),
+            formatVersion: Self.indexFormatVersion
+        )
     }
 
     private func update<T: Codable & Equatable & Identifiable>(_ values: [T], previous: [T]?, namespace: String, prefix: String) throws where T.ID == UUID {
-        let old = Dictionary(uniqueKeysWithValues: (previous ?? []).map { ($0.id, $0) })
+        let old = try uniqueDictionary(previous ?? [], label: prefix)
+        try requireUnique(values.map(\.id), label: prefix)
         let currentIDs = Set(values.map(\.id))
         for value in values where old[value.id] != value {
             try database.put(namespace, "\(prefix)-\(value.id)", encoder.encode(value))
@@ -217,6 +294,39 @@ struct IncrementalLedgerRepository: Sendable {
             }
         }
     }
+
+    private func validateCatalog(_ header: Header, namespace: String) throws {
+        try requireUnique(header.accountIDs, label: "account")
+        try requireUnique(header.transactionIDs, label: "transaction")
+        try requireUnique(header.recurringIDs ?? [], label: "recurring rule")
+        try requireUnique(header.purchaseIDs ?? [], label: "purchase session")
+        try validateCatalogIDs(header.accountIDs, namespace: namespace, prefix: "account")
+        try validateCatalogIDs(header.transactionIDs, namespace: namespace, prefix: "transaction")
+        try validateCatalogIDs(header.recurringIDs ?? [], namespace: namespace, prefix: "recurring")
+        try validateCatalogIDs(header.purchaseIDs ?? [], namespace: namespace, prefix: "purchase")
+    }
+
+    private func validateCatalogIDs(_ ids: [UUID], namespace: String, prefix: String) throws {
+        let expected = Set(ids.map { "\(prefix)-\($0)" })
+        let stored = Set(try database.keys(namespace, prefix: prefix + "-"))
+        guard expected == stored else {
+            throw PersistenceIntegrityError.catalogMismatch(kind: prefix, expected: expected.count, stored: stored.count)
+        }
+    }
+
+    private func requireUnique<ID: Hashable>(_ ids: [ID], label: String) throws {
+        guard Set(ids).count == ids.count else { throw PersistenceIntegrityError.duplicateID(label) }
+    }
+
+    private func uniqueDictionary<T: Identifiable>(_ values: [T], label: String) throws -> [T.ID: T] where T.ID: Hashable {
+        try requireUnique(values.map(\.id), label: label)
+        return Dictionary(values.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    private static func idDigest(_ ids: [UUID]) -> String {
+        let canonical = ids.map(\.uuidString).sorted().joined(separator: "\n")
+        return SHA256.hash(data: Data(canonical.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
 }
 
 extension IncrementalLedgerRepository: LedgerTransactionRepository {
@@ -227,6 +337,9 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
     }
 
     func transactions(bookID: UUID, from: Date?, to: Date?, limit: Int?, offset: Int?) throws -> [LedgerTransaction] {
+        guard limit.map({ $0 >= 0 }) ?? true, offset.map({ $0 >= 0 }) ?? true else {
+            throw PersistenceIntegrityError.invalidPagination
+        }
         try ensureIndexPopulated(for: bookID)
         let ids = try database.transactionIDs(bookID: bookID.uuidString, from: from, to: to, limit: limit, offset: offset)
         return try database.values(bookID.uuidString, keys: ids.map { "transaction-\($0)" }) {
@@ -235,6 +348,9 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
     }
 
     func recentTransactions(bookID: UUID, before: Date?, beforeID: UUID?, limit: Int) throws -> [LedgerTransaction] {
+        guard limit > 0, (before == nil) == (beforeID == nil) else {
+            throw PersistenceIntegrityError.invalidPagination
+        }
         try ensureIndexPopulated(for: bookID)
         let ids = try database.recentTransactionIDs(bookID: bookID.uuidString, before: before, beforeID: beforeID?.uuidString, limit: limit)
         return try database.values(bookID.uuidString, keys: ids.map { "transaction-\($0)" }) {
@@ -248,9 +364,9 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
     }
 
     func allTransactionIDs(bookID: UUID) throws -> [UUID] {
-        try ensureIndexPopulated(for: bookID)
-        let strings = try database.allIndexedTransactionIDs(bookID: bookID.uuidString)
-        return strings.compactMap(UUID.init)
+        let header: Header = try read(bookID.uuidString, "header")
+        try validateCatalog(header, namespace: bookID.uuidString)
+        return header.transactionIDs
     }
 
     func pocketBalances(for account: LedgerAccount, bookID: UUID) throws -> [(currency: CurrencyCode, balance: Double)] {
@@ -278,33 +394,80 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
 
     private func ensureIndexPopulated(for bookID: UUID) throws {
         let namespace = bookID.uuidString
-        guard try !database.hasIndexedTransactions(bookID: namespace) else { return }
         guard let headerData = try database.data(namespace, "header") else { return }
         let header = try decoder.decode(Header.self, from: headerData)
-        guard !header.transactionIDs.isEmpty else { return }
-        let transactions: [LedgerTransaction] = try read(namespace, ids: header.transactionIDs, prefix: "transaction")
-        for tx in transactions {
-            try database.indexTransaction(
-                bookID: namespace,
-                transactionID: tx.id.uuidString,
-                occurredAt: tx.occurredAt.timeIntervalSince1970,
-                accountID: tx.accountID.uuidString,
-                destinationAccountID: tx.destinationAccountID?.uuidString,
-                categoryID: tx.categoryID.rawValue,
-                type: tx.type.rawValue,
-                amount: tx.amount,
-                currency: tx.currency.rawValue,
-                accountCurrency: tx.accountCurrency?.rawValue,
-                accountAmount: tx.accountAmount,
-                destinationAmount: tx.destinationAmount,
-                destinationCurrency: tx.destinationAccountCurrency?.rawValue,
-                isDeleted: tx.deletedAt != nil,
-                isReversal: tx.isReversal,
-                parentID: tx.parentTransactionID?.uuidString,
-                purchaseSessionID: tx.purchaseSessionID?.uuidString,
-                version: tx.version,
-                updatedAt: tx.updatedAt.timeIntervalSince1970
+        try requireUnique(header.transactionIDs, label: "transaction")
+        let expected = LedgerDiskDatabase.TransactionIndexState(
+            transactionCount: header.transactionIDs.count,
+            idDigest: Self.idDigest(header.transactionIDs),
+            formatVersion: Self.indexFormatVersion
+        )
+        let actualCount = try database.transactionCount(bookID: namespace, includeDeleted: true)
+        if try database.transactionIndexState(bookID: namespace) == expected,
+           actualCount == expected.transactionCount { return }
+
+        let rebuildStart = Date.now
+        try database.transaction {
+            try database.removeAllIndexedTransactions(bookID: namespace)
+            let transactions: [LedgerTransaction] = try readIdentified(
+                namespace,
+                ids: header.transactionIDs,
+                prefix: "transaction",
+                label: "transaction"
             )
+            for tx in transactions { try index(tx, namespace: namespace) }
+            try database.setTransactionIndexState(
+                bookID: namespace,
+                transactionCount: expected.transactionCount,
+                idDigest: expected.idDigest,
+                formatVersion: expected.formatVersion
+            )
+        }
+        LedgerDiagnostics.recordLazyMetrics(
+            operation: "index-rebuild",
+            duration: Date.now.timeIntervalSince(rebuildStart),
+            count: expected.transactionCount
+        )
+    }
+
+    private func index(_ tx: LedgerTransaction, namespace: String) throws {
+        try database.indexTransaction(
+            bookID: namespace,
+            transactionID: tx.id.uuidString,
+            occurredAt: tx.occurredAt.timeIntervalSince1970,
+            accountID: tx.accountID.uuidString,
+            destinationAccountID: tx.destinationAccountID?.uuidString,
+            categoryID: tx.categoryID.rawValue,
+            type: tx.type.rawValue,
+            amount: tx.amount,
+            currency: tx.currency.rawValue,
+            accountCurrency: tx.accountCurrency?.rawValue,
+            accountAmount: tx.accountAmount,
+            destinationAmount: tx.destinationAmount,
+            destinationCurrency: tx.destinationAccountCurrency?.rawValue,
+            isDeleted: tx.deletedAt != nil,
+            isReversal: tx.isReversal,
+            parentID: tx.parentTransactionID?.uuidString,
+            purchaseSessionID: tx.purchaseSessionID?.uuidString,
+            version: tx.version,
+            updatedAt: tx.updatedAt.timeIntervalSince1970
+        )
+    }
+}
+
+enum PersistenceIntegrityError: LocalizedError, Equatable {
+    case duplicateID(String)
+    case identifierMismatch(String)
+    case catalogMismatch(kind: String, expected: Int, stored: Int)
+    case invalidPagination
+
+    var errorDescription: String? {
+        switch self {
+        case .duplicateID(let label): return "Local storage contains a duplicate \(label) ID."
+        case .identifierMismatch(let label): return "Local storage contains a mismatched \(label) record."
+        case .catalogMismatch(let kind, let expected, let stored):
+            return "Local \(kind) storage is incomplete (catalog \(expected), records \(stored))."
+        case .invalidPagination: return "The transaction page request is invalid."
         }
     }
 }

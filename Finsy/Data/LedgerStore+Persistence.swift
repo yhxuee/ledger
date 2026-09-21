@@ -117,8 +117,9 @@ extension LedgerStore {
         saveRevision &+= 1
         let revision = saveRevision
         let snapshot = librarySnapshot()
-        try await LedgerPersistence.shared.save(snapshot, revision: revision)
-        guard persistenceEnabled else { return }
+        let saved = try await LedgerPersistence.shared.save(snapshot, revision: revision, previousHint: persistenceBaseline)
+        guard saved, persistenceEnabled else { return }
+        persistenceBaseline = nil
         OverviewWidgetRelay.updateSnapshot(store: self)
         for active in snapshot.books where active.effectiveStorageKind != .local {
             Task {
@@ -138,8 +139,12 @@ extension LedgerStore {
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
             let snapshot = self.librarySnapshot()
-            OverviewWidgetRelay.updateSnapshot(store: self)
-            do { try await LedgerPersistence.shared.save(snapshot, revision: revision) }
+            do {
+                let saved = try await LedgerPersistence.shared.save(snapshot, revision: revision, previousHint: self.persistenceBaseline)
+                guard saved else { return }
+                self.persistenceBaseline = nil
+                OverviewWidgetRelay.updateSnapshot(store: self)
+            }
             catch {
                 self.presentedError = String(format: String(localized: "Local save failed: %@"), error.localizedDescription)
                 LedgerDiagnostics.failure(error, operation: "local-save", logger: LedgerDiagnostics.persistence)
@@ -174,15 +179,41 @@ extension LedgerStore {
 
     nonisolated static var storageFolder: URL { LocalLedgerRepository.storageFolder }
 
+    static func loadLibraryResult() throws -> LedgerLibraryLoadResult? {
+        guard var result = try localRepository.loadResult() else { return nil }
+        do {
+            let diskSnapshot = result.library
+            try normalizeAndValidate(&result.library)
+            if result.source == .sqlite, result.library == diskSnapshot {
+                result.writerBaseline = diskSnapshot
+            }
+            return result
+        } catch {
+            guard result.source == .sqlite, var legacy = try localRepository.loadLegacyJSON() else { throw error }
+            try normalizeAndValidate(&legacy)
+            LedgerDiagnostics.failure(error, operation: "sqlite-semantic-recovery", logger: LedgerDiagnostics.persistence)
+            return LedgerLibraryLoadResult(
+                library: legacy,
+                source: .legacyJSONReadOnlyRecovery,
+                sqliteFailureDescription: error.localizedDescription,
+                writerBaseline: nil
+            )
+        }
+    }
+
     static func loadLibrary() throws -> LedgerLibrary? {
-        guard var library = try localRepository.loadLibrary() else { return nil }
+        try loadLibraryResult()?.library
+    }
+
+    private static func normalizeAndValidate(_ library: inout LedgerLibrary) throws {
         guard !library.books.isEmpty else { throw BackupError.invalidFormat }
+        let normalizeStart = Date.now
         SchemaMigration.normalize(&library)
+        LedgerDiagnostics.recordStartupPhase("normalize", duration: Date.now.timeIntervalSince(normalizeStart), books: library.books.count)
         let validateStart = Date.now
         // Invariant: BackupCodec.validate() requires fully materialized LedgerState
         for book in library.books { try BackupCodec.validate(book.state) }
         LedgerDiagnostics.recordStartupPhase("validate", duration: Date.now.timeIntervalSince(validateStart), books: library.books.count)
-        return library
     }
 
     static func loadLegacyState() throws -> LedgerState? {

@@ -349,6 +349,109 @@ final class PersistenceSecurityTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: sourceURL), source)
     }
 
+    func testCorruptSQLiteUsesLegacyJSONOnlyInReadOnlyRecoveryMode() throws {
+        let root = try temporaryFolder()
+        let original = book()
+        let library = LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion, activeBookID: original.id, books: [original])
+        try BackupCodec.encoder().encode(library).write(to: root.appending(path: "library.json"))
+        let corrupt = Data("this is not sqlite".utf8)
+        try corrupt.write(to: root.appending(path: "ledger.sqlite"))
+
+        let result = try XCTUnwrap(LocalLedgerRepository(folder: root).loadResult())
+        XCTAssertEqual(result.source, .legacyJSONReadOnlyRecovery)
+        XCTAssertEqual(result.library, library)
+        XCTAssertEqual(try Data(contentsOf: root.appending(path: "ledger.sqlite")), corrupt)
+    }
+
+    func testMissingOrOrphanedEntityBlobRejectsSQLiteSnapshot() throws {
+        let root = try temporaryFolder()
+        let database = try LedgerDiskDatabase(url: root.appending(path: "ledger.sqlite"))
+        let repository = IncrementalLedgerRepository(database: database)
+        let original = book()
+        let library = LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion, activeBookID: original.id, books: [original])
+        try repository.save(library, previous: nil)
+
+        let transaction = try XCTUnwrap(original.state.transactions.first)
+        try database.remove(original.id.uuidString, "transaction-\(transaction.id)")
+        XCTAssertThrowsError(try repository.load())
+        try BackupCodec.encoder().encode(library).write(to: root.appending(path: "library.json"))
+        let recovery = try XCTUnwrap(LocalLedgerRepository(folder: root).loadResult())
+        XCTAssertEqual(recovery.source, .legacyJSONReadOnlyRecovery)
+        XCTAssertEqual(recovery.library, library)
+
+        try database.put(original.id.uuidString, "transaction-\(transaction.id)", JSONEncoder().encode(transaction))
+        var orphan = transaction
+        orphan.id = UUID()
+        try database.put(original.id.uuidString, "transaction-\(orphan.id)", JSONEncoder().encode(orphan))
+        XCTAssertThrowsError(try repository.load())
+    }
+
+    func testPartialIndexIsRebuiltBeforeItCanAnswerQueries() throws {
+        let database = try LedgerDiskDatabase(url: temporaryFolder().appending(path: "ledger.sqlite"))
+        let repository = IncrementalLedgerRepository(database: database)
+        let original = book()
+        let library = LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion, activeBookID: original.id, books: [original])
+        try repository.save(library, previous: nil)
+        let removed = try XCTUnwrap(original.state.transactions.first)
+        try database.removeIndexedTransaction(bookID: original.id.uuidString, transactionID: removed.id.uuidString)
+        var metadataOnlyEdit = library
+        metadataOnlyEdit.books[0].name = "Renamed"
+        try repository.save(metadataOnlyEdit, previous: library)
+
+        XCTAssertEqual(try repository.transactionCount(bookID: original.id), original.state.transactions.filter { $0.deletedAt == nil }.count)
+        XCTAssertNotNil(try repository.transaction(id: removed.id, bookID: original.id))
+    }
+
+    func testKeysetPaginationIsStableAcrossIdenticalTimestamps() throws {
+        let database = try LedgerDiskDatabase(url: temporaryFolder().appending(path: "ledger.sqlite"))
+        let repository = IncrementalLedgerRepository(database: database)
+        var original = book()
+        let template = try XCTUnwrap(original.state.transactions.first)
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        original.state.transactions = (0..<750).map { _ in
+            var transaction = template
+            transaction.id = UUID()
+            transaction.occurredAt = timestamp
+            return transaction
+        }
+        let library = LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion, activeBookID: original.id, books: [original])
+        try repository.save(library, previous: nil)
+
+        var ids: [UUID] = []
+        var cursorDate: Date?
+        var cursorID: UUID?
+        repeat {
+            let page = try repository.recentTransactions(bookID: original.id, before: cursorDate, beforeID: cursorID, limit: 113)
+            ids.append(contentsOf: page.map(\.id))
+            cursorDate = page.last?.occurredAt
+            cursorID = page.last?.id
+            if page.count < 113 { break }
+        } while true
+        XCTAssertEqual(ids.count, 750)
+        XCTAssertEqual(Set(ids).count, 750)
+        XCTAssertEqual(ids, ids.sorted { $0.uuidString > $1.uuidString })
+    }
+
+    func testCloudMergeRejectsDuplicateRemoteIDsWithoutTrapping() throws {
+        let local = book()
+        var remote = local
+        remote.state.transactions.append(try XCTUnwrap(remote.state.transactions.first))
+        XCTAssertThrowsError(try CloudBookMerge.merge(local: local, remote: remote)) { error in
+            XCTAssertEqual(error as? PersistenceIntegrityError, .duplicateID("transaction merge"))
+        }
+    }
+
+    func testPersistenceRejectsDuplicateIDsBeforeDictionaryConstruction() throws {
+        let database = try LedgerDiskDatabase(url: temporaryFolder().appending(path: "ledger.sqlite"))
+        let repository = IncrementalLedgerRepository(database: database)
+        var original = book()
+        original.state.transactions.append(try XCTUnwrap(original.state.transactions.first))
+        let library = LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion, activeBookID: original.id, books: [original])
+        XCTAssertThrowsError(try repository.save(library, previous: library)) { error in
+            XCTAssertEqual(error as? PersistenceIntegrityError, .duplicateID("transaction"))
+        }
+    }
+
     func testPendingDeletionDoesNotReappearInTheCachedLedger() throws {
         let journal = try CloudRecordJournal(folder: temporaryFolder())
         let zone = CKRecordZone.ID(zoneName: "test", ownerName: CKCurrentUserDefaultName)

@@ -2,7 +2,10 @@ import Foundation
 
 enum LinkedTransactionValidation {
     static func validate(_ state: LedgerState) throws {
-        let transactions = Dictionary(uniqueKeysWithValues: state.transactions.map { ($0.id, $0) })
+        guard Set(state.transactions.map(\.id)).count == state.transactions.count else {
+            throw BackupError.invalidValue("duplicate transaction ID")
+        }
+        let transactions = Dictionary(state.transactions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var slots = Set<String>()
         for item in state.transactions {
             if let mode = item.groupMode {

@@ -5,18 +5,55 @@ protocol LedgerRepository: Sendable {
     func saveLibrary(_ library: LedgerLibrary) throws
 }
 
+enum LedgerLibraryLoadSource: Sendable, Equatable {
+    case sqlite
+    case legacyJSONImport
+    case legacyJSONReadOnlyRecovery
+}
+
+struct LedgerLibraryLoadResult: Sendable {
+    var library: LedgerLibrary
+    var source: LedgerLibraryLoadSource
+    var sqliteFailureDescription: String?
+    /// Exact on-disk snapshot, available only when normalization did not alter it.
+    var writerBaseline: LedgerLibrary?
+}
+
 struct LocalLedgerRepository: LedgerRepository {
     static var storageFolder: URL { FinsyStorage.folder }
 
     var folder: URL = Self.storageFolder
 
     func loadLibrary() throws -> LedgerLibrary? {
+        try loadResult()?.library
+    }
+
+    func loadResult() throws -> LedgerLibraryLoadResult? {
         try FinsyStorage.prepare()
         let databaseURL = folder.appending(path: "ledger.sqlite")
-        if FileManager.default.fileExists(atPath: databaseURL.path),
-           let library = try IncrementalLedgerRepository(database: LedgerDiskDatabase(url: databaseURL)).load() {
-            return library
+        if FileManager.default.fileExists(atPath: databaseURL.path) {
+            do {
+                if let library = try IncrementalLedgerRepository(database: LedgerDiskDatabase(url: databaseURL)).load() {
+                    return LedgerLibraryLoadResult(library: library, source: .sqlite, sqliteFailureDescription: nil, writerBaseline: nil)
+                }
+            } catch {
+                guard let legacy = try loadLegacyJSON() else { throw error }
+                LedgerDiagnostics.failure(error, operation: "sqlite-read-only-recovery", logger: LedgerDiagnostics.persistence)
+                return LedgerLibraryLoadResult(
+                    library: legacy,
+                    source: .legacyJSONReadOnlyRecovery,
+                    sqliteFailureDescription: error.localizedDescription,
+                    writerBaseline: nil
+                )
+            }
         }
+        guard let legacy = try loadLegacyJSON() else { return nil }
+        return LedgerLibraryLoadResult(library: legacy, source: .legacyJSONImport, sqliteFailureDescription: nil, writerBaseline: nil)
+    }
+
+    /// `library.json` is a one-way legacy import and an emergency read-only snapshot. SQLite saves
+    /// do not update it, so it must never be treated as a current replica or overwrite failed SQLite.
+    func loadLegacyJSON() throws -> LedgerLibrary? {
         let url = folder.appending(path: "library.json")
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let data = try Data(contentsOf: url)
