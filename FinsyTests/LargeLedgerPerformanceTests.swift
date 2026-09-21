@@ -27,8 +27,57 @@ final class LargeLedgerPerformanceTests: XCTestCase {
                 try autoreleasepool {
                     let repository = IncrementalLedgerRepository(database: try LedgerDiskDatabase(url: url))
                     let loaded = try XCTUnwrap(repository.load())
-                    XCTAssertEqual(loaded.books[0].state.transactions.count, count)
-                    XCTAssertEqual(loaded.books[0].state.transactions.last?.id, book.state.transactions.last?.id)
+                    // Header/startup load decodes only initial bounded page (300) and NOT 100k blobs
+                    XCTAssertEqual(loaded.books[0].state.transactions.count, min(count, 300))
+                    if count > 0 {
+                        XCTAssertEqual(loaded.books[0].state.transactions.first?.id, book.state.transactions.last?.id)
+                    }
+
+                    // Keyset pagination loads next page with correct ordering
+                    let firstPage = loaded.books[0].state.transactions
+                    let nextPage = try repository.recentTransactions(
+                        bookID: book.id,
+                        before: firstPage.last?.occurredAt,
+                        beforeID: firstPage.last?.id,
+                        limit: 250
+                    )
+                    XCTAssertEqual(nextPage.count, min(count - firstPage.count, 250))
+                    if let firstOfNext = nextPage.first, let lastOfFirst = firstPage.last {
+                        XCTAssertTrue(firstOfNext.occurredAt <= lastOfFirst.occurredAt)
+                    }
+
+                    // Single transaction fetch by ID works
+                    let targetID = book.state.transactions[count / 2].id
+                    let fetched = try XCTUnwrap(repository.transaction(id: targetID, bookID: book.id))
+                    XCTAssertEqual(fetched.id, targetID)
+
+                    // Range query for monthly Analytics matches full materialized oracle
+                    let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
+                    let testFrom = baseDate.addingTimeInterval(3600)
+                    let testTo = baseDate.addingTimeInterval(7200)
+                    let rangeTxs = try repository.transactions(bookID: book.id, from: testFrom, to: testTo, limit: nil, offset: nil)
+                    let oracleTxs = book.state.transactions.filter { $0.deletedAt == nil && $0.occurredAt >= testFrom && $0.occurredAt <= testTo }.sorted {
+                        if $0.occurredAt != $1.occurredAt { return $0.occurredAt > $1.occurredAt }
+                        return $0.id.uuidString > $1.id.uuidString
+                    }
+                    XCTAssertEqual(rangeTxs.map(\.id), oracleTxs.map(\.id))
+
+                    // Account balance aggregate equals full materialized reference result
+                    let aggregatedBalance = try repository.accountBalance(for: book.state.accounts[0], bookID: book.id, rates: [:])
+                    let oracleBalance = LedgerCalculations.balance(for: book.state.accounts[0], in: book.state)
+                    XCTAssertEqual(aggregatedBalance, oracleBalance, accuracy: 0.001)
+
+                    // Statement range query matches full materialized reference result
+                    let stmtTxs = try repository.transactions(bookID: book.id, from: nil, to: testTo, limit: nil, offset: nil)
+                    let oracleStmtTxs = book.state.transactions.filter { $0.deletedAt == nil && $0.occurredAt <= testTo }.sorted {
+                        if $0.occurredAt != $1.occurredAt { return $0.occurredAt > $1.occurredAt }
+                        return $0.id.uuidString > $1.id.uuidString
+                    }
+                    XCTAssertEqual(stmtTxs.map(\.id), oracleStmtTxs.map(\.id))
+
+                    // Full materialization only for backup/export
+                    let full = try repository.materializeFullLibrary()
+                    XCTAssertEqual(full.books[0].state.transactions.count, count)
                 }
             } catch { XCTFail("Startup failed: \(error)") }
         }
@@ -39,7 +88,8 @@ final class LargeLedgerPerformanceTests: XCTestCase {
         do {
             let repository = IncrementalLedgerRepository(database: try LedgerDiskDatabase(url: url))
             try repository.save(edited, previous: library)
-            XCTAssertEqual(try repository.load(), edited)
+            let loadedEdited = try repository.materializeFullLibrary()
+            XCTAssertEqual(loadedEdited, edited)
             // Capture live WAL size before closing the last connection checkpoints it.
             let report = "transactions=\(count) initialSaveSeconds=\(initialDuration) deltaSaveAndVerifySeconds=\(Date.now.timeIntervalSince(deltaStart)) databaseBytes=\(fileSize(url)) walBytes=\(fileSize(URL(fileURLWithPath: url.path + "-wal")))"
             let attachment = XCTAttachment(string: report)
