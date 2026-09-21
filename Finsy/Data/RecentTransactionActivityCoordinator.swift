@@ -32,13 +32,15 @@ final class RecentTransactionActivityCoordinator {
             object: nil,
             queue: .main
         ) { [weak store] note in
-            RecentTransactionActivityCoordinator.shared.handleActionTriggered()
-            guard let store, let id = note.object as? UUID else { return }
-            if let targetBookID = note.userInfo?["ledgerBookID"] as? UUID {
-                guard targetBookID == store.activeBookID else { return }
-            }
-            if let tx = store.state.transactions.first(where: { $0.id == id && $0.deletedAt == nil }) {
-                store.deleteTransaction(tx)
+            Task { @MainActor [weak store] in
+                RecentTransactionActivityCoordinator.shared.handleActionTriggered()
+                guard let store, let id = note.object as? UUID else { return }
+                if let targetBookID = note.userInfo?["ledgerBookID"] as? UUID {
+                    guard targetBookID == store.activeBookID else { return }
+                }
+                if let tx = store.state.transactions.first(where: { $0.id == id && $0.deletedAt == nil }) {
+                    store.deleteTransaction(tx)
+                }
             }
         }
         observers.append(undoObs)
@@ -48,13 +50,15 @@ final class RecentTransactionActivityCoordinator {
             object: nil,
             queue: .main
         ) { [weak store] note in
-            RecentTransactionActivityCoordinator.shared.handleActionTriggered()
-            guard let store, let id = note.object as? UUID else { return }
-            if let targetBookID = note.userInfo?["ledgerBookID"] as? UUID {
-                guard targetBookID == store.activeBookID else { return }
-            }
-            if let tx = store.state.transactions.first(where: { $0.id == id && $0.deletedAt == nil && $0.reversalTransactionID == nil }) {
-                _ = store.refundTransaction(tx)
+            Task { @MainActor [weak store] in
+                RecentTransactionActivityCoordinator.shared.handleActionTriggered()
+                guard let store, let id = note.object as? UUID else { return }
+                if let targetBookID = note.userInfo?["ledgerBookID"] as? UUID {
+                    guard targetBookID == store.activeBookID else { return }
+                }
+                if let tx = store.state.transactions.first(where: { $0.id == id && $0.deletedAt == nil && $0.reversalTransactionID == nil }) {
+                    _ = store.refundTransaction(tx)
+                }
             }
         }
         observers.append(refundObs)
@@ -106,14 +110,14 @@ final class RecentTransactionActivityCoordinator {
         // Newest transaction wins: cancel prior lifecycle and clear state
         lifecycleTask?.cancel()
         lifecycleTask = nil
-        currentOperationID = nil
-        transientActivityID = nil
-        compactActivityID = nil
 
         // End any active recent transaction activity immediately
         await endRecentActivities()
 
-        guard currentOperationID == operationID else { return .superseded }
+        let operationID = UUID()
+        currentOperationID = operationID
+        transientActivityID = nil
+        compactActivityID = nil
 
         let createdAt = Date.now
         let expandedEndsAt = createdAt.addingTimeInterval(3)
