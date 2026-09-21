@@ -68,8 +68,8 @@ final class FinsyNotificationScheduler: NSObject, UNUserNotificationCenterDelega
             guard slot.isEnabled else { continue }
 
             let content = UNMutableNotificationContent()
-            content.title = "Bookkeeping Reminder"
-            content.body = "Take a moment to record your latest expenses."
+            content.title = String(localized: "Bookkeeping Reminder")
+            content.body = String(localized: "Take a moment to record your latest expenses.")
             content.sound = .default
             content.userInfo = ["url": "finsy://transaction/add"]
 
@@ -112,7 +112,7 @@ final class FinsyNotificationScheduler: NSObject, UNUserNotificationCenterDelega
                 activeCouponIdentifiers.insert(identifier)
 
                 let content = UNMutableNotificationContent()
-                content.title = "Coupon Expiring Soon"
+                content.title = String(localized: "Coupon Expiring Soon")
                 content.body = "\(coupon.name) (\(LedgerFormat.money(coupon.faceValue, currency: coupon.currency))) expires tomorrow."
                 content.sound = .default
 
@@ -162,8 +162,8 @@ final class FinsyNotificationScheduler: NSObject, UNUserNotificationCenterDelega
             let monthName = formatter.string(from: fireDate)
 
             let content = UNMutableNotificationContent()
-            content.title = "Finsy Statement Ready"
-            content.body = "Your Finsy Statement for \(monthName) is ready to review."
+            content.title = String(localized: "Finsy Statement Ready")
+            content.body = String(localized: "Your Finsy Statement for \(monthName) is ready to review.")
             content.sound = .default
 
             let triggerComponents = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)

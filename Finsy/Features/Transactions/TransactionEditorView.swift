@@ -11,6 +11,7 @@ struct TransactionEditorView: View {
     }
     private let original: LedgerTransaction?
     private let isLinkedDraft: Bool
+    let entryMode: TransactionEntryMode
     @State private var internalDestinationCurrency: CurrencyCode?
     private var isInternalTransfer: Bool { type == .transfer && accountID != nil && accountID == destinationID && sourceAccount?.usesCurrencyPockets == true }
     private var isLinked: Bool { original?.parentTransactionID != nil }
@@ -49,8 +50,9 @@ struct TransactionEditorView: View {
     @State private var selectedCoupon: WalletCoupon?
     @State private var isCouponOptedOut = false
 
-    init(transaction: LedgerTransaction? = nil, isLinkedDraft: Bool = false) {
+    init(transaction: LedgerTransaction? = nil, isLinkedDraft: Bool = false, entryMode: TransactionEntryMode = .normal) {
         self.isLinkedDraft = isLinkedDraft
+        self.entryMode = entryMode
         _internalDestinationCurrency = State(initialValue: transaction?.destinationAccountCurrency)
         original = transaction
         _showingNoteEditor = State(initialValue: transaction != nil)
@@ -258,7 +260,7 @@ struct TransactionEditorView: View {
     }
 
     private var turboModeEnabled: Bool {
-        preferences.value.turboModeEnabled
+        entryMode == .turbo
     }
 
     var body: some View {
@@ -1125,6 +1127,27 @@ struct TransactionEditorView: View {
         }
         if let oldIdentifier = removedAttachmentID ?? (noteImageChanged ? noteAttachmentID : nil), oldIdentifier != savedAttachmentID {
             try? await AttachmentStore.shared.delete(identifier: oldIdentifier)
+        }
+        if entryMode == .turbo && original == nil {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            minorUnits = "0"
+            isNegative = false
+            note = ""
+            noteImage = nil
+            noteImageChanged = false
+            noteAttachmentID = nil
+            removedAttachmentID = nil
+            accountAmountText = ""
+            destinationAmountText = ""
+            accountAmountOverridden = false
+            destinationAmountOverridden = false
+            occurredAt = .now
+            selectedCoupon = nil
+            isCouponOptedOut = false
+            checkAutoSelectCoupon()
+            taxChanged = false
+            syncAmountFields()
+            return
         }
         dismiss()
     }

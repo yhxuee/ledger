@@ -73,11 +73,46 @@ extension View { func glassPrimaryButton() -> some View { modifier(GlassPrimaryB
 
 struct ToolbarIconButton: View {
     let systemName: String
-    let label: String
+    let label: LocalizedStringKey
     let action: () -> Void
+    var longPressAction: (() -> Void)? = nil
+    var longPressDuration: Double = 0.45
+
+    @State private var didTriggerLongPress = false
+
+    init(
+        systemName: String,
+        label: LocalizedStringKey,
+        longPressAction: (() -> Void)? = nil,
+        longPressDuration: Double = 0.45,
+        action: @escaping () -> Void
+    ) {
+        self.systemName = systemName
+        self.label = label
+        self.longPressAction = longPressAction
+        self.longPressDuration = longPressDuration
+        self.action = action
+    }
 
     var body: some View {
-        Button(action: action) { Image(systemName: systemName).frame(width: 24, height: 24) }
-            .accessibilityLabel(label)
+        Button {
+            if didTriggerLongPress {
+                didTriggerLongPress = false
+            } else {
+                action()
+            }
+        } label: {
+            Image(systemName: systemName)
+                .frame(width: 24, height: 24)
+        }
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: longPressDuration)
+                .onEnded { _ in
+                    guard let longPressAction else { return }
+                    didTriggerLongPress = true
+                    longPressAction()
+                }
+        )
+        .accessibilityLabel(Text(label))
     }
 }

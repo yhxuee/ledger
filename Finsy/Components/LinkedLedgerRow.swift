@@ -425,7 +425,7 @@ struct LinkedLedgerRow: View {
                             color: .blue,
                             action: {
                                 guard store.refundCombinedPayment(parentID: parent.id) else {
-                                    store.presentedError = "Failed to refund combined payment."
+                                    store.presentedError = String(localized: "Failed to refund combined payment.")
                                     return false
                                 }
                                 revealedTransactionID.wrappedValue = nil
@@ -654,7 +654,7 @@ struct LinkedLedgerRow: View {
     private var groupParentRow: some View {
         let distinctAccounts = Set(children.map(\.accountID)).count
         let subtitle = parent.groupMode == .combinedPayment
-            ? "Combined Payment · \(distinctAccounts) accounts"
+            ? String(localized: "Combined Payment · \(distinctAccounts) accounts")
             : nil
 
         applyDragAndDrop(to:

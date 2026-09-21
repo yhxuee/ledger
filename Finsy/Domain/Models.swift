@@ -79,7 +79,13 @@ enum AccountType: String, Codable, CaseIterable, Identifiable, Sendable {
 enum LedgerTransactionType: String, Codable, CaseIterable, Identifiable, Sendable {
     case expense, income, transfer
     var id: String { rawValue }
-    var title: String { rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .expense: String(localized: "Expense")
+        case .income: String(localized: "Income")
+        case .transfer: String(localized: "Transfer")
+        }
+    }
 }
 
 /// Stock market selection. The market — not a free currency picker — determines the
@@ -188,14 +194,24 @@ enum RecurringInterval: String, Codable, CaseIterable, Identifiable, Sendable {
     case weekly, monthly, yearly, customDays
     var id: String { rawValue }
     var title: String {
-        switch self { case .weekly: "Weekly"; case .monthly: "Monthly"; case .yearly: "Yearly"; case .customDays: "Custom Days" }
+        switch self {
+        case .weekly: String(localized: "Weekly")
+        case .monthly: String(localized: "Monthly")
+        case .yearly: String(localized: "Yearly")
+        case .customDays: String(localized: "Custom Days")
+        }
     }
 }
 
 enum BudgetMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case category, account
     var id: String { rawValue }
-    var title: String { rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .category: String(localized: "Category")
+        case .account: String(localized: "Account")
+        }
+    }
 }
 
 struct BudgetPlan: Codable, Hashable, Sendable {
@@ -570,6 +586,46 @@ struct LedgerCategory: Identifiable, Codable, Hashable, Sendable {
         return String(symbol.dropFirst(6))
     }
 
+    var displayName: String {
+        guard LedgerCategoryID.builtIns.contains(id) else { return name }
+        switch id {
+        case .food where name == "Food": return String(localized: "Food")
+        case .transport where name == "Transport": return String(localized: "Transport")
+        case .shopping where name == "Shopping": return String(localized: "Shopping")
+        case .utilities where name == "Utilities": return String(localized: "Utilities")
+        case .other where name == "Other": return String(localized: "Other")
+        case .salary where name == "Salary": return String(localized: "Salary")
+        case .dividends where name == "Dividends": return String(localized: "Dividends")
+        case .interest where name == "Interest": return String(localized: "Interest")
+        case .bonus where name == "Bonus": return String(localized: "Bonus")
+        case .otherIncome where name == "Other Income": return String(localized: "Other Income")
+        case .settlement where name == "Settlement": return String(localized: "Settlement")
+        case .reimbursement where name == "Reimbursement": return String(localized: "Reimbursement")
+        case .refund where name == "Refund": return String(localized: "Refund")
+        default: return name
+        }
+    }
+
+    var displayDetail: String {
+        guard LedgerCategoryID.builtIns.contains(id) else { return detail }
+        switch id {
+        case .food where detail == "Meals & drinks": return String(localized: "Meals & drinks")
+        case .transport where detail == "Travel & transit": return String(localized: "Travel & transit")
+        case .shopping where detail == "Retail & purchases": return String(localized: "Retail & purchases")
+        case .utilities where detail == "Bills & services": return String(localized: "Bills & services")
+        case .other where detail == "Everything else": return String(localized: "Everything else")
+        case .salary where detail == "Wages & earnings": return String(localized: "Wages & earnings")
+        case .dividends where detail == "Stock & fund payouts": return String(localized: "Stock & fund payouts")
+        case .interest where detail == "Savings & deposits": return String(localized: "Savings & deposits")
+        case .bonus where detail == "Incentives & rewards": return String(localized: "Incentives & rewards")
+        case .otherIncome where detail == "Miscellaneous incoming": return String(localized: "Miscellaneous incoming")
+        case .settlement where detail == "Split recovery": return String(localized: "Split recovery")
+        case .reimbursement where detail == "Expense recovery": return String(localized: "Expense recovery")
+        case .refund where detail == "Expense refund": return String(localized: "Expense refund")
+        default: return detail
+        }
+    }
+
     enum CodingKeys: String, CodingKey {
         case id, name, detail, symbol, colorHex, kind
     }
@@ -661,6 +717,11 @@ enum LedgerEncryptionState: String, Codable, Hashable, Sendable {
     case authorizationRequired
     case disabling
     case migrationFailed
+}
+
+public enum TransactionEntryMode: String, Codable, Sendable {
+    case normal
+    case turbo
 }
 
 struct LedgerBook: Identifiable, Codable, Hashable, Sendable {

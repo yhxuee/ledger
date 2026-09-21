@@ -40,7 +40,7 @@ struct RecentTransactionLiveActivityWidget: Widget {
                 DynamicIslandExpandedRegion(.bottom) {
                     if let status = context.state.statusText {
                         HStack {
-                            Label(status, systemImage: "checkmark.circle.fill")
+                            Label(LocalizedStringKey(status), systemImage: "checkmark.circle.fill")
                                 .font(.caption.bold())
                                 .foregroundStyle(Color.green)
                             Spacer()
@@ -72,7 +72,7 @@ struct RecentTransactionLiveActivityWidget: Widget {
                     .foregroundStyle(context.state.statusText != nil ? Color.green : Color.orange)
             } compactTrailing: {
                 if let status = context.state.statusText {
-                    Text(status)
+                    Text(LocalizedStringKey(status))
                         .font(.caption2.bold())
                         .foregroundStyle(Color.green)
                 } else {
@@ -122,7 +122,7 @@ struct RecentTransactionLiveActivityWidget: Widget {
 
             if let status = context.state.statusText {
                 HStack {
-                    Label(status, systemImage: "checkmark.circle.fill")
+                    Label(LocalizedStringKey(status), systemImage: "checkmark.circle.fill")
                         .font(.caption.bold())
                         .foregroundStyle(Color.green)
                     Spacer()

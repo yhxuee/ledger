@@ -66,11 +66,11 @@ enum StatementPDFGenerator {
 
     static func formatAccountsHeader(accounts: [LedgerAccount], allAccountsSelected: Bool) -> String {
         if allAccountsSelected {
-            return "Accounts: All"
+            return String(localized: "Accounts: All")
         } else if accounts.count == 1 {
-            return "Account: \(accounts[0].name)"
+            return "\(String(localized: "Account")): \(accounts[0].name)"
         } else {
-            return "Accounts: \(accounts.map(\.name).joined(separator: ", "))"
+            return "\(String(localized: "Accounts")): \(accounts.map(\.name).joined(separator: ", "))"
         }
     }
 

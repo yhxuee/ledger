@@ -9,8 +9,8 @@ enum SwipeActionOrientation: String, Codable, CaseIterable, Identifiable, Sendab
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .refundLeadingDeleteTrailing: "Refund Right / Delete Left"
-        case .deleteLeadingRefundTrailing: "Delete Right / Refund Left"
+        case .refundLeadingDeleteTrailing: String(localized: "Refund Right / Delete Left")
+        case .deleteLeadingRefundTrailing: String(localized: "Delete Right / Refund Left")
         }
     }
 }
@@ -24,10 +24,10 @@ enum TransactionSwipeAction: String, Codable, CaseIterable, Identifiable, Sendab
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .reimburse: "Reimburse"
-        case .refund: "Refund"
-        case .delete: "Delete"
-        case .split: "Split"
+        case .reimburse: String(localized: "Reimburse")
+        case .refund: String(localized: "Refund")
+        case .delete: String(localized: "Delete")
+        case .split: String(localized: "Split")
         }
     }
     var systemImage: String {
@@ -48,7 +48,7 @@ enum AppDateFormat: String, Codable, CaseIterable, Identifiable, Sendable {
     var title: String { self == .monthDay ? "MM/DD" : "DD/MM" }
 
     func compactString(from date: Date, calendar: Calendar = .current) -> String {
-        if calendar.isDateInToday(date) { return "Today" }
+        if calendar.isDateInToday(date) { return String(localized: "Today") }
         let components = calendar.dateComponents([.month, .day], from: date)
         let month = components.month ?? 0
         let day = components.day ?? 0
@@ -73,8 +73,8 @@ enum TransactionEditorLayout: String, Codable, CaseIterable, Identifiable, Senda
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .standard: "Standard"
-        case .categoryFirst: "Category First"
+        case .standard: String(localized: "Standard")
+        case .categoryFirst: String(localized: "Category First")
         }
     }
 }
@@ -86,8 +86,8 @@ enum AccountCardLayout: String, Codable, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .horizontal: "Horizontal"
-        case .portrait: "Vertical"
+        case .horizontal: String(localized: "Horizontal")
+        case .portrait: String(localized: "Vertical")
         }
     }
 }
@@ -112,11 +112,11 @@ enum OverviewMetricKind: String, Codable, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .weeklyActivity: "Weekly Activity"
-        case .budget: "Budget Remain"
-        case .todayExpensePie: "Today Expense"
-        case .weekExpensePie: "Week Expense"
-        case .sixMonthTrend: "6M Trends"
+        case .weeklyActivity: String(localized: "Weekly Activity")
+        case .budget: String(localized: "Budget Remain")
+        case .todayExpensePie: String(localized: "Today Expense")
+        case .weekExpensePie: String(localized: "Week Expense")
+        case .sixMonthTrend: String(localized: "6M Trends")
         }
     }
 }
@@ -129,16 +129,16 @@ enum AccountCardMaterialStyle: String, Codable, CaseIterable, Identifiable, Send
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .auto: "Auto"
-        case .glass: "Glass"
-        case .metal: "Metal"
+        case .auto: String(localized: "Auto")
+        case .glass: String(localized: "Glass")
+        case .metal: String(localized: "Metal")
         }
     }
     var subtitle: String {
         switch self {
-        case .auto: "Choose the best finish automatically"
-        case .glass: "Clear polished glass look"
-        case .metal: "Premium metallic sheen"
+        case .auto: String(localized: "Choose the best finish automatically")
+        case .glass: String(localized: "Clear polished glass look")
+        case .metal: String(localized: "Reflective brushed metal look")
         }
     }
 }
@@ -185,6 +185,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
     var walletAccountPassSource: WalletAccountPassSource = .allAccounts
     var walletPassLocations: [WalletRelevantLocation] = []
     var walletPassLastRefreshedAt: Date? = nil
+    @available(*, deprecated, message: "Use ephemeral TransactionEntryMode instead")
     var turboModeEnabled: Bool = false
 
     enum CodingKeys: String, CodingKey {

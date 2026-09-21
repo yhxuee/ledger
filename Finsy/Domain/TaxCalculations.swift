@@ -3,6 +3,13 @@ import Foundation
 enum TaxInputMode: String, Codable, Hashable, Sendable {
     case beforeTax
     case finalAmount
+
+    var title: String {
+        switch self {
+        case .beforeTax: String(localized: "Before Tax")
+        case .finalAmount: String(localized: "Final Amount")
+        }
+    }
 }
 
 struct TaxSettings: Codable, Hashable, Sendable {

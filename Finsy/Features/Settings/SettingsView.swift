@@ -663,9 +663,10 @@ private struct SettingsAlertsModifier: ViewModifier {
 }
 
 struct SettingsLabel: View {
-    let title: String
+    let title: LocalizedStringKey
     let systemImage: String
-    init(_ title: String, systemImage: String) { self.title = title; self.systemImage = systemImage }
+    init(_ title: LocalizedStringKey, systemImage: String) { self.title = title; self.systemImage = systemImage }
+    init<S: StringProtocol>(_ title: S, systemImage: String) { self.title = LocalizedStringKey(String(title)); self.systemImage = systemImage }
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
@@ -676,10 +677,19 @@ struct SettingsLabel: View {
 }
 
 struct SettingsLinkRow: View {
-    let title: String
+    let title: LocalizedStringKey
     let systemImage: String
     let detail: String?
-    init(_ title: String, systemImage: String, detail: String?) { self.title = title; self.systemImage = systemImage; self.detail = detail }
+    init(_ title: LocalizedStringKey, systemImage: String, detail: String? = nil) {
+        self.title = title
+        self.systemImage = systemImage
+        self.detail = detail
+    }
+    init<S: StringProtocol>(_ title: S, systemImage: String, detail: String? = nil) {
+        self.title = LocalizedStringKey(String(title))
+        self.systemImage = systemImage
+        self.detail = detail
+    }
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
@@ -695,26 +705,33 @@ struct SettingsLinkRow: View {
 }
 
 struct SettingsGlassSection<Content: View>: View {
-    let title: String?
-    let footer: String?
+    let title: LocalizedStringKey?
+    let footer: LocalizedStringKey?
     let content: Content
 
-    init(_ title: String? = nil, footer: String? = nil, @ViewBuilder content: () -> Content) {
+    init(_ title: LocalizedStringKey? = nil, footer: LocalizedStringKey? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
         self.footer = footer
         self.content = content()
     }
 
+    init<S1: StringProtocol, S2: StringProtocol>(_ title: S1?, footer: S2? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title.map { LocalizedStringKey(String($0)) }
+        self.footer = footer.map { LocalizedStringKey(String($0)) }
+        self.content = content()
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
-            if let title, !title.isEmpty {
-                Text(title.uppercased())
+            if let title {
+                Text(title)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
                     .tracking(0.7)
             }
             content
-            if let footer, !footer.isEmpty {
+            if let footer {
                 Text(footer)
                     .font(.caption)
                     .foregroundStyle(.secondary)

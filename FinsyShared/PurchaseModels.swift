@@ -2,6 +2,16 @@ import Foundation
 
 enum PurchaseSessionStatus: String, Codable, CaseIterable, Sendable {
     case draft, active, awaitingSummary, completed, cancelled
+
+    var title: String {
+        switch self {
+        case .draft: String(localized: "Draft")
+        case .active: String(localized: "Active")
+        case .awaitingSummary: String(localized: "Awaiting Summary")
+        case .completed: String(localized: "Completed")
+        case .cancelled: String(localized: "Cancelled")
+        }
+    }
 }
 
 struct PurchaseCategorySection: Identifiable, Codable, Hashable, Sendable {

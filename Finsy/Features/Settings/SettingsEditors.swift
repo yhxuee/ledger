@@ -700,15 +700,6 @@ struct LayoutSettingsView: View {
                     }
                 }
 
-                SettingsGlassSection("Turbo Mode", footer: "Displays a lightning indicator in Add Transaction when enabled.") {
-                    Toggle(isOn: Binding(
-                        get: { preferences.value.turboModeEnabled },
-                        set: { val in preferences.update { $0.turboModeEnabled = val } }
-                    )) {
-                        SettingsLabel("Turbo Mode", systemImage: "bolt.fill")
-                    }
-                }
-
                 SettingsGlassSection("Overview Metrics", footer: "Overview displays exactly two metric cards. Selecting a duplicate metric automatically swaps the existing card.") {
                     LabeledContent {
                         Picker("First Card", selection: Binding(

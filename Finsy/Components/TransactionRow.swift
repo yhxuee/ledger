@@ -44,7 +44,7 @@ struct TransactionRow: View {
                 .frame(width: 40, height: 40)
                 .background(Color(hex: category.colorHex).opacity(0.14), in: Circle())
             VStack(alignment: .leading, spacing: 3) {
-                Text(transaction.groupMode == .combinedPayment ? "Combined Payment" : (transaction.note?.isEmpty == false ? transaction.note! : category.name))
+                Text(transaction.groupMode == .combinedPayment ? String(localized: "Combined Payment") : (transaction.note?.isEmpty == false ? transaction.note! : category.displayName))
                     .font(.body.weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -53,9 +53,9 @@ struct TransactionRow: View {
                     if let subtitleOverride {
                         Text(subtitleOverride)
                     } else if showsDate {
-                        Text("\(category.name) · \(preferences.value.dateFormat.transactionDateString(from: transaction.occurredAt))")
+                        Text("\(category.displayName) · \(preferences.value.dateFormat.transactionDateString(from: transaction.occurredAt))")
                     } else {
-                        Text(category.name)
+                        Text(category.displayName)
                     }
                 }
                 .font(.caption)

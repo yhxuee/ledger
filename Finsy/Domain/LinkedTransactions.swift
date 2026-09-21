@@ -39,6 +39,19 @@ enum LinkedTransactionKind: String, Codable, Hashable, Sendable {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
     }
+
+    var title: String {
+        switch self {
+        case .splitSelfExpense: String(localized: "Split Expense")
+        case .splitSettlement: String(localized: "Settlement")
+        case .reimbursementOriginal, .reimbursementIncome: String(localized: "Reimbursement")
+        case .installment: String(localized: "Installment")
+        case .refundOriginal, .refundIncome: String(localized: "Refund")
+        case .combinedPaymentItem: String(localized: "Combined Payment")
+        case .combinedPaymentRefund: String(localized: "Refund")
+        case .combinedPaymentRefundSupport: String(localized: "Refund Support")
+        }
+    }
 }
 
 enum LinkedTransactionStatus: String, Codable, Hashable, Sendable {

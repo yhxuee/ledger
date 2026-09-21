@@ -8,6 +8,7 @@ struct OverviewView: View {
     @Binding var section: AppSection
     @Binding var selectedAccountID: UUID?
     @State private var showTransactionEditor = false
+    @State private var transactionEditorMode: TransactionEntryMode = .normal
     @State private var editingTransaction: LedgerTransaction?
     @State private var showingBudgetDetail = false
     @State private var activeDetailMetric: OverviewMetricKind? = nil
@@ -55,12 +56,26 @@ struct OverviewView: View {
         .background(LedgerBackground())
         .navigationTitle(selected?.account.name ?? "Overview")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { ToolbarIconButton(systemName: "plus", label: "Add transaction") { showTransactionEditor = true } }
+            ToolbarItem(placement: .topBarTrailing) {
+                ToolbarIconButton(
+                    systemName: "plus",
+                    label: "Add transaction",
+                    longPressAction: {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        transactionEditorMode = .turbo
+                        showTransactionEditor = true
+                    },
+                    action: {
+                        transactionEditorMode = .normal
+                        showTransactionEditor = true
+                    }
+                )
+            }
             if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
             ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() }
         }
         .sheet(isPresented: $showTransactionEditor) {
-            TransactionEditorView()
+            TransactionEditorView(entryMode: transactionEditorMode)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(28)

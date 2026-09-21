@@ -343,7 +343,7 @@ extension StatementPDFGenerator {
                         .font: UIFont.systemFont(ofSize: 9.5, weight: .regular),
                         .foregroundColor: secondaryTextColor
                     ]
-                    "No transactions recorded for this pocket in this period.".draw(at: CGPoint(x: margin, y: yOffset), withAttributes: emptyAttrs)
+                    String(localized: "No transactions recorded for this pocket in this period.").draw(at: CGPoint(x: margin, y: yOffset), withAttributes: emptyAttrs)
                     yOffset += 24
                 } else {
                     drawMultiCurrencyTransactionTableHeader(pocketCurrency: pocketCurrency, accentColor: accentColor, contentWidth: contentWidth, colWidths: colWidths, yOffset: &yOffset)
@@ -493,7 +493,7 @@ extension StatementPDFGenerator {
             let totalClosing = summaries.reduce(0.0) { $0 + $1.closingBalance }
 
             x = margin
-            drawText("Total", in: CGRect(x: x, y: yOffset, width: colWidths[0], height: 16), attrs: boldTextAttrs, alignment: .left)
+            drawText(String(localized: "Total"), in: CGRect(x: x, y: yOffset, width: colWidths[0], height: 16), attrs: boldTextAttrs, alignment: .left)
             x += colWidths[0]
             drawText(formatMoney(totalOpening), in: CGRect(x: x, y: yOffset, width: colWidths[1], height: 16), attrs: boldNumAttrs, alignment: .right)
             x += colWidths[1]
@@ -516,7 +516,7 @@ extension StatementPDFGenerator {
         colWidths: [CGFloat],
         yOffset: inout CGFloat
     ) {
-        let headers = ["DATE", "ACCOUNT", "CATEGORY", "DESCRIPTION", "CURR", "FX RATE", "AMOUNT \(baseCurrency.rawValue)"]
+        let headers = [String(localized: "DATE"), String(localized: "ACCOUNT"), String(localized: "CATEGORY"), String(localized: "DESCRIPTION"), String(localized: "CURR"), String(localized: "FX RATE"), "AMOUNT \(baseCurrency.rawValue)"]
         let headerAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 9.5, weight: .bold),
             .foregroundColor: secondaryTextColor
@@ -648,7 +648,7 @@ extension StatementPDFGenerator {
             contentWidth * 0.25, // Outflow (-)
             contentWidth * 0.25  // Closing
         ]
-        let headers = ["Opening Balance", "Inflow (+)", "Outflow (-)", "Closing Balance"]
+        let headers = [String(localized: "Opening Balance"), "Inflow (+)", "Outflow (-)", "Closing Balance"]
         let headerAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 9.5, weight: .bold),
             .foregroundColor: secondaryTextColor
@@ -691,7 +691,7 @@ extension StatementPDFGenerator {
         colWidths: [CGFloat],
         yOffset: inout CGFloat
     ) {
-        let headers = ["DATE", "CATEGORY", "DESCRIPTION", "CURR", "AMOUNT \(pocketCurrency.rawValue)"]
+        let headers = [String(localized: "DATE"), String(localized: "CATEGORY"), String(localized: "DESCRIPTION"), String(localized: "CURR"), "AMOUNT \(pocketCurrency.rawValue)"]
         let headerAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 9.5, weight: .bold),
             .foregroundColor: secondaryTextColor
@@ -832,10 +832,10 @@ extension StatementPDFGenerator {
             .foregroundColor: secondaryTextColor
         ]
 
-        "Finsy Statement".draw(at: CGPoint(x: margin, y: yOffset), withAttributes: docTitleAttrs)
+        String(localized: "Finsy Statement").draw(at: CGPoint(x: margin, y: yOffset), withAttributes: docTitleAttrs)
         yOffset += 28
 
-        "3-Month Personal Summary".draw(at: CGPoint(x: margin, y: yOffset), withAttributes: subTitleAttrs)
+        String(localized: "3-Month Personal Summary").draw(at: CGPoint(x: margin, y: yOffset), withAttributes: subTitleAttrs)
         yOffset += 18
 
         let rangeMeta = "\(windows.rangeString) · Base Currency: \(baseCurrency.rawValue)"
@@ -858,10 +858,10 @@ extension StatementPDFGenerator {
         yOffset += 24
 
         let metrics: [(title: String, amount: Double)] = [
-            ("Average Net Worth", summary.averageNetWorth),
-            ("Average Monthly Income", summary.averageIncome),
-            ("Average Monthly Spending", summary.averageSpending),
-            ("Average Monthly Turnover", summary.averageTurnover)
+            (String(localized: "Average Net Worth"), summary.averageNetWorth),
+            (String(localized: "Average Monthly Income"), summary.averageIncome),
+            (String(localized: "Average Monthly Spending"), summary.averageSpending),
+            (String(localized: "Average Monthly Turnover"), summary.averageTurnover)
         ]
 
         // 2x2 Metric Cards
