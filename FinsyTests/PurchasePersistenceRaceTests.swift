@@ -68,20 +68,22 @@ final class PurchasePersistenceRaceTests: XCTestCase {
         )
 
         let finalizeTask = Task { @MainActor in
+            defer { streamContinuation1.finish() }
             try await store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)
         }
 
-        // Cooperatively await until persistence hook is reached and suspended or finalize completes
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask {
-                var it = stream1.makeAsyncIterator()
-                _ = await it.next()
-            }
-            group.addTask {
-                _ = try? await finalizeTask.value
-            }
-            _ = await group.next()
-            group.cancelAll()
+        let watchdog = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            streamContinuation1.finish()
+        }
+        defer { watchdog.cancel() }
+
+        var it = stream1.makeAsyncIterator()
+        let hookReached = await it.next() != nil
+        XCTAssertTrue(hookReached, "Persistence hook must be reached")
+        guard hookReached, let cont = gate.continuation else {
+            _ = try? await finalizeTask.value
+            return
         }
 
         // While suspended, perform an unrelated mutation on the ledger
@@ -89,7 +91,7 @@ final class PurchasePersistenceRaceTests: XCTestCase {
         XCTAssertTrue(store.state.transactions.contains(where: { $0.id == unrelatedTx.id }))
 
         // Now resume the hook with error to trigger rollback
-        gate.continuation?.resume(throwing: SimulatedPersistenceError())
+        cont.resume(throwing: SimulatedPersistenceError())
 
         do {
             try await finalizeTask.value
@@ -144,20 +146,22 @@ final class PurchasePersistenceRaceTests: XCTestCase {
         defer { store.persistenceTestHook = nil }
 
         let finalizeTask = Task { @MainActor in
+            defer { streamContinuation2.finish() }
             try await store.finalizePurchaseSession(sessionID, receiptAttachmentID: nil)
         }
 
-        // Cooperatively await until persistence hook is reached and suspended or finalize completes
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask {
-                var it = stream2.makeAsyncIterator()
-                _ = await it.next()
-            }
-            group.addTask {
-                _ = try? await finalizeTask.value
-            }
-            _ = await group.next()
-            group.cancelAll()
+        let watchdog = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            streamContinuation2.finish()
+        }
+        defer { watchdog.cancel() }
+
+        var it = stream2.makeAsyncIterator()
+        let hookReached = await it.next() != nil
+        XCTAssertTrue(hookReached, "Persistence hook must be reached")
+        guard hookReached, let cont = gate.continuation else {
+            _ = try? await finalizeTask.value
+            return
         }
 
         // While finalize is suspended, a concurrent mutation adds a second item to the session
@@ -171,7 +175,7 @@ final class PurchasePersistenceRaceTests: XCTestCase {
         }
 
         // Resume with persistence failure
-        gate.continuation?.resume(throwing: SimulatedPersistenceError())
+        cont.resume(throwing: SimulatedPersistenceError())
 
         do {
             try await finalizeTask.value
