@@ -253,6 +253,14 @@ struct TransactionEditorView: View {
         return (showsDestinationAmount ? (Double(destinationAmountText) ?? estimatedDestinationAmount) : abs(amount)) * (isNegative ? -1 : 1)
     }
 
+    private var isAddingTransaction: Bool {
+        original == nil || isLinkedDraft
+    }
+
+    private var turboModeEnabled: Bool {
+        preferences.value.turboModeEnabled
+    }
+
     var body: some View {
         NavigationStack {
             GeometryReader { geometry in
@@ -265,9 +273,21 @@ struct TransactionEditorView: View {
                 }
             }
             .background(LedgerBackground())
-            .navigationTitle(original == nil || isLinkedDraft ? "Add Transaction" : "Edit Transaction")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 5) {
+                        if isAddingTransaction && turboModeEnabled {
+                            Image(systemName: "bolt.fill")
+                                .foregroundStyle(.blue)
+                                .font(.subheadline.weight(.semibold))
+                                .accessibilityLabel("Turbo Mode enabled")
+                        }
+
+                        Text(isAddingTransaction ? "Add Transaction" : "Edit Transaction")
+                            .font(.headline)
+                    }
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
                         dismiss()

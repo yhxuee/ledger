@@ -185,6 +185,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
     var walletAccountPassSource: WalletAccountPassSource = .allAccounts
     var walletPassLocations: [WalletRelevantLocation] = []
     var walletPassLastRefreshedAt: Date? = nil
+    var turboModeEnabled: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case splitActionOnRightSwipe, reimbursementActionOnRightSwipe
@@ -193,6 +194,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
         case recordingReminderSlots, monthlyStatementReminderEnabled, monthlyStatementReminderHour, monthlyStatementReminderMinute
         case statementThemeColorHex
         case walletAccountPassSource, walletPassLocations, walletPassLastRefreshedAt
+        case turboModeEnabled
     }
 
     init(schemaVersion: Int = 1, languageCode: String = "en", biometricLockEnabled: Bool = false,
@@ -213,7 +215,8 @@ struct AppPreferences: Codable, Hashable, Sendable {
           statementThemeColorHex: String = "3A78C2",
           walletAccountPassSource: WalletAccountPassSource = .allAccounts,
           walletPassLocations: [WalletRelevantLocation] = [],
-          walletPassLastRefreshedAt: Date? = nil) {
+          walletPassLastRefreshedAt: Date? = nil,
+          turboModeEnabled: Bool = false) {
         self.schemaVersion = schemaVersion
         self.languageCode = languageCode
         self.biometricLockEnabled = biometricLockEnabled
@@ -236,6 +239,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
         self.walletAccountPassSource = walletAccountPassSource
         self.walletPassLocations = Array(walletPassLocations.prefix(10))
         self.walletPassLastRefreshedAt = walletPassLastRefreshedAt
+        self.turboModeEnabled = turboModeEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -274,6 +278,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
         walletAccountPassSource = try values.decodeIfPresent(WalletAccountPassSource.self, forKey: .walletAccountPassSource) ?? .allAccounts
         walletPassLocations = Array((try values.decodeIfPresent([WalletRelevantLocation].self, forKey: .walletPassLocations) ?? []).prefix(10))
         walletPassLastRefreshedAt = try values.decodeIfPresent(Date.self, forKey: .walletPassLastRefreshedAt)
+        turboModeEnabled = try values.decodeIfPresent(Bool.self, forKey: .turboModeEnabled) ?? false
     }
 
     mutating func setOverviewMetric(at index: Int, to newKind: OverviewMetricKind) {
