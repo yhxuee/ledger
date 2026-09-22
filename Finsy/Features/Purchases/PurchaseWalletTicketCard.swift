@@ -3,11 +3,11 @@ import SwiftUI
 
 /// Custom shape representing a physical receipt or ticket with repeated triangular
 /// tear/serration notches along the top and bottom edges and clean, straight vertical sides.
-public struct SerratedTicketShape: Shape {
-    public var toothWidth: CGFloat = 12
-    public var toothDepth: CGFloat = 6
+struct SerratedTicketShape: Shape {
+    var toothWidth: CGFloat = 12
+    var toothDepth: CGFloat = 6
 
-    public init(toothWidth: CGFloat = 12, toothDepth: CGFloat = 6) {
+    init(toothWidth: CGFloat = 12, toothDepth: CGFloat = 6) {
         self.toothWidth = toothWidth
         self.toothDepth = toothDepth
     }
@@ -71,7 +71,7 @@ private struct PerforatedDivider: View {
 /// A physical receipt/event-ticket styled summary card for purchase sessions.
 /// Features top and bottom triangular tear notches, paper surface styling,
 /// clean typography, and an integrated "Add to Apple Wallet" pass action.
-public struct PurchaseWalletTicketCard: View {
+struct PurchaseWalletTicketCard: View {
     let session: PurchaseSession
     let readOnly: Bool
     let baseCurrency: CurrencyCode?
@@ -81,7 +81,7 @@ public struct PurchaseWalletTicketCard: View {
 
     @Environment(\.colorScheme) private var colorScheme
 
-    public init(
+    init(
         session: PurchaseSession,
         readOnly: Bool,
         baseCurrency: CurrencyCode? = nil,
