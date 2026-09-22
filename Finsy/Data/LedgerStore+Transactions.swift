@@ -88,7 +88,8 @@ extension LedgerStore {
         taxSnapshot: TaxSnapshot? = nil,
         couponSnapshot: CouponTransactionSnapshot? = nil,
         linkedRecovery: Bool = false,
-        origin: TransactionCreationOrigin = .user
+        origin: TransactionCreationOrigin = .user,
+        presentation: RecentTransactionPresentation? = nil
     ) -> LedgerTransaction? {
         guard canMutateLedger else { rejectRecoveryMutation(); return nil }
         guard let item = try? buildTransaction(type: type, accountID: accountID, destinationAccountID: destinationAccountID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: noteAttachmentID, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, recurringRuleID: recurringRuleID, accountCurrency: accountCurrency, accountAmount: accountAmount, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: destinationAmount, taxSnapshot: taxSnapshot, couponSnapshot: couponSnapshot, linkedRecovery: linkedRecovery, in: state) else { return nil }
@@ -116,7 +117,8 @@ extension LedgerStore {
         let cat = state.categories.first(where: { $0.id == recordedItem.categoryID })
         let recordedBookID = activeBookID
 
-        if origin == .user {
+        let effectivePresentation = presentation ?? (origin == .user ? .standard : .none)
+        if effectivePresentation != .none {
             Task {
                 do {
                     _ = try await self.persistDurableAsync()
@@ -124,14 +126,15 @@ extension LedgerStore {
                         recordedItem,
                         account: acc,
                         category: cat,
-                        ledgerBookID: recordedBookID
+                        ledgerBookID: recordedBookID,
+                        presentation: effectivePresentation
                     )
                     switch outcome {
                     case .requestFailed(_, let code, let message):
                         self.recentActivityWarning = String(format: String(localized: "The transaction was saved, but its Live Activity could not start (%lld: %@)."), Int64(code), message)
                     case .activitiesDisabled:
                         self.recentActivityWarning = String(localized: "Live Activities are disabled for Finsy.")
-                    case .started, .skippedPurchaseTransaction, .superseded:
+                    case .started, .skippedPurchaseTransaction, .skippedNoPresentation, .superseded:
                         break
                     }
                 } catch {
@@ -140,6 +143,85 @@ extension LedgerStore {
             }
         }
         return item
+    }
+
+    @discardableResult
+    func recordTransaction(
+        type: LedgerTransactionType,
+        accountID: UUID,
+        destinationAccountID: UUID?,
+        amount: Double,
+        currency: CurrencyCode,
+        categoryID: LedgerCategoryID,
+        occurredAt: Date,
+        note: String?,
+        noteAttachmentID: String? = nil,
+        purchaseSessionID: UUID? = nil,
+        purchaseItemID: UUID? = nil,
+        recurringRuleID: UUID? = nil,
+        accountCurrency: CurrencyCode? = nil,
+        accountAmount: Double? = nil,
+        destinationAccountCurrency: CurrencyCode? = nil,
+        destinationAmount: Double? = nil,
+        taxSnapshot: TaxSnapshot? = nil,
+        couponSnapshot: CouponTransactionSnapshot? = nil,
+        linkedRecovery: Bool = false,
+        origin: TransactionCreationOrigin = .user,
+        presentation: RecentTransactionPresentation = .standard
+    ) async -> LedgerTransaction? {
+        guard canMutateLedger else { rejectRecoveryMutation(); return nil }
+        guard let item = try? buildTransaction(type: type, accountID: accountID, destinationAccountID: destinationAccountID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: noteAttachmentID, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, recurringRuleID: recurringRuleID, accountCurrency: accountCurrency, accountAmount: accountAmount, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: destinationAmount, taxSnapshot: taxSnapshot, couponSnapshot: couponSnapshot, linkedRecovery: linkedRecovery, in: state) else { return nil }
+        mutateState { state in
+            state.transactions.insert(item, at: 0)
+
+            if let snapshot = couponSnapshot,
+               let accIdx = state.accounts.firstIndex(where: { $0.id == item.accountID }),
+               var coupons = state.accounts[accIdx].coupons,
+               let cIdx = coupons.firstIndex(where: { $0.id == snapshot.couponID }) {
+                coupons[cIdx].usedAt = occurredAt
+                coupons[cIdx].linkedTransactionID = item.id
+                coupons[cIdx].updatedAt = .now
+                state.accounts[accIdx].coupons = coupons
+                state.accounts[accIdx].updatedAt = .now
+                state.accounts[accIdx].version += 1
+                state.accounts[accIdx].syncStatus = .pending
+            }
+        }
+
+        scheduleSave()
+        let recordedItem = item
+        let acc = state.accounts.first(where: { $0.id == recordedItem.accountID })
+        let cat = state.categories.first(where: { $0.id == recordedItem.categoryID })
+        let recordedBookID = activeBookID
+
+        do {
+            _ = try await self.persistDurableAsync()
+        } catch {
+            mutateState { state in
+                state.transactions.removeAll { $0.id == recordedItem.id }
+            }
+            scheduleSave()
+            return nil
+        }
+
+        if presentation != .none {
+            let outcome = await RecentTransactionActivityCoordinator.shared.didRecordTransaction(
+                recordedItem,
+                account: acc,
+                category: cat,
+                ledgerBookID: recordedBookID,
+                presentation: presentation
+            )
+            switch outcome {
+            case .requestFailed(_, let code, let message):
+                self.recentActivityWarning = String(format: String(localized: "The transaction was saved, but its Live Activity could not start (%lld: %@)."), Int64(code), message)
+            case .activitiesDisabled:
+                self.recentActivityWarning = String(localized: "Live Activities are disabled for Finsy.")
+            case .started, .skippedPurchaseTransaction, .skippedNoPresentation, .superseded:
+                break
+            }
+        }
+        return recordedItem
     }
 
     func updateTransaction(_ item: LedgerTransaction) {

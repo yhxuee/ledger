@@ -101,7 +101,7 @@ struct RecordTransactionIntent: LiveActivityIntent {
         case .activitiesDisabled, .requestFailed:
             let notice = String(localized: "Transaction saved. Live Activity confirmation is unavailable.")
             return .result(dialog: IntentDialog("\(baseDialog)\n\(notice)"))
-        case .started, .skippedPurchaseTransaction, .superseded:
+        case .started, .skippedPurchaseTransaction, .skippedNoPresentation, .superseded:
             return .result(dialog: IntentDialog("\(baseDialog)"))
         }
     }

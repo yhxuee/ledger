@@ -451,6 +451,13 @@ struct TransactionEditorView: View {
             TransactionNoteCamera(image: $noteImage, imageChanged: $noteImageChanged)
                 .ignoresSafeArea()
         }
+        .onDisappear {
+            if entryMode == .turbo {
+                Task {
+                    await RecentTransactionActivityCoordinator.shared.endCurrentActivity()
+                }
+            }
+        }
     }
 
     @ViewBuilder private var editorContent: some View {
@@ -1213,7 +1220,8 @@ struct TransactionEditorView: View {
             original.couponSnapshot = selectedCouponSnapshot
             store.updateTransaction(original)
         } else {
-            guard store.addTransaction(type: type, accountID: accountID, destinationAccountID: destinationID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: savedAttachmentID, accountCurrency: sourceAccountCurrency, accountAmount: sourcePostingValue, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: type == .transfer ? destinationPostingValue : nil, taxSnapshot: taxSnapshot, couponSnapshot: selectedCouponSnapshot) != nil else {
+            let presentation: RecentTransactionPresentation = (entryMode == .turbo) ? .transient : .standard
+            guard await store.recordTransaction(type: type, accountID: accountID, destinationAccountID: destinationID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: savedAttachmentID, accountCurrency: sourceAccountCurrency, accountAmount: sourcePostingValue, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: type == .transfer ? destinationPostingValue : nil, taxSnapshot: taxSnapshot, couponSnapshot: selectedCouponSnapshot, presentation: presentation) != nil else {
                 if noteImageChanged, let savedAttachmentID { try? await AttachmentStore.shared.delete(identifier: savedAttachmentID) }
                 store.presentedError = String(localized: "The transaction could not be saved.")
                 return

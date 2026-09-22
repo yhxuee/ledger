@@ -146,26 +146,23 @@ struct PurchaseSummaryView: View {
                         }
                     }
 
-                    if readOnly && WalletPassManager.shared.isIssuerConfigured {
+                    if readOnly {
                         Section {
-                            Button {
-                                Task { await addReceiptToWallet() }
-                            } label: {
-                                HStack {
-                                    Label("Add Receipt to Apple Wallet", systemImage: "wallet.pass")
-                                    if generatingPass {
-                                        Spacer()
-                                        ProgressView()
-                                    }
+                            PurchaseWalletTicketCard(
+                                session: session,
+                                readOnly: true,
+                                baseCurrency: store.state.settings.baseCurrency,
+                                baseCurrencyEquivalent: baseCurrencyEquivalent,
+                                isGeneratingPass: generatingPass,
+                                onAddToWallet: {
+                                    Task { await addReceiptToWallet() }
                                 }
-                                .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.large)
-                            .disabled(generatingPass)
+                            )
                             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
+                        } header: {
+                            Text("Apple Wallet Pass").font(.subheadline.weight(.semibold))
                         }
                     }
                 }

@@ -178,4 +178,69 @@ final class RecentTransactionActivityTests: XCTestCase {
         let current = store.state.transactions.first(where: { $0.id == tx.id })
         XCTAssertNil(current?.deletedAt, "Cross-ledger snapshot must not mutate active book transactions")
     }
+
+    func testTurboTransientPresentationSnapshot() async {
+        let store = LedgerStore(stateForTesting: DemoDataFactory.make())
+        guard let account = store.state.accounts.first(where: { $0.deletedAt == nil }) else {
+            XCTFail("Missing account")
+            return
+        }
+
+        let now = Date.now
+        guard let tx = store.addTransaction(
+            type: .expense,
+            accountID: account.id,
+            destinationAccountID: nil,
+            amount: 8.0,
+            currency: account.currency,
+            categoryID: .food,
+            occurredAt: now,
+            note: "Turbo Snack",
+            presentation: .transient
+        ) else {
+            XCTFail("Failed to add turbo transaction")
+            return
+        }
+
+        for _ in 0..<20 {
+            if RecentTransactionSharedStore.loadSnapshot(id: tx.id) != nil { break }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        let snapshot = RecentTransactionSharedStore.loadSnapshot(id: tx.id)
+        XCTAssertNotNil(snapshot, "Snapshot should be saved for Turbo transaction")
+        if let s = snapshot {
+            XCTAssertEqual(s.id, tx.id)
+            let diff = s.expiresAt.timeIntervalSince(now)
+            XCTAssertGreaterThanOrEqual(diff, 2.5, "Turbo expiry window should be approx 3 seconds")
+            XCTAssertLessThanOrEqual(diff, 4.5)
+        }
+    }
+
+    func testExplicitNonePresentationDoesNotCreateSnapshot() async {
+        let store = LedgerStore(stateForTesting: DemoDataFactory.make())
+        guard let account = store.state.accounts.first(where: { $0.deletedAt == nil }) else {
+            XCTFail("Missing account")
+            return
+        }
+
+        guard let tx = store.addTransaction(
+            type: .expense,
+            accountID: account.id,
+            destinationAccountID: nil,
+            amount: 19.99,
+            currency: account.currency,
+            categoryID: .entertainment,
+            occurredAt: .now,
+            note: "Silent Transaction",
+            presentation: .none
+        ) else {
+            XCTFail("Failed to add transaction")
+            return
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        let snapshot = RecentTransactionSharedStore.loadSnapshot(id: tx.id)
+        XCTAssertNil(snapshot, "Explicit .none presentation must not create a Live Activity snapshot")
+    }
 }

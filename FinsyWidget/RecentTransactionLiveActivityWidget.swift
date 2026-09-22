@@ -65,8 +65,7 @@ struct RecentTransactionLiveActivityWidget: Widget {
                     }
                 }
             } compactLeading: {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                compactCategoryView(symbol: context.state.categorySymbol, colorHex: context.state.categoryColorHex)
             } compactTrailing: {
                 Text(context.state.amountText)
                     .font(.caption.weight(.semibold).monospacedDigit())
@@ -76,6 +75,20 @@ struct RecentTransactionLiveActivityWidget: Widget {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func compactCategoryView(symbol: String, colorHex: String) -> some View {
+        let tint = PurchaseActivityPalette.categoryColor(hex: colorHex)
+        if symbol.hasPrefix("emoji:") {
+            Text(String(symbol.dropFirst(6)))
+                .font(.system(size: 13))
+        } else {
+            let systemName = symbol.isEmpty ? "checkmark.circle.fill" : symbol
+            Image(systemName: systemName)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint)
         }
     }
 

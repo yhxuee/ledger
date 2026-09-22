@@ -2,10 +2,17 @@ import ActivityKit
 import Foundation
 import UIKit
 
+public enum RecentTransactionPresentation: Sendable {
+    case standard
+    case transient
+    case none
+}
+
 public enum RecentTransactionActivityOutcome: Equatable, Sendable {
     case started(activityID: String)
     case activitiesDisabled
     case skippedPurchaseTransaction
+    case skippedNoPresentation
     case superseded
     case requestFailed(domain: String, code: Int, message: String)
 }
@@ -16,8 +23,7 @@ final class RecentTransactionActivityCoordinator {
 
     private var lifecycleTask: Task<Void, Never>?
     private var currentOperationID: UUID?
-    private var transientActivityID: String?
-    private var compactActivityID: String?
+    private var activeActivityID: String?
     private var observers: [Any] = []
 
     private init() {}
@@ -73,8 +79,15 @@ final class RecentTransactionActivityCoordinator {
         lifecycleTask = nil
         let operationID = UUID()
         currentOperationID = operationID
-        transientActivityID = nil
-        compactActivityID = nil
+        let activityID = activeActivityID
+        activeActivityID = nil
+        Task {
+            if let activityID {
+                await Self.endActivity(id: activityID)
+            } else {
+                await Self.endAllActivities()
+            }
+        }
     }
 
     func reconcilePendingActions(store: LedgerStore) {
@@ -104,8 +117,13 @@ final class RecentTransactionActivityCoordinator {
         _ transaction: LedgerTransaction,
         account: LedgerAccount?,
         category: LedgerCategory?,
-        ledgerBookID: UUID
+        ledgerBookID: UUID,
+        presentation: RecentTransactionPresentation = .standard
     ) async -> RecentTransactionActivityOutcome {
+        guard presentation != .none else {
+            return .skippedNoPresentation
+        }
+
         // If transaction is part of an ongoing purchase session, Purchase Live Activity handles it
         guard transaction.purchaseSessionID == nil else {
             return .skippedPurchaseTransaction
@@ -120,12 +138,11 @@ final class RecentTransactionActivityCoordinator {
 
         let operationID = UUID()
         currentOperationID = operationID
-        transientActivityID = nil
-        compactActivityID = nil
+        activeActivityID = nil
 
         let createdAt = Date.now
-        let expandedEndsAt = createdAt.addingTimeInterval(3)
-        let expiresAt = createdAt.addingTimeInterval(8)
+        let duration: TimeInterval = (presentation == .transient) ? 3.0 : 8.5
+        let expiresAt = createdAt.addingTimeInterval(duration)
 
         let amountText = LedgerMoneyFormat.code(abs(transaction.amount), currency: transaction.currency)
         let isRefundable = transaction.type == .expense && !transaction.isReversal && transaction.reversalTransactionID == nil
@@ -200,114 +217,76 @@ final class RecentTransactionActivityCoordinator {
         )
 
         do {
-            if #available(iOS 18.0, *), UIApplication.shared.applicationState == .active {
-                let activity = try startTransientActivity(
-                    attributes: attributes,
-                    state: state,
-                    staleDate: expandedEndsAt
-                )
-                transientActivityID = activity.id
-
-                await Self.updateActivityAlert(
-                    activityID: activity.id,
-                    content: ActivityContent(state: state, staleDate: expandedEndsAt),
-                    alertConfiguration: AlertConfiguration(title: "\(amountText)", body: "\(title)", sound: .default)
-                )
-                guard currentOperationID == operationID else { return .started(activityID: activity.id) }
-                LedgerDiagnostics.activity.info("Foreground transient activity requested with alert")
-
-                #if DEBUG
-                let appState = await UIApplication.shared.applicationState
-                let appGroupAvailable = RecentTransactionSharedStore.containerURL() != nil
-                print("[RecentActivity] transient started id=\(activity.id) appState=\(appState.rawValue) appGroupAvailable=\(appGroupAvailable)")
-                #endif
-
-                lifecycleTask = Task { [weak self, operationID, transactionID = transaction.id, attributes, state, expiresAt] in
-                    // Phase A: transient presentation for ~3 seconds
-                    try? await Task.sleep(for: .seconds(3))
-                    guard !Task.isCancelled else { return }
-                    guard let self = self, self.currentOperationID == operationID else { return }
-
-                    // Check if operation was consumed (undone/refunded) during Phase A
-                    if let snap = RecentTransactionSharedStore.loadSnapshot(id: transactionID),
-                       snap.isUndone || snap.isRefunded {
-                        await self.endRecentActivities()
-                        guard self.currentOperationID == operationID else { return }
-                        self.transientActivityID = nil
-                        self.currentOperationID = nil
-                        return
-                    }
-
-                    // End Phase A transient activity
-                    await self.endRecentActivities()
-                    self.transientActivityID = nil
-
-                    guard self.currentOperationID == operationID else { return }
-
-                    // Phase B: start compact standard activity for remaining ~5 seconds
-                    do {
-                        let compactActivity = try self.startCompactActivity(
-                            attributes: attributes,
-                            state: state,
-                            staleDate: expiresAt
-                        )
-                        self.compactActivityID = compactActivity.id
-
-                        #if DEBUG
-                        print("[RecentActivity] compact started id=\(compactActivity.id)")
-                        #endif
-                    } catch {
-                        return
-                    }
-
-                    // Wait remaining ~5 seconds
-                    try? await Task.sleep(for: .seconds(5))
-                    guard !Task.isCancelled else { return }
-                    guard self.currentOperationID == operationID else { return }
-
-                    await self.endRecentActivities()
-                    guard self.currentOperationID == operationID else { return }
-                    self.compactActivityID = nil
-                    self.currentOperationID = nil
+            let activity: Activity<RecentTransactionActivityAttributes>
+            if presentation == .transient {
+                if #available(iOS 18.0, *), UIApplication.shared.applicationState == .active {
+                    activity = try startTransientActivity(
+                        attributes: attributes,
+                        state: state,
+                        staleDate: expiresAt
+                    )
+                } else {
+                    activity = try startStandardActivity(
+                        attributes: attributes,
+                        state: state,
+                        staleDate: expiresAt
+                    )
                 }
-
-                return .started(activityID: activity.id)
             } else {
-                // Background intents need a standard activity; transient presentation is foreground-only.
-                let activity = try startCompactActivity(
+                activity = try startStandardActivity(
                     attributes: attributes,
                     state: state,
                     staleDate: expiresAt
                 )
-                let activityID = activity.id
-                compactActivityID = activityID
+            }
+            activeActivityID = activity.id
 
-                let alertConfig = AlertConfiguration(
-                    title: "\(amountText)",
-                    body: "\(title)",
-                    sound: .default
-                )
-                await Self.updateActivityAlert(
-                    activityID: activityID,
-                    content: ActivityContent(state: state, staleDate: expiresAt),
-                    alertConfiguration: alertConfig
-                )
-                guard currentOperationID == operationID else { return .started(activityID: activityID) }
-                LedgerDiagnostics.activity.info("Standard activity requested with alert")
+            let alertConfig = AlertConfiguration(
+                title: "\(amountText)",
+                body: "\(title)",
+                sound: .default
+            )
+            await Self.updateActivityAlert(
+                activityID: activity.id,
+                content: ActivityContent(state: state, staleDate: expiresAt),
+                alertConfiguration: alertConfig
+            )
 
-                lifecycleTask = Task { [weak self, operationID] in
-                    try? await Task.sleep(for: .seconds(8))
-                    guard !Task.isCancelled else { return }
-                    guard let self = self, self.currentOperationID == operationID else { return }
+            guard currentOperationID == operationID else {
+                return .superseded
+            }
 
-                    await self.endRecentActivities()
+            LedgerDiagnostics.activity.info("Recent transaction activity started presentation=\(String(describing: presentation)) id=\(activity.id)")
+
+            #if DEBUG
+            let appState = await UIApplication.shared.applicationState
+            let appGroupAvailable = RecentTransactionSharedStore.containerURL() != nil
+            print("[RecentActivity] started id=\(activity.id) presentation=\(presentation) appState=\(appState.rawValue) appGroupAvailable=\(appGroupAvailable)")
+            #endif
+
+            let sleepSeconds: Double = (presentation == .transient) ? 3.0 : 8.5
+
+            lifecycleTask = Task { [weak self, operationID, activityID = activity.id, transactionID = transaction.id] in
+                try? await Task.sleep(for: .seconds(sleepSeconds))
+                guard !Task.isCancelled else { return }
+                guard let self = self, self.currentOperationID == operationID else { return }
+
+                if let snap = RecentTransactionSharedStore.loadSnapshot(id: transactionID),
+                   snap.isUndone || snap.isRefunded {
+                    await Self.endActivity(id: activityID)
                     guard self.currentOperationID == operationID else { return }
-                    self.compactActivityID = nil
+                    self.activeActivityID = nil
                     self.currentOperationID = nil
+                    return
                 }
 
-                return .started(activityID: activityID)
+                await Self.endActivity(id: activityID)
+                guard self.currentOperationID == operationID else { return }
+                self.activeActivityID = nil
+                self.currentOperationID = nil
             }
+
+            return .started(activityID: activity.id)
         } catch {
             LedgerDiagnostics.failure(error, operation: "Start recent transaction activity", logger: LedgerDiagnostics.activity)
             let nsError = error as NSError
@@ -337,7 +316,7 @@ final class RecentTransactionActivityCoordinator {
         )
     }
 
-    private func startCompactActivity(
+    private func startStandardActivity(
         attributes: RecentTransactionActivityAttributes,
         state: RecentTransactionActivityAttributes.ContentState,
         staleDate: Date
@@ -374,6 +353,12 @@ final class RecentTransactionActivityCoordinator {
         }
     }
 
+    nonisolated private static func endActivity(id: String) async {
+        for activity in Activity<RecentTransactionActivityAttributes>.activities where activity.id == id {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
+    }
+
     private func endRecentActivities() async {
         guard isLiveActivityAvailable else { return }
         await Self.endAllActivities()
@@ -389,8 +374,12 @@ final class RecentTransactionActivityCoordinator {
         lifecycleTask?.cancel()
         lifecycleTask = nil
         currentOperationID = nil
-        transientActivityID = nil
-        compactActivityID = nil
-        await endRecentActivities()
+        let activityID = activeActivityID
+        activeActivityID = nil
+        if let activityID {
+            await Self.endActivity(id: activityID)
+        } else {
+            await endRecentActivities()
+        }
     }
 }
