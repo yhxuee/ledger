@@ -58,7 +58,11 @@ struct LedgerBookMetadata: Sendable {
     let storageKind: LedgerStorageKind
     let cloudZoneName: String?
     let cloudZoneOwnerName: String?
+    let isEncrypted: Bool
+    let encryptionVersion: Int?
+    let keyFingerprint: String?
     let encryptionState: LedgerEncryptionState
+    let encryptionUpdatedAt: Date?
     let accounts: [LedgerAccount]
     let categories: [LedgerCategory]
     let settings: LedgerSettings
