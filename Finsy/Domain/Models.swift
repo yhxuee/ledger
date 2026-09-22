@@ -64,6 +64,8 @@ enum AccountType: String, Codable, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    var supportsMultiCurrency: Bool { LedgerAccount.multiCurrencyTypes.contains(self) }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let raw = try container.decode(String.self)
