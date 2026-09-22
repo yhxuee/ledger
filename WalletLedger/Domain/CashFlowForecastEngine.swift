@@ -175,6 +175,7 @@ enum CashFlowForecastEngine {
         }, by: { calendar.startOfDay(for: $0.occurredAt) })
         let globalFlexibleDaily = historyDates.map { date in
             sumFlexibleExpense(transactions: flexibleByDay[date, default: []], in: state, to: baseCurrency, filter: nil, now: now, calendar: calendar)
+            sumFlexibleExpense(for: date, in: state, to: baseCurrency, filter: nil, now: now, calendar: calendar)
         }
         let globalRobust = winsorize(globalFlexibleDaily)
         let globalWeekdayFactors = calculateWeekdayFactors(dailyValues: globalRobust, dates: historyDates, calendar: calendar)
@@ -204,6 +205,7 @@ enum CashFlowForecastEngine {
                 // Flexible future spend for category
                 let catDaily = historyDates.map { date in
                     sumFlexibleExpense(transactions: flexibleByDay[date, default: []], in: state, to: baseCurrency, filter: { $0.categoryID == categoryID }, now: now, calendar: calendar)
+                    sumFlexibleExpense(for: date, in: state, to: baseCurrency, filter: { $0.categoryID == categoryID }, now: now, calendar: calendar)
                 }
                 let flexibleForCategory = forecastFlexibleExpense(
                     dailySeries: catDaily,
@@ -223,7 +225,6 @@ enum CashFlowForecastEngine {
                         BudgetForecastRisk(
                             lineID: "category:\(categoryID.rawValue)",
                             title: categoryMap[categoryID]?.name ?? categoryID.rawValue,
-                            title: categoryMap[categoryID]?.displayName ?? categoryID.rawValue,
                             currency: baseCurrency,
                             budget: allocation,
                             actualSpent: actualSpent,
@@ -245,6 +246,7 @@ enum CashFlowForecastEngine {
                 let actualSpent = monthlyTransactions.reduce(0.0) { sum, t in
                     guard t.accountID == accountID,
                           let val = LedgerCalculations.accountExpenseEffect(t, for: account, in: state, now: now) else { return sum }
+                          let val = TransactionSemantics.accountExpenseEffect(t, for: account, in: state, now: now) else { return sum }
                     return sum + val
                 }
 
@@ -256,6 +258,7 @@ enum CashFlowForecastEngine {
                 // Flexible future spend for account
                 let accDaily = historyDates.map { date in
                     sumFlexibleExpense(transactions: flexibleByDay[date, default: []], in: state, to: accountCurrency, filter: { $0.accountID == accountID }, now: now, calendar: calendar)
+                    sumFlexibleExpense(for: date, in: state, to: accountCurrency, filter: { $0.accountID == accountID }, now: now, calendar: calendar)
                 }
                 let flexibleForAccount = forecastFlexibleExpense(
                     dailySeries: accDaily,
@@ -314,14 +317,24 @@ enum CashFlowForecastEngine {
 
     private static func sumFlexibleExpense(
         transactions: [LedgerTransaction],
+        for date: Date,
         in state: LedgerState,
         to target: CurrencyCode,
         filter: ((LedgerTransaction) -> Bool)?,
         now: Date,
         calendar: Calendar
     ) -> Double {
+        let transactions = state.transactions.filter { t in
+            t.deletedAt == nil &&
+            t.recurringRuleID == nil &&
+            t.linkedTransactionKind != .installment &&
+            calendar.isDate(t.occurredAt, inSameDayAs: date) &&
+            (filter?(t) ?? true)
+        }
+
         return transactions.reduce(0.0) { sum, t in
             guard filter?(t) ?? true, let eff = TransactionSemantics.expenseEffect(t, in: state, to: target, now: now), eff > 0 else { return sum }
+            guard let eff = TransactionSemantics.expenseEffect(t, in: state, to: target, now: now), eff > 0 else { return sum }
             return sum + eff
         }
     }
@@ -495,7 +508,7 @@ enum CashFlowForecastEngine {
         }
 
         // 2. Pending Installment Children
-        for t in state.transactions where t.deletedAt == nil && t.linkedTransactionKind == .installment && !t.isCompleted(asOf: now) {
+        for t in state.transactions where t.deletedAt == nil && t.linkedTransactionKind == .installment && !t.isEffectivelyCompleted {
             if t.occurredAt > now && t.occurredAt <= endOfMonth {
                 items.append(
                     ScheduledItem(
@@ -555,3 +568,4 @@ enum CashFlowForecastEngine {
         return calendar.date(byAdding: component, value: value, to: date) ?? date.addingTimeInterval(86_400)
     }
 }
+

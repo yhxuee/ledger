@@ -114,7 +114,7 @@ enum CSVTransactionImporter {
     ) throws -> ImportPreview {
         let rows = parseRows(from: csvText)
         guard !rows.isEmpty else {
-            throw BackupError.invalidFormat
+            throw BackupError.corruptArchive
         }
 
         var accountsByName: [String: LedgerAccount] = [:]
@@ -160,7 +160,7 @@ enum CSVTransactionImporter {
 
             let dateString = "\(r.date) \(r.time)"
             let date = dateFormatter.date(from: dateString) ?? .now
-            let txType: LedgerTransactionType
+            let txType: TransactionType
             switch r.type.lowercased() {
             case "income": txType = .income
             case "transfer": txType = .transfer
@@ -171,34 +171,37 @@ enum CSVTransactionImporter {
             let acctCurrencyCode = CurrencyCode(rawValue: r.accountCurrency) ?? account.currency
             let destCurrencyCode = r.destinationCurrency.isEmpty ? nil : CurrencyCode(rawValue: r.destinationCurrency)
 
-            var tx = LedgerTransaction(
+            var taxSnapshot: TaxRateSnapshot? = nil
+            if let rate = r.taxRate, rate > 0 {
+                taxSnapshot = TaxRateSnapshot(
+                    rate: rate,
+                    amount: r.taxAmount ?? 0,
+                    baseAmount: r.taxBaseAmount ?? r.amount,
+                    inputMode: TaxInputMode(rawValue: r.taxInputMode ?? "finalAmount") ?? .finalAmount,
+                    isTaxExempt: r.isTaxExempt
+                )
+            }
+
+            let tx = LedgerTransaction(
                 id: UUID(),
-                userID: existingState.settings.userID,
+                date: Calendar.current.startOfDay(for: date),
+                occurredAt: date,
+                time: r.time,
                 type: txType,
                 accountID: account.id,
                 destinationAccountID: destAccountID,
-                amount: r.amount,
-                currency: currencyCode,
-                accountAmount: r.accountAmount ?? r.amount,
-                destinationAmount: r.destinationAmount,
-                accountCurrency: acctCurrencyCode,
-                destinationAccountCurrency: destCurrencyCode,
                 categoryID: category.id,
-                occurredAt: date,
-                note: r.note.isEmpty ? nil : r.note,
+                note: r.note,
+                currency: currencyCode,
+                amount: r.amount,
                 exchangeRateAtTransaction: 1.0,
-                createdAt: date,
-                updatedAt: date,
-                deletedAt: nil,
-                version: 1,
-                syncStatus: .pending
+                taxSnapshot: taxSnapshot,
+                accountCurrency: acctCurrencyCode,
+                accountAmount: r.accountAmount ?? r.amount,
+                destinationAccountCurrency: destCurrencyCode,
+                destinationAccountAmount: r.destinationAmount,
+                updatedAt: date
             )
-            tx.taxRate = r.taxRate
-            tx.taxAmount = r.taxAmount
-            tx.taxBaseAmount = r.taxBaseAmount
-            tx.taxInputMode = r.taxInputMode.flatMap { TaxInputMode(rawValue: $0) }
-            tx.isTaxExempt = r.isTaxExempt
-
             transactions.append(tx)
         }
 
@@ -206,17 +209,14 @@ enum CSVTransactionImporter {
         if !missingAccounts.isEmpty {
             for missing in missingAccounts.sorted() {
                 warnings.append("Account '\(missing)' does not exist. Please create it or verify mapping before importing.")
-                warnings.append(String(format: String(localized: "Account '%@' does not exist. Please create it or verify mapping before importing."), missing))
             }
         }
         if !missingCategories.isEmpty {
             for missing in missingCategories.sorted() {
                 warnings.append("Category '\(missing)' does not exist.")
-                warnings.append(String(format: String(localized: "Category '%@' does not exist."), missing))
             }
         }
         warnings.append("CSV imports transactions only. Group, split, installment, and CloudKit links are not reconstructed.")
-        warnings.append(String(localized: "CSV imports transactions only. Group, split, installment, and CloudKit links are not reconstructed."))
 
         var importedState = existingState
         importedState.transactions.append(contentsOf: transactions)
@@ -224,7 +224,7 @@ enum CSVTransactionImporter {
 
         let envelope = LedgerBackupEnvelope(
             metadata: BackupMetadata(
-                app: "finsy",
+                app: "wallet-ledger-ios",
                 schemaVersion: BackupCodec.currentSchemaVersion,
                 exportedAt: .now,
                 userID: existingState.settings.userID,
@@ -243,3 +243,4 @@ enum CSVTransactionImporter {
         )
     }
 }
+

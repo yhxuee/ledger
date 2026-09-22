@@ -48,6 +48,7 @@ struct LinkedSetupSheet: View {
                 }
                 if error { Text("The plan could not be saved. Check the amounts and existing settlements.").foregroundStyle(.red) }
             }
+            .navigationTitle(mode == .split ? "Split Expense" : mode == .installment ? "Installments" : "Reimbursement")
             .navigationTitle(mode == .split ? LocalizedStringKey("Split Expense") : mode == .installment ? LocalizedStringKey("Installments") : LocalizedStringKey("Reimbursement"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -88,6 +89,7 @@ struct SplitSettlementSheet: View {
                             set: { if $0 { selectedChildIDs.insert(child.id) } else { selectedChildIDs.remove(child.id) } }
                         )) {
                             HStack {
+                                Text(child.note ?? "Settlement")
                                 Text(child.note ?? String(localized: "Settlement"))
                                 Spacer()
                                 Text(child.currency.symbol + String(format: "%.2f", child.amount))

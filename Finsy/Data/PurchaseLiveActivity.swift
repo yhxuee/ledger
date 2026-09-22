@@ -70,6 +70,7 @@ actor PurchaseLiveActivityController: PurchaseActivityStarting {
             // Concise, stable notice only: a failed bridge is never a fatal Purchase error and
             // must not repeat raw container errors. Details go to the Debug log instead.
             warnings.append(PurchaseSharedContainerState.containerUnavailable.warning
+                ?? "Lock Screen item controls require a signed build with App Group access.")
                 ?? String(localized: "Lock Screen item controls require a signed build with App Group access."))
             #if DEBUG
             PurchaseActivityDiagnostics.logBridgeFailure(error)
@@ -92,6 +93,7 @@ actor PurchaseLiveActivityController: PurchaseActivityStarting {
             return outcome(.notRunning, interactive: interactive, warnings: warnings)
         }
         guard activitiesEnabled() else {
+            warnings.append("Live Activities are disabled in Settings, so purchase progress cannot appear on the Lock Screen.")
             warnings.append(String(localized: "Live Activities are disabled in Settings, so purchase progress cannot appear on the Lock Screen."))
             return outcome(.liveActivitiesDisabled, interactive: interactive, warnings: warnings)
         }
@@ -102,6 +104,7 @@ actor PurchaseLiveActivityController: PurchaseActivityStarting {
         } catch {
             let failure = error as NSError
             let detail = "\(failure.domain) (\(failure.code)): \(failure.localizedDescription)"
+            warnings.append("The Live Activity could not start: \(detail)")
             warnings.append(String(format: String(localized: "The Live Activity could not start: %@"), detail))
             return outcome(.requestFailed(detail), interactive: interactive, warnings: warnings)
         }

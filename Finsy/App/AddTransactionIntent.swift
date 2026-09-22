@@ -93,7 +93,8 @@ struct RecordTransactionIntent: LiveActivityIntent {
         let store = LedgerStore.shared
         let recorded = try await store.recordQuickTransaction(amount: amount, currencyID: currency.id, categoryID: category.id)
         let outcome = await RecentTransactionActivityCoordinator.shared.didRecordTransaction(
-            recorded.transaction, account: recorded.account, category: recorded.category, ledgerBookID: recorded.bookID)
+            recorded.transaction, account: recorded.account, category: recorded.category,
+            ledgerBookID: recorded.bookID, presentation: .standard)
         let formattedAmount = LedgerMoneyFormat.code(abs(recorded.transaction.amount), currency: recorded.transaction.currency)
         let categoryName = recorded.category?.displayName ?? String(localized: "Transaction")
         let baseDialog = String(format: String(localized: "Recorded %@ · %@"), formattedAmount, categoryName)
@@ -101,7 +102,7 @@ struct RecordTransactionIntent: LiveActivityIntent {
         case .activitiesDisabled, .requestFailed:
             let notice = String(localized: "Transaction saved. Live Activity confirmation is unavailable.")
             return .result(dialog: IntentDialog("\(baseDialog)\n\(notice)"))
-        case .started, .skippedPurchaseTransaction, .superseded:
+        case .started, .skippedPurchaseTransaction, .superseded, .transientUnavailable:
             return .result(dialog: IntentDialog("\(baseDialog)"))
         }
     }

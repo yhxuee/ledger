@@ -146,26 +146,24 @@ struct PurchaseSummaryView: View {
                         }
                     }
 
-                    if readOnly && WalletPassManager.shared.isIssuerConfigured {
+                    if readOnly {
                         Section {
-                            Button {
+                            PurchaseWalletTicketCard(
+                                session: session,
+                                baseCurrencyEquivalent: baseCurrencyEquivalent,
+                                baseCurrency: store.state.settings.baseCurrency,
+                                canAddToWallet: session.status == .completed
+                                    && WalletPassManager.shared.isIssuerConfigured
+                                    && WalletPassManager.shared.isPassLibraryAvailable,
+                                generatingPass: generatingPass
+                            ) {
                                 Task { await addReceiptToWallet() }
-                            } label: {
-                                HStack {
-                                    Label("Add Receipt to Apple Wallet", systemImage: "wallet.pass")
-                                    if generatingPass {
-                                        Spacer()
-                                        ProgressView()
-                                    }
-                                }
-                                .frame(maxWidth: .infinity)
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.large)
-                            .disabled(generatingPass)
                             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
+                        } header: {
+                            Text("Wallet Receipt").font(.subheadline.weight(.semibold))
                         }
                     }
                 }
@@ -220,9 +218,10 @@ struct PurchaseSummaryView: View {
     }
 
     private func addReceiptToWallet() async {
-        guard let session else { return }
-        guard WalletPassManager.shared.isPassLibraryAvailable else {
-            passErrorMessage = WalletPassError.libraryUnavailable.localizedDescription
+        guard let session, readOnly, session.status == .completed else { return }
+        guard WalletPassManager.shared.isPassLibraryAvailable,
+              WalletPassManager.shared.isIssuerConfigured else {
+            passErrorMessage = String(localized: "Apple Wallet is unavailable right now.")
             return
         }
         generatingPass = true
@@ -234,7 +233,8 @@ struct PurchaseSummaryView: View {
             passToPresent = pass
             showingAddPassSheet = true
         } catch {
-            passErrorMessage = error.localizedDescription
+            LedgerDiagnostics.failure(error, operation: "Issue purchase Wallet receipt", logger: LedgerDiagnostics.persistence)
+            passErrorMessage = String(localized: "Could not create this Wallet pass right now. Please try again later.")
         }
     }
     private var baseCurrencyEquivalent: Double? {

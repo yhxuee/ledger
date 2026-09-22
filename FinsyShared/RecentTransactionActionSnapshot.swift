@@ -77,6 +77,13 @@ public enum RecentTransactionSharedStore {
         loadSnapshots().first(where: { $0.id == id })
     }
 
+    public static func discardSnapshot(id: UUID) {
+        var all = loadSnapshots()
+        // Keep a consumed action for reconciliation if its in-app notification was interrupted.
+        all.removeAll { $0.id == id && !$0.isUndone && !$0.isRefunded }
+        persist(all)
+    }
+
     public static func markUndone(id: UUID) {
         var all = loadSnapshots()
         if let idx = all.firstIndex(where: { $0.id == id }) {

@@ -90,7 +90,6 @@ extension LedgerStore {
         linkedRecovery: Bool = false,
         origin: TransactionCreationOrigin = .user
     ) -> LedgerTransaction? {
-        guard canMutateLedger else { rejectRecoveryMutation(); return nil }
         guard let item = try? buildTransaction(type: type, accountID: accountID, destinationAccountID: destinationAccountID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: noteAttachmentID, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, recurringRuleID: recurringRuleID, accountCurrency: accountCurrency, accountAmount: accountAmount, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: destinationAmount, taxSnapshot: taxSnapshot, couponSnapshot: couponSnapshot, linkedRecovery: linkedRecovery, in: state) else { return nil }
         mutateState { state in
             state.transactions.insert(item, at: 0)
@@ -114,7 +113,6 @@ extension LedgerStore {
         let recordedItem = item
         let acc = state.accounts.first(where: { $0.id == recordedItem.accountID })
         let cat = state.categories.first(where: { $0.id == recordedItem.categoryID })
-        let recordedBookID = activeBookID
 
         if origin == .user {
             Task {
@@ -124,14 +122,16 @@ extension LedgerStore {
                         recordedItem,
                         account: acc,
                         category: cat,
-                        ledgerBookID: recordedBookID
+                        ledgerBookID: self.activeBookID
                     )
                     switch outcome {
                     case .requestFailed(_, let code, let message):
+                        self.recentActivityWarning = "The transaction was saved, but its Live Activity could not start (\(code): \(message))."
                         self.recentActivityWarning = String(format: String(localized: "The transaction was saved, but its Live Activity could not start (%lld: %@)."), Int64(code), message)
                     case .activitiesDisabled:
+                        self.recentActivityWarning = "Live Activities are disabled for Finsy."
                         self.recentActivityWarning = String(localized: "Live Activities are disabled for Finsy.")
-                    case .started, .skippedPurchaseTransaction, .superseded:
+                    case .started, .skippedPurchaseTransaction:
                         break
                     }
                 } catch {
@@ -143,7 +143,6 @@ extension LedgerStore {
     }
 
     func updateTransaction(_ item: LedgerTransaction) {
-        guard canMutateLedger else { rejectRecoveryMutation(); return }
         guard let index = state.transactions.firstIndex(where: { $0.id == item.id }), !state.transactions[index].isLockedByReversal, let source = state.accounts.first(where: { $0.id == item.accountID }) else { return }
         guard item.amount.isFinite, item.amount > 0, source.deletedAt == nil else { return }
         guard let sourcePocket = resolvedPocket(item.accountCurrency, for: source) else { return }
@@ -225,8 +224,7 @@ extension LedgerStore {
         }
         updated.exchangeRateAtTransaction = item.currency == original.currency ? original.exchangeRateAtTransaction : (CurrencyRates.reference(item.currency, in: state.settings.rates) ?? 1)
         updated.updatedAt = .now
-        // The editor may have opened before a remote update arrived.
-        updated.version = original.version + 1
+        updated.version += 1
         updated.syncStatus = .pending
 
         mutateState { state in
@@ -281,7 +279,6 @@ extension LedgerStore {
     }
 
     func deleteTransaction(_ item: LedgerTransaction) {
-        guard canMutateLedger else { rejectRecoveryMutation(); return }
         // Combined Payment child deletion
         if item.linkedTransactionKind == .combinedPaymentItem, item.parentTransactionID != nil {
             deleteCombinedPaymentChild(item)
@@ -354,6 +351,7 @@ extension LedgerStore {
 
         let deleteMsg = String(localized: "Transaction deleted")
         activeUndoOperation = LedgerUndoOperation(
+            message: "Transaction deleted",
             message: deleteMsg,
             transactionSnapshots: txSnapshots,
             accountSnapshots: accountSnapshots,
@@ -361,6 +359,7 @@ extension LedgerStore {
             expectedAccountVersions: expectedAccVersions
         )
         undoTransactions = deletedSnapshot
+        undoMessage = "Transaction deleted"
         undoMessage = deleteMsg
         scheduleSave()
     }
@@ -411,6 +410,7 @@ extension LedgerStore {
             expectedTxVersions[child.id] = child.version + 1
         }
 
+        var message = "Payment removed from Combined Payment"
         var message = String(localized: "Payment removed from Combined Payment")
 
         mutateState { state in
@@ -430,6 +430,7 @@ extension LedgerStore {
                 state.transactions[parentIndex].updatedAt = now
                 state.transactions[parentIndex].version += 1
                 state.transactions[parentIndex].syncStatus = .pending
+                message = "Payment removed from Combined Payment"
                 message = String(localized: "Payment removed from Combined Payment")
             } else if rem.count == 1 {
                 if let lastChildIndex = state.transactions.firstIndex(where: { $0.id == rem[0].id }) {
@@ -443,9 +444,11 @@ extension LedgerStore {
                 for idx in state.transactions.indices where state.transactions[idx].parentTransactionID == parentID && state.transactions[idx].deletedAt == nil {
                     markDeleted(in: &state, at: idx, date: now)
                 }
+                message = "Combined Payment dissolved"
                 message = String(localized: "Combined Payment dissolved")
             } else {
                 markDeleted(in: &state, at: parentIndex, date: now)
+                message = "Combined Payment deleted"
                 message = String(localized: "Combined Payment deleted")
             }
         }
@@ -464,7 +467,6 @@ extension LedgerStore {
 
     @discardableResult
     func applyUndo(_ operation: LedgerUndoOperation) -> Bool {
-        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         // Version guards: ensure none of the captured entities were subsequently modified incompatibly
         for (id, expectedVersion) in operation.expectedTransactionVersions {
             guard let current = state.transactions.first(where: { $0.id == id }) else { return false }
@@ -525,25 +527,19 @@ extension LedgerStore {
                     state.purchaseSessions = sessions
                 }
             }
-
-            if let categorySnapshots = operation.defaultExpenseAccountByCategorySnapshots {
-                for (category, accountID) in categorySnapshots {
-                    state.settings.defaultExpenseAccountByCategory[category] = accountID
-                }
-            }
         }
         scheduleSave()
         return true
     }
 
     func undoDelete() {
-        guard canMutateLedger else { rejectRecoveryMutation(); return }
         if let op = activeUndoOperation {
             if applyUndo(op) {
                 activeUndoOperation = nil
                 undoTransactions = []
                 undoMessage = nil
             } else {
+                presentedError = "Cannot undo: item was subsequently modified."
                 presentedError = String(localized: "Cannot undo: item was subsequently modified.")
             }
             return
@@ -569,7 +565,6 @@ extension LedgerStore {
 
     @discardableResult
     func refundTransaction(_ original: LedgerTransaction) -> LedgerTransaction? {
-        guard canMutateLedger else { rejectRecoveryMutation(); return nil }
         guard original.deletedAt == nil, !original.isReversal, original.reversalTransactionID == nil else { return nil }
 
         // Combined Payment parent refund

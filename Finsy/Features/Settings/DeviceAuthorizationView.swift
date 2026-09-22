@@ -107,16 +107,22 @@ struct DeviceAuthorizationView: View {
     private var statusText: String {
         switch activeBook.effectiveEncryptionState {
         case .enabled:
+            return localKey != nil ? "Authorized" : "Locked — Authorization Required"
             return localKey != nil ? String(localized: "Authorized") : String(localized: "Locked — Authorization Required")
         case .authorizationRequired:
+            return "Locked — Authorization Required"
             return String(localized: "Locked — Authorization Required")
         case .enabling:
+            return "Enabling…"
             return String(localized: "Enabling…")
         case .disabling:
+            return "Disabling…"
             return String(localized: "Disabling…")
         case .disabled:
+            return "Encryption Disabled"
             return String(localized: "Encryption Disabled")
         case .migrationFailed:
+            return "Migration Failed"
             return String(localized: "Migration Failed")
         }
     }

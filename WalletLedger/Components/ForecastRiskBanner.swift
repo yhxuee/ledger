@@ -17,22 +17,18 @@ struct ForecastRiskBanner: View {
     private var bannerMessage: String {
         if privacy.isLocked {
             return "Spending forecast needs your attention."
-            return String(localized: "Spending forecast needs your attention.")
         }
         let count = forecast.budgetRisks.count
         if count == 1, let first = forecast.budgetRisks.first {
             let pct = Int((first.exceedance * 100).rounded())
             return "\(first.title) is projected to exceed its budget by \(pct)%."
-            let pct = Int64((first.exceedance * 100).rounded())
-            return String(format: String(localized: "%@ is projected to exceed its budget by %lld%%."), first.title, pct)
         } else {
             return "\(count) budget items are projected to exceed their limits."
-            return String(format: String(localized: "%lld budget items are projected to exceed their limits."), Int64(count))
         }
     }
 
     private var accentColor: Color {
-        severity == .red ? .red : .orange
+        severity == .red ? LedgerPalette.crimson : .orange
     }
 
     var body: some View {
@@ -77,3 +73,4 @@ struct ForecastRiskBanner: View {
         }
     }
 }
+

@@ -39,14 +39,17 @@ final class CalendarImportModel: ObservableObject {
                 let identifier = event.calendarItemIdentifier
                 guard seen.insert(identifier).inserted else { return nil }
                 let mapping = Self.map(event)
+                return .init(id: identifier, title: event.title?.isEmpty == false ? event.title! : "Untitled Event", startDate: event.startDate, draft: mapping.draft, warning: mapping.warning)
                 return .init(id: identifier, title: event.title?.isEmpty == false ? event.title! : String(localized: "Untitled Event"), startDate: event.startDate, draft: mapping.draft, warning: mapping.warning)
             }.sorted { $0.startDate < $1.startDate }
         } catch { errorMessage = error.localizedDescription }
     }
 
     private static func map(_ event: EKEvent) -> (draft: RecurringImportDraft?, warning: String?) {
+        guard let rules = event.recurrenceRules, rules.count == 1, let rule = rules.first else { return (nil, "This event does not contain one supported recurrence rule.") }
         guard let rules = event.recurrenceRules, rules.count == 1, let rule = rules.first else { return (nil, String(localized: "This event does not contain one supported recurrence rule.")) }
         let hasMultipleDays = (rule.daysOfTheWeek?.count ?? 0) > 1 || (rule.daysOfTheMonth?.count ?? 0) > 1 || (rule.monthsOfTheYear?.count ?? 0) > 1 || (rule.weeksOfTheYear?.count ?? 0) > 0 || (rule.daysOfTheYear?.count ?? 0) > 0 || (rule.setPositions?.count ?? 0) > 0
+        guard !hasMultipleDays else { return (nil, "This event uses a complex recurrence pattern that cannot be imported safely.") }
         guard !hasMultipleDays else { return (nil, String(localized: "This event uses a complex recurrence pattern that cannot be imported safely.")) }
         let schedule: (RecurringInterval, Int)?
         switch rule.frequency {
@@ -56,6 +59,7 @@ final class CalendarImportModel: ObservableObject {
         case .yearly where rule.interval == 1: schedule = (.yearly, 365)
         default: schedule = nil
         }
+        guard let schedule else { return (nil, "Only daily, weekly, monthly, and yearly recurrence patterns are supported.") }
         guard let schedule else { return (nil, String(localized: "Only daily, weekly, monthly, and yearly recurrence patterns are supported.")) }
         return (.init(title: event.title ?? "", nextRunAt: max(event.startDate, .now), interval: schedule.0, customDays: schedule.1), nil)
     }
@@ -63,6 +67,7 @@ final class CalendarImportModel: ObservableObject {
 
 enum CalendarImportError: LocalizedError {
     case accessDenied
+    var errorDescription: String? { "Calendar access was not granted." }
     var errorDescription: String? { String(localized: "Calendar access was not granted.") }
 }
 

@@ -407,6 +407,7 @@ struct LinkedLedgerRow: View {
                         color: .blue,
                         action: {
                             guard store.refundInstallmentParent(parent) != nil else {
+                                store.presentedError = "No refundable installment amount."
                                 store.presentedError = String(localized: "No refundable installment amount.")
                                 return false
                             }
@@ -453,6 +454,7 @@ struct LinkedLedgerRow: View {
                             color: .green,
                             action: {
                                 guard store.completeSettlement(parent.id) else {
+                                    store.presentedError = "Failed to complete settlement."
                                     store.presentedError = String(localized: "Failed to complete settlement.")
                                     return false
                                 }
@@ -473,6 +475,7 @@ struct LinkedLedgerRow: View {
                             color: .green,
                             action: {
                                 guard store.payInstallmentEarly(parent.id) else {
+                                    store.presentedError = "Failed to pay installment early."
                                     store.presentedError = String(localized: "Failed to pay installment early.")
                                     return false
                                 }
@@ -500,6 +503,7 @@ struct LinkedLedgerRow: View {
                         color: .blue,
                         action: {
                             guard store.refundPurchaseChild(parent) != nil else {
+                                store.presentedError = "Failed to refund purchase item."
                                 store.presentedError = String(localized: "Failed to refund purchase item.")
                                 return false
                             }
@@ -527,6 +531,7 @@ struct LinkedLedgerRow: View {
                     color: .blue,
                     action: {
                         guard store.refundTransaction(parent) != nil else {
+                            store.presentedError = "Failed to refund transaction."
                             store.presentedError = String(localized: "Failed to refund transaction.")
                             return false
                         }
@@ -816,6 +821,7 @@ struct LinkedLedgerRow: View {
                 color: .purple,
                 action: {
                     guard store.configureReimbursement(parentID: parent.id) else {
+                        store.presentedError = "Failed to configure reimbursement."
                         store.presentedError = String(localized: "Failed to configure reimbursement.")
                         return false
                     }
@@ -831,6 +837,7 @@ struct LinkedLedgerRow: View {
                 color: .blue,
                 action: {
                     guard store.convertExpenseToRefundGroup(parent) else {
+                        store.presentedError = "Failed to create refund group."
                         store.presentedError = String(localized: "Failed to create refund group.")
                         return false
                     }
