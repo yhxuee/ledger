@@ -17,6 +17,7 @@ extension LedgerStore {
     /// listed keep their stored opening balance, and a pocket's opening balance absorbs its own
     /// ledger delta so the requested balance is what the user sees.
     func saveAccount(_ draft: LedgerAccount, desiredBalance: Double, desiredPocketBalances: [CurrencyCode: Double] = [:]) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         var account = draft
         account.logo = AccountTag.sanitize(account.logo.isEmpty ? account.name : account.logo)
         // Stocks settle in the market currency, so normalise before any balance arithmetic.
@@ -109,6 +110,7 @@ extension LedgerStore {
     }
 
     func deleteAccount(_ account: LedgerAccount) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         guard let accIndex = state.accounts.firstIndex(where: { $0.id == account.id }) else { return }
         let preAccount = state.accounts[accIndex]
         var txSnapshots: [UUID: LedgerTransaction] = [:]
@@ -170,6 +172,7 @@ extension LedgerStore {
     }
 
     func freezeAccount(_ id: UUID) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         guard let index = state.accounts.firstIndex(where: { $0.id == id && $0.deletedAt == nil }) else { return }
         var account = state.accounts[index]
         guard !account.effectiveIsFrozen else { return }
@@ -197,6 +200,7 @@ extension LedgerStore {
     }
 
     func unfreezeAccount(_ id: UUID) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         guard let index = state.accounts.firstIndex(where: { $0.id == id && $0.deletedAt == nil }) else { return }
         var account = state.accounts[index]
         guard account.effectiveIsFrozen else { return }
@@ -228,6 +232,7 @@ extension LedgerStore {
     }
 
     func moveAccounts(from offsets: IndexSet, to destination: Int) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         var nonDeleted = state.accounts.filter { $0.deletedAt == nil }
         guard destination >= 0, destination <= nonDeleted.count else { return }
         nonDeleted.move(fromOffsets: offsets, toOffset: destination)
@@ -244,6 +249,7 @@ extension LedgerStore {
     }
 
     func setAccountOrder(_ orderedIDs: [UUID]) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         let active = state.accounts.filter { $0.deletedAt == nil }
         let map = Dictionary(grouping: active, by: \.id)
         var newActive: [LedgerAccount] = []
@@ -264,6 +270,7 @@ extension LedgerStore {
     }
 
     func moveAccount(from sourceID: UUID, to destinationID: UUID) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         guard sourceID != destinationID else { return }
         mutateState { state in
             guard let sourceIndex = state.accounts.firstIndex(where: { $0.id == sourceID }),

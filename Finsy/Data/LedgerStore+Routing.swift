@@ -3,6 +3,7 @@ import Foundation
 extension LedgerStore {
 
     func updateSettings(_ change: (inout LedgerSettings) -> Void) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         mutateState { state in
             change(&state.settings)
             state.settings.rates = CurrencyRates.mirroringUSDAliases(state.settings.rates)
@@ -13,6 +14,7 @@ extension LedgerStore {
 
     @discardableResult
     func refreshExchangeRatesIfNeeded(force: Bool = false) async throws -> String? {
+        guard canMutateLedger else { return nil }
         guard force || state.settings.automaticRates else { return nil }
         if !force, let updated = state.settings.exchangeRatesUpdatedAt, Calendar.current.isDateInToday(updated) { return nil }
         let requestedBookID = activeBookID
@@ -42,6 +44,7 @@ extension LedgerStore {
     }
 
     func applyStockQuotes(_ quotes: [String: AlphaVantageService.Quote]) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         commitActiveBook()
         var changed = false
         for bookIndex in books.indices {
@@ -75,6 +78,7 @@ extension LedgerStore {
 
     /// Background expiration must not strand changes in the normal debounced save task.
     @discardableResult func flushMarketData() async -> Bool {
+        guard canMutateLedger else { return false }
         guard persistenceEnabled else { return true }
         do {
             try await persistDurableAsync()
@@ -87,6 +91,7 @@ extension LedgerStore {
 
     @discardableResult
     func addCategory(name rawName: String, detail rawDetail: String, symbol: String, colorHex: String, kind: LedgerCategoryKind = .expense) -> LedgerCategoryID? {
+        guard canMutateLedger else { rejectRecoveryMutation(); return nil }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !symbol.isEmpty else { return nil }
         let id = LedgerCategoryID(rawValue: "custom-\(UUID().uuidString.lowercased())")
@@ -107,6 +112,7 @@ extension LedgerStore {
         customDisplayName: String? = nil,
         customDisplayDetail: String? = nil
     ) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !symbol.isEmpty else { return false }
         guard let index = state.categories.firstIndex(where: { $0.id == id }) else { return false }
@@ -134,6 +140,7 @@ extension LedgerStore {
 
     @discardableResult
     func deleteCategory(id: LedgerCategoryID) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         guard !id.isSystemLinked else { return false }
         guard state.categories.contains(where: { $0.id == id }) else { return false }
         mutateState { state in

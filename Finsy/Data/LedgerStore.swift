@@ -58,12 +58,28 @@ final class LedgerStore: ObservableObject {
 
     @discardableResult
     func mutateState<R>(_ impact: StateMutationImpact = .financial, _ mutation: (inout LedgerState) throws -> R) rethrows -> R {
+        if persistenceRecoveryMode == .legacyJSONReadOnlyRecovery {
+            var discarded = state
+            let result = try mutation(&discarded)
+            rejectRecoveryMutation()
+            return result
+        }
         var newState = state
         let result = try mutation(&newState)
         activeMutationImpact = impact
         defer { activeMutationImpact = nil }
         state = newState
         return result
+    }
+
+    var canMutateLedger: Bool { persistenceRecoveryMode != .legacyJSONReadOnlyRecovery }
+
+    func rejectRecoveryMutation() {
+        guard !canMutateLedger else { return }
+        activeUndoOperation = nil
+        undoTransactions = []
+        undoMessage = nil
+        presentedError = String(localized: "This recovered snapshot is read-only. Export it before resetting or replacing local data.")
     }
     @Published private(set) var financialRevision: UInt64 = 0
 
@@ -160,9 +176,9 @@ final class LedgerStore: ObservableObject {
         }
     }
 
-    init(stateForTesting initialState: LedgerState) {
+    init(stateForTesting initialState: LedgerState, recoveryMode: LedgerLibraryLoadSource? = nil) {
         persistenceEnabled = false
-        persistenceRecoveryMode = nil
+        persistenceRecoveryMode = recoveryMode
         persistenceBaseline = nil
         let book = LedgerBook(id: UUID(), name: "Test Ledger", state: initialState, createdAt: .now, updatedAt: .now)
         state = initialState
@@ -215,6 +231,7 @@ final class LedgerStore: ObservableObject {
     }
 
     func markDeleted(at index: Int, date: Date) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         mutateState { state in
             markDeleted(in: &state, at: index, date: date)
         }

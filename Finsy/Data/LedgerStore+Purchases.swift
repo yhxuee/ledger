@@ -33,6 +33,7 @@ extension LedgerStore {
     var purchaseSessions: [PurchaseSession] { (state.purchaseSessions ?? []).filter { $0.status != .cancelled }.sorted { $0.createdAt > $1.createdAt } }
 
     func savePurchaseSession(_ session: PurchaseSession) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         var updated = session
         updated.ledgerBookID = activeBookID
         updated.updatedAt = .now
@@ -50,6 +51,7 @@ extension LedgerStore {
         _ sessionID: UUID,
         now: Date = .now
     ) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         guard let session = (state.purchaseSessions ?? []).first(where: { $0.id == sessionID && $0.status != .cancelled }) else {
             return false
         }
@@ -132,6 +134,7 @@ extension LedgerStore {
 
     @discardableResult
     func startPurchaseSession(_ sessionID: UUID, activityStarter: any PurchaseActivityStarting = PurchaseLiveActivityController.shared) async throws -> PurchaseActivityOutcome {
+        guard canMutateLedger else { rejectRecoveryMutation(); throw CocoaError(.fileWriteNoPermission) }
         guard var session = purchaseSessions.first(where: { $0.id == sessionID }) else { throw PurchaseFinalizationError.missingSession }
         guard session.status == .draft else { throw PurchaseFinalizationError.notReady }
         try PurchaseRules.validatePayment(session, in: state)
@@ -190,6 +193,7 @@ extension LedgerStore {
     }
 
     func cancelPurchaseSession(_ session: PurchaseSession) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         var cancelled = session
         cancelled.status = .cancelled
         cancelled.updatedAt = .now
@@ -210,6 +214,7 @@ extension LedgerStore {
     /// the completion, return nil, change the session status or dismiss the screen.
     @discardableResult
     func setPurchaseItem(_ itemID: UUID, in sessionID: UUID, completed: Bool) -> PurchaseSession? {
+        guard canMutateLedger else { rejectRecoveryMutation(); return nil }
         guard var session = purchaseSessions.first(where: { $0.id == sessionID }),
               session.status == .active || session.status == .awaitingSummary,
               let index = session.items.firstIndex(where: { $0.id == itemID }) else { return nil }
@@ -229,6 +234,7 @@ extension LedgerStore {
     }
 
     func finalizePurchaseSession(_ sessionID: UUID, receiptAttachmentID: String?) async throws {
+        guard canMutateLedger else { rejectRecoveryMutation(); throw CocoaError(.fileWriteNoPermission) }
         guard var sessions = state.purchaseSessions, let sessionIndex = sessions.firstIndex(where: { $0.id == sessionID }) else { throw PurchaseFinalizationError.missingSession }
         let session = sessions[sessionIndex]
         if session.status == .completed { return }
@@ -365,6 +371,7 @@ extension LedgerStore {
     /// a successful merge. Never touches `presentedError`: the bridge is a nonfatal channel.
     @discardableResult
     func reconcileSharedActivePurchases() -> Bool {
+        guard canMutateLedger else { return false }
         // Explicit availability check: do not discover a missing container through item taps.
         guard PurchaseSharedStateStore.availability().isAvailable else { return false }
         guard var sessions = state.purchaseSessions else { return false }

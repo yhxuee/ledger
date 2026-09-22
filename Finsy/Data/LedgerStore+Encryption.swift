@@ -3,6 +3,7 @@ import CryptoKit
 
 extension LedgerStore {
     func enableEncryption(bookID: UUID) async throws {
+        guard canMutateLedger else { rejectRecoveryMutation(); throw CocoaError(.fileWriteNoPermission) }
         guard encryptionMigrations.insert(bookID).inserted else { throw CloudLedgerError.migrationInProgress }
         defer { encryptionMigrations.remove(bookID) }
         guard let index = books.firstIndex(where: { $0.id == bookID }), books[index].effectiveStorageKind != .cloudParticipant else { return }
@@ -59,6 +60,7 @@ extension LedgerStore {
     }
 
     func restoreAuthorizedLedger(bookID: UUID) async {
+        guard canMutateLedger else { return }
         guard let book = books.first(where: { $0.id == bookID }), book.effectiveEncryptionState == .authorizationRequired else { return }
         do {
             guard try LedgerKeyStore.loadKey(for: bookID) != nil else { return }
@@ -68,6 +70,7 @@ extension LedgerStore {
     }
 
     func resumeEncryptionMigrations() async {
+        guard canMutateLedger else { return }
         for id in books.filter({ $0.effectiveEncryptionState == .authorizationRequired }).map(\.id) {
             await restoreAuthorizedLedger(bookID: id)
         }

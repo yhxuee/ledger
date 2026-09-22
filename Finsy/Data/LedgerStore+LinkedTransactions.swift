@@ -2,6 +2,7 @@ import Foundation
 
 extension LedgerStore {
     func ensureCurrencyPocket(accountID: UUID, currency: CurrencyCode) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         guard let index = state.accounts.firstIndex(where: { $0.id == accountID && $0.deletedAt == nil }),
               state.accounts[index].usesCurrencyPockets,
               CurrencyRates.reference(currency, in: state.settings.rates) != nil else { return false }
@@ -16,6 +17,7 @@ extension LedgerStore {
 
     @discardableResult
     func configureSplit(parentID: UUID, people: Int = 2, now: Date = .now) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         guard (2...50).contains(people) else { return false }
         guard let index = state.transactions.firstIndex(where: { $0.id == parentID && $0.deletedAt == nil }) else { return false }
         let parent = state.transactions[index]
@@ -47,6 +49,7 @@ extension LedgerStore {
 
     @discardableResult
     func configureReimbursement(parentID: UUID, now: Date = .now) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         guard let index = state.transactions.firstIndex(where: { $0.id == parentID && $0.deletedAt == nil }) else { return false }
         let parent = state.transactions[index]
         guard TransactionSemantics.eligible(parent) || (parent.groupMode == .reimbursement && !parent.isLockedByReversal) else { return false }
@@ -74,6 +77,7 @@ extension LedgerStore {
 
     @discardableResult
     func configureInstallment(parentID: UUID, plan: InstallmentPlanMetadata, now: Date = .now) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         guard let index = state.transactions.firstIndex(where: { $0.id == parentID && $0.deletedAt == nil }) else { return false }
         let parent = state.transactions[index]
         guard state.accounts.first(where: { $0.id == parent.accountID && $0.deletedAt == nil })?.type == .credit else { return false }
@@ -102,6 +106,7 @@ extension LedgerStore {
 
     @discardableResult
     func convertExpenseToRefundGroup(_ original: LedgerTransaction, now: Date = .now) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         guard let index = state.transactions.firstIndex(where: { $0.id == original.id && $0.deletedAt == nil }) else { return false }
         let parent = state.transactions[index]
         guard TransactionSemantics.eligible(parent) else { return false }
@@ -122,6 +127,7 @@ extension LedgerStore {
 
     @discardableResult
     func completeSettlement(_ childID: UUID, now: Date = .now) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         guard let index = state.transactions.firstIndex(where: { $0.id == childID && $0.deletedAt == nil }),
               state.transactions[index].linkedTransactionKind == .splitSettlement else { return false }
         mutateState { state in
@@ -138,6 +144,7 @@ extension LedgerStore {
 
     @discardableResult
     func payInstallmentEarly(_ childID: UUID, now: Date = .now) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         guard let index = state.transactions.firstIndex(where: { $0.id == childID && $0.deletedAt == nil }),
               state.transactions[index].linkedTransactionKind == .installment else { return false }
         mutateState { state in
@@ -154,6 +161,7 @@ extension LedgerStore {
 
     @discardableResult
     func completeReimbursement(_ childID: UUID, now: Date = .now) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         guard let index = state.transactions.firstIndex(where: { $0.id == childID && $0.deletedAt == nil }),
               state.transactions[index].linkedTransactionKind == .reimbursementIncome else { return false }
         mutateState { state in
@@ -170,6 +178,7 @@ extension LedgerStore {
 
     @discardableResult
     func refundPurchaseChild(_ child: LedgerTransaction, now: Date = .now) -> LedgerTransaction? {
+        guard canMutateLedger else { rejectRecoveryMutation(); return nil }
         guard let index = state.transactions.firstIndex(where: { $0.id == child.id && $0.deletedAt == nil }),
               !child.isReversal, child.reversalTransactionID == nil else { return nil }
         guard let reversal = RefundEngine.makeReversal(of: child, in: state, now: now) else { return nil }
@@ -186,6 +195,7 @@ extension LedgerStore {
 
     @discardableResult
     func refundInstallmentParent(_ parent: LedgerTransaction, now: Date = .now) -> LedgerTransaction? {
+        guard canMutateLedger else { rejectRecoveryMutation(); return nil }
         guard parent.groupMode == .installment, parent.deletedAt == nil else { return nil }
         let refundable = TransactionSemantics.refundableInstallmentAmount(parent, in: state, now: now)
         guard refundable > 0.001 else { return nil }
@@ -236,6 +246,7 @@ extension LedgerStore {
 
     @discardableResult
     func configureLinked(_ id: UUID, mode: TransactionGroupMode, people: Int = 2, plan: InstallmentPlanMetadata? = nil) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         switch mode {
         case .split:
             return configureSplit(parentID: id, people: people)
@@ -268,6 +279,7 @@ extension LedgerStore {
 
     @discardableResult
     func combineTransactions(first: LedgerTransaction, second: LedgerTransaction) -> LedgerTransaction? {
+        guard canMutateLedger else { rejectRecoveryMutation(); return nil }
         guard canCombine(first, second) else { return nil }
         guard let idx1 = state.transactions.firstIndex(where: { $0.id == first.id }),
               let idx2 = state.transactions.firstIndex(where: { $0.id == second.id }) else { return nil }
@@ -341,6 +353,7 @@ extension LedgerStore {
 
     @discardableResult
     func addTransactionToCombinedPayment(_ item: LedgerTransaction, into parent: LedgerTransaction) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         guard canAddToCombinedPayment(item: item, parent: parent) else { return false }
         guard let parentIdx = state.transactions.firstIndex(where: { $0.id == parent.id }),
               let itemIdx = state.transactions.firstIndex(where: { $0.id == item.id }) else { return false }
@@ -388,6 +401,7 @@ extension LedgerStore {
 
     @discardableResult
     func detachCombinedPaymentChild(childID: UUID, now: Date = .now) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         guard canDetachCombinedPaymentChild(childID: childID) else { return false }
         guard let childIndex = state.transactions.firstIndex(where: { $0.id == childID }) else { return false }
         guard let parentID = state.transactions[childIndex].parentTransactionID,
@@ -460,6 +474,7 @@ extension LedgerStore {
     }
 
     func ungroupCombinedPayment(_ parent: LedgerTransaction) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         guard parent.groupMode == .combinedPayment, parent.deletedAt == nil, !TransactionSemantics.combinedPaymentHasActiveRefund(parent, in: state) else { return }
         guard let parentIndex = state.transactions.firstIndex(where: { $0.id == parent.id }) else { return }
         let affected = state.transactions.filter {
@@ -505,6 +520,7 @@ extension LedgerStore {
 
     @discardableResult
     func refundCombinedPayment(parentID: UUID, now: Date = .now) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         guard let parentIndex = state.transactions.firstIndex(where: { $0.id == parentID && $0.deletedAt == nil }) else { return false }
         let parent = state.transactions[parentIndex]
         guard TransactionSemantics.combinedPaymentIsRefundable(parent, in: state) else { return false }

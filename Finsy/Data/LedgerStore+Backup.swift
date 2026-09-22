@@ -2,6 +2,7 @@ import Foundation
 
 extension LedgerStore {
     func replace(with envelope: LedgerBackupEnvelope) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         do {
             var importedState = envelope.data
             SchemaMigration.normalize(&importedState)
@@ -23,12 +24,14 @@ extension LedgerStore {
     func resetLocalData() async throws {
         saveTask?.cancel()
         persistenceEnabled = false
-        defer { persistenceEnabled = true }
+        defer { persistenceEnabled = persistenceRecoveryMode == nil }
         saveRevision &+= 1
         await LedgerPersistence.shared.invalidate(revision: saveRevision)
         await CloudLedgerService.shared.resetLocalState()
         try Self.localRepository.resetLocalData()
         try PurchaseSharedStateStore.resetLocalSnapshots()
+        persistenceRecoveryMode = nil
+        persistenceBaseline = nil
         Task { await PurchaseLiveActivityController.shared.endAll() }
         let initial = SeedData.makeProductionEmpty()
         let book = LedgerBook(id: UUID(), name: "Ledger 1", state: initial, createdAt: .now, updatedAt: .now)

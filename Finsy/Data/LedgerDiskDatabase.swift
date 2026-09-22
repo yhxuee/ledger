@@ -254,6 +254,23 @@ final class LedgerDiskDatabase: @unchecked Sendable {
         guard sqlite3_step(query) == SQLITE_DONE else { throw error() }
     }
 
+    /// Distinguishes a newly-created empty SQLite file from an interrupted/legacy ledger whose
+    /// manifest is missing. No caller may treat the latter as a clean JSON import target.
+    func hasLedgerContent() throws -> Bool {
+        for sql in [
+            "SELECT 1 FROM documents LIMIT 1",
+            "SELECT 1 FROM transactions_index LIMIT 1",
+            "SELECT 1 FROM transaction_index_state LIMIT 1"
+        ] {
+            let query = try statement(sql)
+            let status = sqlite3_step(query)
+            sqlite3_finalize(query)
+            guard status == SQLITE_ROW || status == SQLITE_DONE else { throw error() }
+            if status == SQLITE_ROW { return true }
+        }
+        return false
+    }
+
     private func hasColumn(_ column: String, in table: String) throws -> Bool {
         let pragma = try statement("PRAGMA table_info(\(table))")
         defer { sqlite3_finalize(pragma) }

@@ -90,6 +90,7 @@ extension LedgerStore {
         linkedRecovery: Bool = false,
         origin: TransactionCreationOrigin = .user
     ) -> LedgerTransaction? {
+        guard canMutateLedger else { rejectRecoveryMutation(); return nil }
         guard let item = try? buildTransaction(type: type, accountID: accountID, destinationAccountID: destinationAccountID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: noteAttachmentID, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, recurringRuleID: recurringRuleID, accountCurrency: accountCurrency, accountAmount: accountAmount, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: destinationAmount, taxSnapshot: taxSnapshot, couponSnapshot: couponSnapshot, linkedRecovery: linkedRecovery, in: state) else { return nil }
         mutateState { state in
             state.transactions.insert(item, at: 0)
@@ -142,6 +143,7 @@ extension LedgerStore {
     }
 
     func updateTransaction(_ item: LedgerTransaction) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         guard let index = state.transactions.firstIndex(where: { $0.id == item.id }), !state.transactions[index].isLockedByReversal, let source = state.accounts.first(where: { $0.id == item.accountID }) else { return }
         guard item.amount.isFinite, item.amount > 0, source.deletedAt == nil else { return }
         guard let sourcePocket = resolvedPocket(item.accountCurrency, for: source) else { return }
@@ -279,6 +281,7 @@ extension LedgerStore {
     }
 
     func deleteTransaction(_ item: LedgerTransaction) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         // Combined Payment child deletion
         if item.linkedTransactionKind == .combinedPaymentItem, item.parentTransactionID != nil {
             deleteCombinedPaymentChild(item)
@@ -461,6 +464,7 @@ extension LedgerStore {
 
     @discardableResult
     func applyUndo(_ operation: LedgerUndoOperation) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         // Version guards: ensure none of the captured entities were subsequently modified incompatibly
         for (id, expectedVersion) in operation.expectedTransactionVersions {
             guard let current = state.transactions.first(where: { $0.id == id }) else { return false }
@@ -533,6 +537,7 @@ extension LedgerStore {
     }
 
     func undoDelete() {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         if let op = activeUndoOperation {
             if applyUndo(op) {
                 activeUndoOperation = nil
@@ -564,6 +569,7 @@ extension LedgerStore {
 
     @discardableResult
     func refundTransaction(_ original: LedgerTransaction) -> LedgerTransaction? {
+        guard canMutateLedger else { rejectRecoveryMutation(); return nil }
         guard original.deletedAt == nil, !original.isReversal, original.reversalTransactionID == nil else { return nil }
 
         // Combined Payment parent refund

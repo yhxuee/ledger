@@ -12,6 +12,7 @@ extension LedgerStore {
     }
 
     func switchBook(to id: UUID) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         guard id != activeBookID else { return }
         commitActiveBook()
         guard let book = books.first(where: { $0.id == id }) else { return }
@@ -26,6 +27,7 @@ extension LedgerStore {
     }
 
     func createBook(named rawName: String) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = trimmed.isEmpty ? "Ledger \(books.count + 1)" : trimmed
         commitActiveBook()
@@ -40,6 +42,7 @@ extension LedgerStore {
     }
 
     func markActiveBookCloudOwner(zoneName: String) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         guard let index = books.firstIndex(where: { $0.id == activeBookID }) else { return }
         books[index].storageKind = .cloudOwner
         books[index].cloudZoneName = zoneName
@@ -49,6 +52,7 @@ extension LedgerStore {
     }
 
     func markActiveBookEncrypted(fingerprint: String) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         guard let index = books.firstIndex(where: { $0.id == activeBookID }) else { return }
         books[index].isEncrypted = true
         books[index].encryptionVersion = LedgerCryptoService.currentEncryptionVersion
@@ -60,6 +64,7 @@ extension LedgerStore {
     }
 
     func markActiveBookUnencrypted() {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         guard let index = books.firstIndex(where: { $0.id == activeBookID }) else { return }
         books[index].isEncrypted = false
         books[index].encryptionState = .disabled
@@ -69,6 +74,7 @@ extension LedgerStore {
     }
 
     func detachCloudZone(_ zone: CKRecordZone.ID) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         commitActiveBook()
         for index in books.indices where books[index].cloudZoneName == zone.zoneName && books[index].cloudZoneOwnerName == zone.ownerName {
             // Preserve the last local copy and unsent edits when a share is removed.
@@ -81,6 +87,7 @@ extension LedgerStore {
 
     @discardableResult
     func addOrMergeCloudBook(_ book: LedgerBook, deletedRecordNames: Set<String> = [], selectNewBook: Bool = true) -> Bool {
+        guard canMutateLedger else { rejectRecoveryMutation(); return false }
         commitActiveBook()
         do {
             if let index = books.firstIndex(where: { $0.id == book.id }) {
@@ -130,7 +137,10 @@ extension LedgerStore {
     }
 
     func scheduleSave() {
-        guard persistenceEnabled else { return }
+        guard persistenceEnabled else {
+            if !canMutateLedger { rejectRecoveryMutation() }
+            return
+        }
         commitActiveBook()
         saveTask?.cancel()
         saveRevision &+= 1
@@ -159,6 +169,7 @@ extension LedgerStore {
     }
 
     func commitActiveBook() {
+        guard canMutateLedger else { return }
         guard let index = books.firstIndex(where: { $0.id == activeBookID }) else { return }
         if books[index].state != state {
             books[index].state = state

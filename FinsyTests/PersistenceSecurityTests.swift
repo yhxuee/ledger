@@ -363,6 +363,44 @@ final class PersistenceSecurityTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: root.appending(path: "ledger.sqlite")), corrupt)
     }
 
+    func testEmptySQLiteAllowsLegacyImportButResidualDataRequiresReadOnlyRecovery() throws {
+        let root = try temporaryFolder()
+        let original = book()
+        let library = LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion, activeBookID: original.id, books: [original])
+        let legacyData = try BackupCodec.encoder().encode(library)
+        try legacyData.write(to: root.appending(path: "library.json"))
+        let database = try LedgerDiskDatabase(url: root.appending(path: "ledger.sqlite"))
+        let local = LocalLedgerRepository(folder: root)
+
+        XCTAssertEqual(try local.loadResult()?.source, .legacyJSONImport)
+        try database.put(original.id.uuidString, "transaction-\(UUID())", Data("orphan".utf8))
+        let recovery = try XCTUnwrap(local.loadResult())
+        XCTAssertEqual(recovery.source, .legacyJSONReadOnlyRecovery)
+        XCTAssertEqual(recovery.library, library)
+        XCTAssertEqual(try Data(contentsOf: root.appending(path: "library.json")), legacyData)
+        XCTAssertThrowsError(try IncrementalLedgerRepository(database: database).load()) { error in
+            XCTAssertEqual(error as? PersistenceIntegrityError, .missingManifest)
+        }
+    }
+
+    func testRecoveryModeRejectsMutationsWithoutReportingSuccess() throws {
+        let store = LedgerStore(stateForTesting: SeedData.make(), recoveryMode: .legacyJSONReadOnlyRecovery)
+        let before = store.state
+        let account = try XCTUnwrap(before.accounts.first { $0.isAvailableForNewTransactions })
+
+        XCTAssertNil(store.addTransaction(type: .expense, accountID: account.id, destinationAccountID: nil,
+            amount: 1, currency: account.currency, categoryID: .food, occurredAt: .now, note: nil))
+        XCTAssertNil(store.addCategory(name: "Blocked", detail: "", symbol: "circle", colorHex: "FFFFFF"))
+        XCTAssertFalse(store.ensureCurrencyPocket(accountID: account.id, currency: account.currency))
+        store.updateSettings { $0.automaticRates.toggle() }
+        store.saveAccount(account, desiredBalance: 123)
+
+        XCTAssertEqual(store.state, before)
+        XCTAssertNil(store.undoMessage)
+        XCTAssertNotNil(store.presentedError)
+        XCTAssertEqual(store.backupEnvelope().data, before)
+    }
+
     func testMissingOrOrphanedEntityBlobRejectsSQLiteSnapshot() throws {
         let root = try temporaryFolder()
         let database = try LedgerDiskDatabase(url: root.appending(path: "ledger.sqlite"))
@@ -400,6 +438,23 @@ final class PersistenceSecurityTests: XCTestCase {
 
         XCTAssertEqual(try repository.transactionCount(bookID: original.id), original.state.transactions.filter { $0.deletedAt == nil }.count)
         XCTAssertNotNil(try repository.transaction(id: removed.id, bookID: original.id))
+    }
+
+    func testIndexWithSameCountAndWrongIDSetIsRebuilt() throws {
+        let database = try LedgerDiskDatabase(url: temporaryFolder().appending(path: "ledger.sqlite"))
+        let repository = IncrementalLedgerRepository(database: database)
+        let original = book()
+        let library = LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion, activeBookID: original.id, books: [original])
+        try repository.save(library, previous: nil)
+
+        let canonicalIDs = Set(original.state.transactions.map { $0.id.uuidString })
+        let removed = try XCTUnwrap(canonicalIDs.first)
+        let replacement = UUID().uuidString
+        try database.execute("UPDATE transactions_index SET transaction_id = '\(replacement)' WHERE book_id = '\(original.id.uuidString)' AND transaction_id = '\(removed)'")
+        XCTAssertEqual(try database.allIndexedTransactionIDs(bookID: original.id.uuidString).count, canonicalIDs.count)
+
+        _ = try repository.transactionCount(bookID: original.id)
+        XCTAssertEqual(Set(try database.allIndexedTransactionIDs(bookID: original.id.uuidString)), canonicalIDs)
     }
 
     func testKeysetPaginationIsStableAcrossIdenticalTimestamps() throws {

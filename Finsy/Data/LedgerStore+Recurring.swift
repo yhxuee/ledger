@@ -2,6 +2,7 @@ import Foundation
 
 extension LedgerStore {
     func saveRecurringRule(_ rule: RecurringRule) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         var activeRule = rule
         activeRule.deletedAt = nil
         mutateState { state in
@@ -14,6 +15,7 @@ extension LedgerStore {
     }
 
     func deleteRecurringRule(_ rule: RecurringRule) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         guard (state.recurringRules ?? []).contains(where: { $0.id == rule.id }) else { return }
         activeUndoOperation = LedgerUndoOperation(
             message: "Recurring transaction deleted",
@@ -31,6 +33,7 @@ extension LedgerStore {
     }
 
     func setRecurringRule(_ rule: RecurringRule, enabled: Bool) {
+        guard canMutateLedger else { rejectRecoveryMutation(); return }
         guard (state.recurringRules ?? []).contains(where: { $0.id == rule.id }) else { return }
         mutateState { state in
             guard var rules = state.recurringRules, let index = rules.firstIndex(where: { $0.id == rule.id }) else { return }
@@ -42,6 +45,7 @@ extension LedgerStore {
     }
 
     func processDueRecurring(now: Date = .now) {
+        guard canMutateLedger else { return }
         guard var rules = state.recurringRules, !rules.isEmpty else { return }
         var changed = false
         for index in rules.indices where rules[index].isEnabled && rules[index].deletedAt == nil {

@@ -55,7 +55,10 @@ struct IncrementalLedgerRepository: Sendable {
         var supportingHydrationDuration: TimeInterval = 0
         let library: LedgerLibrary? = try database.transaction(write: false) {
             let manifestStart = Date.now
-            guard let data = try database.data("library", "manifest") else { return nil }
+            guard let data = try database.data("library", "manifest") else {
+                guard try !database.hasLedgerContent() else { throw PersistenceIntegrityError.missingManifest }
+                return nil
+            }
             let manifest = try decoder.decode(Manifest.self, from: data)
             guard manifest.schemaVersion <= BackupCodec.currentSchemaVersion else { throw BackupError.futureSchema(manifest.schemaVersion) }
             try requireUnique(manifest.bookIDs, label: "book")
@@ -218,7 +221,11 @@ struct IncrementalLedgerRepository: Sendable {
         if previous != nil {
             let storedCertificate = try database.transactionIndexState(bookID: namespace)
             let storedCount = try database.transactionCount(bookID: namespace, includeDeleted: true)
-            previousIndexWasComplete = storedCertificate == previousCertificate && storedCount == previousIDs.count
+            let storedIDs = try database.allIndexedTransactionIDs(bookID: namespace).compactMap(UUID.init(uuidString:))
+            previousIndexWasComplete = storedCertificate == previousCertificate
+                && storedCount == previousIDs.count
+                && storedIDs.count == storedCount
+                && Self.idDigest(storedIDs) == previousCertificate.idDigest
         } else {
             previousIndexWasComplete = false
         }
@@ -403,8 +410,14 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
             formatVersion: Self.indexFormatVersion
         )
         let actualCount = try database.transactionCount(bookID: namespace, includeDeleted: true)
+        let actualIDStrings = try database.allIndexedTransactionIDs(bookID: namespace)
+        let actualIDs = actualIDStrings.compactMap(UUID.init(uuidString:))
+        let actualIDsAreValid = actualIDs.count == actualIDStrings.count
+            && Set(actualIDs).count == actualIDs.count
+            && Self.idDigest(actualIDs) == expected.idDigest
         if try database.transactionIndexState(bookID: namespace) == expected,
-           actualCount == expected.transactionCount { return }
+           actualCount == expected.transactionCount,
+           actualIDsAreValid { return }
 
         let rebuildStart = Date.now
         try database.transaction {
@@ -460,6 +473,7 @@ enum PersistenceIntegrityError: LocalizedError, Equatable {
     case identifierMismatch(String)
     case catalogMismatch(kind: String, expected: Int, stored: Int)
     case invalidPagination
+    case missingManifest
 
     var errorDescription: String? {
         switch self {
@@ -468,6 +482,7 @@ enum PersistenceIntegrityError: LocalizedError, Equatable {
         case .catalogMismatch(let kind, let expected, let stored):
             return "Local \(kind) storage is incomplete (catalog \(expected), records \(stored))."
         case .invalidPagination: return "The transaction page request is invalid."
+        case .missingManifest: return "Local storage contains ledger data but its library manifest is missing."
         }
     }
 }
