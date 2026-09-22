@@ -76,7 +76,7 @@ struct PurchaseSummaryView: View {
                     mode: .finalAmount,
                     exempt: false
                 )
-                sum += taxSnapshot?.taxAmount ?? 0
+                sum += taxSnapshot?.tax ?? 0
             }
         }
         return sum
