@@ -11,11 +11,11 @@ public enum TransactionCreationOrigin: Sendable {
     case system
 }
 
-public struct RecordTransactionResult: Sendable {
-    public let transaction: LedgerTransaction
-    public let activityOutcome: RecentTransactionActivityOutcome
+struct RecordTransactionResult: Sendable {
+    let transaction: LedgerTransaction
+    let activityOutcome: RecentTransactionActivityOutcome
 
-    public init(transaction: LedgerTransaction, activityOutcome: RecentTransactionActivityOutcome) {
+    init(transaction: LedgerTransaction, activityOutcome: RecentTransactionActivityOutcome) {
         self.transaction = transaction
         self.activityOutcome = activityOutcome
     }
