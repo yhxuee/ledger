@@ -9,6 +9,7 @@ struct SettingsView: View {
     @EnvironmentObject private var privacy: PrivacyController
     @State private var showingExporter = false
     @State private var showingImporter = false
+    @State private var showingImportWarning = false
     @State private var exportDocument: BackupDocument?
     @State private var importPreview: ImportPreview?
     @State private var working = false
@@ -25,6 +26,14 @@ struct SettingsView: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { LedgerBookMenu() } }
             .modifier(fileTransferModifier)
             .modifier(alertsModifier)
+            .alert("Import Data", isPresented: $showingImportWarning) {
+                Button("Choose File") {
+                    showingImporter = true
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Finsy backups (.fsy) preserve the full ledger structure. CSV is a flat transaction format. CSV can import standard accounts and transactions, but cannot reconstruct split/group relationships, reimbursements, refunds, installments, combined payments, purchase sessions, recurring rules, attachments, or CloudKit relationships. Use .fsy when full-fidelity restoration is required.")
+            }
             .overlay { progressOverlay }
     }
 
@@ -341,9 +350,9 @@ struct SettingsView: View {
             Divider()
 
             Button {
-                showingImporter = true
+                showingImportWarning = true
             } label: {
-                SettingsLabel("Import Backup", systemImage: "square.and.arrow.down")
+                SettingsLabel("Import Data", systemImage: "square.and.arrow.down")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .foregroundStyle(.primary)
@@ -769,15 +778,51 @@ struct ImportPreviewView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("File") {
+                Section("Source") {
+                    LabeledContent("Type", value: preview.sourceKind == .csvFlat ? "Flat CSV Import" : "Full Finsy Backup")
                     LabeledContent("Name", value: preview.sourceName)
                     LabeledContent("Base Currency", value: preview.envelope.data.settings.baseCurrency.rawValue)
                 }
-                Section("Contents") {
-                    LabeledContent("Accounts", value: "\(preview.envelope.metadata.accountCount)")
-                    LabeledContent("Transactions", value: "\(preview.envelope.metadata.transactionCount)")
-                    LabeledContent("Categories", value: "\(preview.envelope.metadata.categoryCount)")
+
+                if preview.sourceKind == .csvFlat, let report = preview.csvReport {
+                    Section("CSV Import") {
+                        LabeledContent("Rows read", value: "\(report.parsedRowCount)")
+                        LabeledContent("Transactions to import", value: "\(report.importedTransactionCount)")
+                        LabeledContent("Duplicates skipped", value: "\(report.duplicateTransactionCount)")
+                        LabeledContent("Accounts to create", value: "\(report.createdAccountCount)")
+                        LabeledContent("Rows remapped", value: "\(report.remappedLinkedCategoryCount)")
+                        LabeledContent("Rows rejected", value: "\(report.rejectedRowCount)")
+                    }
+
+                    if !report.createdAccounts.isEmpty {
+                        Section("Accounts to Create") {
+                            ForEach(report.createdAccounts) { account in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack {
+                                        Text(account.name)
+                                            .fontWeight(.medium)
+                                        Spacer()
+                                        Text("\(account.type.rawValue) • \(account.currency.rawValue)")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if account.isTypeDefaulted {
+                                        Text("Type inferred/defaulted • review after import.")
+                                            .font(.caption)
+                                            .foregroundStyle(.orange)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Section("Contents") {
+                        LabeledContent("Accounts", value: "\(preview.envelope.metadata.accountCount)")
+                        LabeledContent("Transactions", value: "\(preview.envelope.metadata.transactionCount)")
+                        LabeledContent("Categories", value: "\(preview.envelope.metadata.categoryCount)")
+                    }
                 }
+
                 if !preview.warnings.isEmpty {
                     Section("Review") {
                         ForEach(preview.warnings, id: \.self) {
@@ -785,10 +830,17 @@ struct ImportPreviewView: View {
                         }
                     }
                 }
+
                 Section {
-                    Text("Import replaces the current private local ledger. While viewing a shared ledger, it creates a separate local ledger and never overwrites collaborators’ CloudKit data.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    if preview.sourceKind == .csvFlat {
+                        Text("CSV transactions and newly created accounts will be merged into the current ledger. Existing accounts and transactions are preserved. CSV does not restore advanced linked structures. While viewing a shared ledger, it creates a separate local ledger and never overwrites collaborators’ CloudKit data.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("This backup replaces the current private local ledger. While viewing a shared ledger, it creates a separate local ledger and never overwrites collaborators’ CloudKit data.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .navigationTitle("Import Preview")
@@ -804,7 +856,7 @@ struct ImportPreviewView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Import") {
-                        if isLocalNewer {
+                        if preview.sourceKind == .fullBackup && isLocalNewer {
                             confirmingStaleBackup = true
                         } else {
                             confirm()
