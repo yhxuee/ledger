@@ -538,6 +538,13 @@ final class PersistenceSecurityTests: XCTestCase {
                                     activeBookID: original.id, books: [original])
         try repository.save(library, previous: nil)
 
+        let expectedViews = LedgerCalculations.accountViews(original.state)
+        let indexedViews = try repository.accountViews(bookID: original.id)
+        XCTAssertEqual(indexedViews.map(\.id), expectedViews.map(\.id))
+        for (indexed, expected) in zip(indexedViews, expectedViews) {
+            XCTAssertEqual(indexed.balance, expected.balance, accuracy: 0.001)
+        }
+
         for account in original.state.accounts where account.deletedAt == nil && account.type != .stocks {
             let expected = LedgerCalculations.pocketBalances(for: account, in: original.state)
             let actual = try repository.pocketBalances(for: account, bookID: original.id)
@@ -624,6 +631,44 @@ final class PersistenceSecurityTests: XCTestCase {
             XCTAssertNotNil(cursor)
         } while true
         XCTAssertEqual(pageIDs, ids)
+    }
+
+    func testFilteredKeysetPagesApplyAccountPredicateBeforeLimit() throws {
+        let database = try LedgerDiskDatabase(url: temporaryFolder().appending(path: "ledger.sqlite"))
+        let repository = IncrementalLedgerRepository(database: database)
+        var original = book()
+        let template = try XCTUnwrap(original.state.transactions.first)
+        let firstAccount = try XCTUnwrap(original.state.accounts.first)
+        let secondAccount = try XCTUnwrap(original.state.accounts.first { $0.id != firstAccount.id })
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        original.state.transactions = (0..<750).map { offset in
+            var transaction = template
+            transaction.id = UUID()
+            transaction.occurredAt = timestamp
+            transaction.type = .expense
+            transaction.accountID = offset.isMultiple(of: 2) ? firstAccount.id : secondAccount.id
+            transaction.destinationAccountID = nil
+            transaction.deletedAt = nil
+            return transaction
+        }
+        let library = LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion,
+                                    activeBookID: original.id, books: [original])
+        try repository.save(library, previous: nil)
+        let filter = LedgerTransactionFilter(from: timestamp, before: timestamp.addingTimeInterval(1),
+                                             accountIDs: [firstAccount.id], expenseOnly: true)
+        var ids: [UUID] = []
+        var cursor: LedgerTransactionCursor?
+        repeat {
+            let page = try repository.transactionPage(bookID: original.id, filter: filter,
+                                                      after: cursor, limit: 113)
+            ids.append(contentsOf: page.transactions.map(\.id))
+            cursor = page.nextCursor
+            if !page.hasMore { break }
+            XCTAssertNotNil(cursor)
+        } while true
+        let expected = original.state.transactions.filter { $0.accountID == firstAccount.id }
+            .map(\.id).sorted { $0.uuidString > $1.uuidString }
+        XCTAssertEqual(ids, expected)
     }
 
     func testCloudMergeRejectsDuplicateRemoteIDsWithoutTrapping() throws {

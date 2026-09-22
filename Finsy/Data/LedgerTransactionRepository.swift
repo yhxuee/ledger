@@ -24,6 +24,16 @@ struct LedgerTransactionCursor: Sendable, Equatable {
     let id: UUID
 }
 
+/// Filters are evaluated against the complete durable index before pagination. Dates use a
+/// half-open interval so adjacent day/range queries cannot double-count boundary records.
+struct LedgerTransactionFilter: Sendable, Equatable {
+    var from: Date? = nil
+    var before: Date? = nil
+    var categoryIDs: Set<LedgerCategoryID> = []
+    var accountIDs: Set<UUID> = []
+    var expenseOnly: Bool = false
+}
+
 /// A bounded query result. It is deliberately not a LedgerState or a saveable snapshot.
 struct LedgerTransactionPage: Sendable {
     let bookID: UUID
@@ -95,7 +105,10 @@ protocol LedgerTransactionRepository: Sendable {
     func transactionCount(bookID: UUID) throws -> Int
     func transactionCatalog(bookID: UUID) throws -> LedgerTransactionCatalog
     func transactionPage(bookID: UUID, after: LedgerTransactionCursor?, limit: Int) throws -> LedgerTransactionPage
+    func transactionPage(bookID: UUID, filter: LedgerTransactionFilter,
+                         after: LedgerTransactionCursor?, limit: Int) throws -> LedgerTransactionPage
     func allTransactionIDs(bookID: UUID) throws -> [UUID]
     func pocketBalances(for account: LedgerAccount, bookID: UUID) throws -> [(currency: CurrencyCode, balance: Double)]
     func accountBalance(for account: LedgerAccount, bookID: UUID, rates: [CurrencyCode: Double]) throws -> Double
+    func accountViews(bookID: UUID) throws -> [AccountViewModel]
 }

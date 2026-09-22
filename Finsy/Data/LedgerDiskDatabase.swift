@@ -381,6 +381,25 @@ final class LedgerDiskDatabase: @unchecked Sendable {
         return sqlite3_column_double(query, 0)
     }
 
+    /// Fetches every account-pocket sum in one indexed scan for Overview preparation.
+    func accountPocketPostingsSums(bookID: String, asOf: Date = .now) throws -> [String: [String: Double]] {
+        let query = try statement("""
+            SELECT account_id, currency, SUM(amount) FROM transaction_postings
+            WHERE book_id = ? AND effective_at <= ? GROUP BY account_id, currency
+            """, strings: [bookID])
+        defer { sqlite3_finalize(query) }
+        guard sqlite3_bind_double(query, 2, asOf.timeIntervalSince1970) == SQLITE_OK else { throw error() }
+        var sums: [String: [String: Double]] = [:]
+        while true {
+            let status = sqlite3_step(query)
+            if status == SQLITE_DONE { return sums }
+            guard status == SQLITE_ROW,
+                  let accountID = sqlite3_column_text(query, 0),
+                  let currency = sqlite3_column_text(query, 1) else { throw error() }
+            sums[String(cString: accountID), default: [:]][String(cString: currency)] = sqlite3_column_double(query, 2)
+        }
+    }
+
     func replacePostings(bookID: String, transactionID: String, postings: [LedgerPosting]) throws {
         try removePostings(bookID: bookID, transactionID: transactionID)
         let sql = """
@@ -549,6 +568,73 @@ final class LedgerDiskDatabase: @unchecked Sendable {
             if status == SQLITE_DONE { return results }
             guard status == SQLITE_ROW, let text = sqlite3_column_text(stmt, 0) else { throw error() }
             results.append(String(cString: text))
+        }
+    }
+
+    private enum QueryValue {
+        case text(String)
+        case real(Double)
+        case integer(Int64)
+    }
+
+    func filteredRecentTransactionIDs(bookID: String, filter: LedgerTransactionFilter,
+                                      after: LedgerTransactionCursor?, limit: Int) throws -> [String] {
+        var sql = "SELECT transaction_id FROM transactions_index WHERE book_id = ? AND is_deleted = 0"
+        var bindings: [QueryValue] = [.text(bookID)]
+        if let from = filter.from {
+            sql += " AND occurred_at >= ?"
+            bindings.append(.real(from.timeIntervalSince1970))
+        }
+        if let before = filter.before {
+            sql += " AND occurred_at < ?"
+            bindings.append(.real(before.timeIntervalSince1970))
+        }
+        if filter.expenseOnly || !filter.categoryIDs.isEmpty {
+            sql += " AND type = 'expense'"
+        }
+        if !filter.categoryIDs.isEmpty {
+            let categories = filter.categoryIDs.map(\.rawValue).sorted()
+            sql += " AND category_id IN (\(Array(repeating: "?", count: categories.count).joined(separator: ",")))"
+            bindings.append(contentsOf: categories.map(QueryValue.text))
+        }
+        if !filter.accountIDs.isEmpty {
+            let accounts = filter.accountIDs.map(\.uuidString).sorted()
+            let placeholders = Array(repeating: "?", count: accounts.count).joined(separator: ",")
+            sql += " AND (account_id IN (\(placeholders)) OR (type = 'transfer' AND destination_account_id IN (\(placeholders))))"
+            bindings.append(contentsOf: accounts.map(QueryValue.text))
+            bindings.append(contentsOf: accounts.map(QueryValue.text))
+        }
+        if let after {
+            sql += " AND (occurred_at < ? OR (occurred_at = ? AND transaction_id < ?))"
+            bindings.append(.real(after.occurredAt.timeIntervalSince1970))
+            bindings.append(.real(after.occurredAt.timeIntervalSince1970))
+            bindings.append(.text(after.id.uuidString))
+        }
+        sql += " ORDER BY occurred_at DESC, transaction_id DESC LIMIT ?"
+        bindings.append(.integer(Int64(limit)))
+        guard bindings.count <= Int(sqlite3_limit(handle, SQLITE_LIMIT_VARIABLE_NUMBER, -1)) else {
+            throw PersistenceIntegrityError.invalidPagination
+        }
+        var query: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, sql, -1, &query, nil) == SQLITE_OK, let query else { throw error() }
+        defer { sqlite3_finalize(query) }
+        for (offset, binding) in bindings.enumerated() {
+            let index = Int32(offset + 1)
+            let status: Int32
+            switch binding {
+            case .text(let value): status = sqlite3_bind_text(query, index, value, -1, transient)
+            case .real(let value): status = sqlite3_bind_double(query, index, value)
+            case .integer(let value): status = sqlite3_bind_int64(query, index, value)
+            }
+            guard status == SQLITE_OK else { throw error() }
+        }
+        var ids: [String] = []
+        ids.reserveCapacity(limit)
+        while true {
+            let status = sqlite3_step(query)
+            if status == SQLITE_DONE { return ids }
+            guard status == SQLITE_ROW, let id = sqlite3_column_text(query, 0) else { throw error() }
+            ids.append(String(cString: id))
         }
     }
 

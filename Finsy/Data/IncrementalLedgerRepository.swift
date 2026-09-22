@@ -544,6 +544,20 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
         return LedgerTransactionPage(bookID: bookID, transactions: transactions, nextCursor: nextCursor, hasMore: hasMore)
     }
 
+    func transactionPage(bookID: UUID, filter: LedgerTransactionFilter,
+                         after: LedgerTransactionCursor?, limit: Int) throws -> LedgerTransactionPage {
+        guard (1...500).contains(limit) else { throw PersistenceIntegrityError.invalidPagination }
+        try ensureIndexPopulated(for: bookID)
+        let ids = try database.filteredRecentTransactionIDs(bookID: bookID.uuidString, filter: filter,
+                                                            after: after, limit: limit + 1)
+        let fetched = try readIndexedTransactions(ids, bookID: bookID)
+        let hasMore = fetched.count > limit
+        let transactions = hasMore ? Array(fetched.prefix(limit)) : fetched
+        let nextCursor = hasMore ? transactions.last.map { LedgerTransactionCursor(occurredAt: $0.occurredAt, id: $0.id) } : nil
+        return LedgerTransactionPage(bookID: bookID, transactions: transactions,
+                                     nextCursor: nextCursor, hasMore: hasMore)
+    }
+
     func pocketBalances(for account: LedgerAccount, bookID: UUID) throws -> [(currency: CurrencyCode, balance: Double)] {
         try ensureIndexPopulated(for: bookID)
         try ensurePostingIndexPopulated(for: bookID)
@@ -565,6 +579,30 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
         let balances = try pocketBalances(for: account, bookID: bookID)
         return balances.reduce(0) { total, pocket in
             total + LedgerCalculations.convert(pocket.balance, from: pocket.currency, to: account.currency, rates: rates)
+        }
+    }
+
+    func accountViews(bookID: UUID) throws -> [AccountViewModel] {
+        try ensureIndexPopulated(for: bookID)
+        try ensurePostingIndexPopulated(for: bookID)
+        let namespace = bookID.uuidString
+        let header: Header = try read(namespace, "header")
+        guard header.book.id == bookID else { throw PersistenceIntegrityError.identifierMismatch("book") }
+        let accounts: [LedgerAccount] = try readIdentified(namespace, ids: header.accountIDs,
+                                                            prefix: "account", label: "account")
+        let sums = try database.accountPocketPostingsSums(bookID: namespace)
+        let rates = header.book.state.settings.rates
+        return accounts.filter { $0.deletedAt == nil }.map { account in
+            if account.type == .stocks, let stock = account.stockMetadata {
+                return AccountViewModel(account: account, balance: stock.value)
+            }
+            let balance = account.normalizedPockets.reduce(0.0) { total, pocket in
+                let pocketBalance = pocket.openingBalance
+                    + (sums[account.id.uuidString]?[pocket.currency.rawValue] ?? 0)
+                return total + LedgerCalculations.convert(pocketBalance, from: pocket.currency,
+                                                          to: account.currency, rates: rates)
+            }
+            return AccountViewModel(account: account, balance: balance)
         }
     }
 
