@@ -457,6 +457,51 @@ final class PersistenceSecurityTests: XCTestCase {
         XCTAssertEqual(Set(try database.allIndexedTransactionIDs(bookID: original.id.uuidString)), canonicalIDs)
     }
 
+    func testExplicitDeltaPreservesTransactionsOutsideCurrentPage() throws {
+        let database = try LedgerDiskDatabase(url: temporaryFolder().appending(path: "ledger.sqlite"))
+        let repository = IncrementalLedgerRepository(database: database)
+        let original = book()
+        let library = LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion, activeBookID: original.id, books: [original])
+        try repository.save(library, previous: nil)
+
+        let unseen = try XCTUnwrap(original.state.transactions.last)
+        let unseenBlob = try database.data(original.id.uuidString, "transaction-\(unseen.id)")
+        var changed = try XCTUnwrap(original.state.transactions.first)
+        changed.note = "Explicit delta"
+        changed.version += 1
+        changed.updatedAt = .now
+        try repository.applyTransactionDelta(try LedgerTransactionDelta(upserts: [changed]), bookID: original.id)
+
+        let catalog = try repository.transactionCatalog(bookID: original.id)
+        XCTAssertEqual(Set(catalog.ids), Set(original.state.transactions.map(\.id)))
+        XCTAssertTrue(catalog.contains(unseen.id))
+        XCTAssertEqual(try database.data(original.id.uuidString, "transaction-\(unseen.id)"), unseenBlob)
+        XCTAssertEqual(try repository.transaction(id: changed.id, bookID: original.id)?.note, "Explicit delta")
+
+        try repository.applyTransactionDelta(try LedgerTransactionDelta(removedIDs: [changed.id]), bookID: original.id)
+        XCTAssertFalse(try repository.transactionCatalog(bookID: original.id).contains(changed.id))
+        XCTAssertNotNil(try repository.transaction(id: unseen.id, bookID: original.id))
+    }
+
+    func testMetadataLoadKeepsInactiveTransactionBlobsUnhydrated() throws {
+        let database = try LedgerDiskDatabase(url: temporaryFolder().appending(path: "ledger.sqlite"))
+        let repository = IncrementalLedgerRepository(database: database)
+        let active = book()
+        var inactive = book()
+        inactive.name = "Inactive"
+        let library = LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion, activeBookID: active.id, books: [active, inactive])
+        try repository.save(library, previous: nil)
+
+        let damaged = try XCTUnwrap(inactive.state.transactions.first)
+        try database.put(inactive.id.uuidString, "transaction-\(damaged.id)", Data("invalid payload".utf8))
+        let metadata = try XCTUnwrap(repository.loadMetadata())
+        XCTAssertEqual(metadata.activeBookID, active.id)
+        XCTAssertEqual(metadata.books.count, 2)
+        XCTAssertEqual(metadata.books[1].transactionCatalog.count, inactive.state.transactions.count)
+        XCTAssertEqual(metadata.books[1].accounts, inactive.state.accounts)
+        XCTAssertThrowsError(try repository.load())
+    }
+
     func testKeysetPaginationIsStableAcrossIdenticalTimestamps() throws {
         let database = try LedgerDiskDatabase(url: temporaryFolder().appending(path: "ledger.sqlite"))
         let repository = IncrementalLedgerRepository(database: database)

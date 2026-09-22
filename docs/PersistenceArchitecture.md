@@ -27,7 +27,15 @@
 8. A save updates entity blobs, header, manifest, derived index, and index certificate in one
    `BEGIN IMMEDIATE` transaction. Termination before commit leaves the previous complete snapshot;
    termination after commit exposes the new complete snapshot.
+   The repository also offers `applyTransactionDelta` for explicit upserts and hard removals. It
+   leaves every unmentioned canonical ID and blob untouched and updates the header, index, and
+   certificate atomically. Normal user deletion is a tombstone upsert. The running store has not
+   switched to this path yet; it still saves complete snapshots until all domain consumers migrate.
 9. Full `BackupCodec.validate` runs after complete materialization. It is never run against a page.
+   `loadMetadata()` provides a separate nontransaction snapshot for the future lazy store. It
+   verifies manifest/header/catalog/index structure without decoding transaction payloads when
+   the index is healthy. It cannot prove the embedded ID or semantics of an unread payload; full
+   validation remains mandatory at import, backup, and other complete-snapshot boundaries.
 10. CloudKit generation, conflict merging, encryption migration, backup/export, calculations,
     recurring processing, undo, and ledger switching operate on fully materialized state.
 11. Unsigned builds retain the `FINSY_UNSIGNED_BUILD` runtime gate and never initialize
@@ -104,3 +112,7 @@ scheme would violate the invariants above and risk data loss. Genuine lazy start
 repository-backed domain state/query layer for balances, linked records, recurring processing,
 undo, CloudKit, backup, analytics, and statements. Until that layer exists, full hydration is the
 intentional correctness boundary rather than an unsafe partial-state optimization.
+
+`loadMetadata()`, typed pages, the complete ID catalog, and explicit transaction deltas are
+preparation for that migration. Production `LedgerStore` has not switched to them, so normal
+startup still decodes every transaction. This remains an open scalability limitation.

@@ -32,6 +32,47 @@ struct LedgerTransactionPage: Sendable {
     let hasMore: Bool
 }
 
+/// Persistence changes are named explicitly. A missing record in a page is never a removal.
+/// Normal user deletion is an upsert of a tombstoned LedgerTransaction; removals are reserved
+/// for explicit hard removal of a known canonical ID.
+struct LedgerTransactionDelta: Sendable {
+    let upserts: [LedgerTransaction]
+    let removedIDs: Set<UUID>
+
+    init(upserts: [LedgerTransaction] = [], removedIDs: Set<UUID> = []) throws {
+        let upsertIDs = upserts.map(\.id)
+        guard Set(upsertIDs).count == upsertIDs.count else { throw PersistenceIntegrityError.duplicateID("transaction delta") }
+        guard Set(upsertIDs).isDisjoint(with: removedIDs) else { throw PersistenceIntegrityError.conflictingTransactionDelta }
+        self.upserts = upserts
+        self.removedIDs = removedIDs
+    }
+}
+
+/// Nontransaction book data plus a complete ID catalog. This type cannot be used where a
+/// fully materialized LedgerBook or LedgerState is required by calculations or CloudKit.
+struct LedgerBookMetadata: Sendable {
+    let id: UUID
+    let name: String
+    let createdAt: Date
+    let updatedAt: Date
+    let storageKind: LedgerStorageKind
+    let cloudZoneName: String?
+    let cloudZoneOwnerName: String?
+    let encryptionState: LedgerEncryptionState
+    let accounts: [LedgerAccount]
+    let categories: [LedgerCategory]
+    let settings: LedgerSettings
+    let recurringRules: [RecurringRule]
+    let purchaseSessions: [PurchaseSession]
+    let transactionCatalog: LedgerTransactionCatalog
+}
+
+struct LedgerLibraryMetadata: Sendable {
+    let schemaVersion: Int
+    let activeBookID: UUID
+    let books: [LedgerBookMetadata]
+}
+
 protocol LedgerTransactionRepository: Sendable {
     func transaction(id: UUID, bookID: UUID) throws -> LedgerTransaction?
     func transactions(
