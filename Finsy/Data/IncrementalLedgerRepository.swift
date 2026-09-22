@@ -11,6 +11,20 @@ import CryptoKit
 struct IncrementalLedgerRepository: Sendable {
     let database: LedgerDiskDatabase
     private static let indexFormatVersion = 1
+    private static let postingFormatVersion = 1
+    private struct RateInput: Encodable {
+        var currency: CurrencyCode
+        var value: Double
+    }
+    private struct ProjectionAccountInput: Encodable {
+        var id: UUID
+        var currency: CurrencyCode
+        var pockets: [CurrencyCode]
+    }
+    private struct ProjectionInputs: Encodable {
+        var accounts: [ProjectionAccountInput]
+        var rates: [RateInput]
+    }
     private struct Manifest: Codable {
         var schemaVersion: Int
         var activeBookID: UUID
@@ -236,7 +250,8 @@ struct IncrementalLedgerRepository: Sendable {
                 guard book != old else { continue }
                 let namespace = book.id.uuidString
                 try update(book.state.accounts, previous: old?.state.accounts, namespace: namespace, prefix: "account")
-                try updateTransactions(book.state.transactions, previous: old?.state.transactions, namespace: namespace)
+                try updateTransactions(book.state.transactions, previous: old?.state.transactions,
+                                       book: book, previousBook: old, namespace: namespace)
                 try update(book.state.recurringRules ?? [], previous: old?.state.recurringRules, namespace: namespace, prefix: "recurring")
                 try update(book.state.purchaseSessions ?? [], previous: old?.state.purchaseSessions, namespace: namespace, prefix: "purchase")
 
@@ -250,6 +265,8 @@ struct IncrementalLedgerRepository: Sendable {
                     for key in try database.keys(id.uuidString) { try database.remove(id.uuidString, key) }
                     try database.removeAllIndexedTransactions(bookID: id.uuidString)
                     try database.removeTransactionIndexState(bookID: id.uuidString)
+                    try database.removeAllPostings(bookID: id.uuidString)
+                    try database.removePostingIndexState(bookID: id.uuidString)
                 }
             }
             try database.put("library", "manifest", encoder.encode(manifest))
@@ -257,10 +274,24 @@ struct IncrementalLedgerRepository: Sendable {
         LedgerDiagnostics.persistence.info("Saved library books=\(library.books.count) elapsed=\(Date.now.timeIntervalSince(start))")
     }
 
-    private func updateTransactions(_ transactions: [LedgerTransaction], previous: [LedgerTransaction]?, namespace: String) throws {
+    private func updateTransactions(_ transactions: [LedgerTransaction], previous: [LedgerTransaction]?,
+                                    book: LedgerBook, previousBook: LedgerBook?, namespace: String) throws {
         let old = try uniqueDictionary(previous ?? [], label: "previous transaction")
         try requireUnique(transactions.map(\.id), label: "transaction")
         let previousIDs = (previous ?? []).map(\.id)
+        let accountsByID = try uniqueDictionary(book.state.accounts, label: "account")
+        let rates = book.state.settings.rates
+        let inputDigest = try projectionInputDigest(accounts: book.state.accounts, rates: rates)
+        let canUpdateProjection: Bool
+        if let previousBook, previous != nil,
+           try projectionInputDigest(accounts: previousBook.state.accounts,
+                                     rates: previousBook.state.settings.rates) == inputDigest {
+            canUpdateProjection = try postingIndexIsComplete(
+                namespace: namespace, ids: previousIDs, inputDigest: inputDigest
+            )
+        } else {
+            canUpdateProjection = false
+        }
         let previousCertificate = LedgerDiskDatabase.TransactionIndexState(
             transactionCount: previousIDs.count,
             idDigest: Self.idDigest(previousIDs),
@@ -302,11 +333,16 @@ struct IncrementalLedgerRepository: Sendable {
                 version: tx.version,
                 updatedAt: tx.updatedAt.timeIntervalSince1970
             )
+            if canUpdateProjection {
+                try database.replacePostings(bookID: namespace, transactionID: tx.id.uuidString,
+                    postings: LedgerPostingProjection.postings(for: tx, accountsByID: accountsByID, rates: rates))
+            }
         }
         if previous != nil {
             for id in Set(old.keys).subtracting(currentIDs) {
                 try database.remove(namespace, "transaction-\(id)")
                 try database.removeIndexedTransaction(bookID: namespace, transactionID: id.uuidString)
+                if canUpdateProjection { try database.removePostings(bookID: namespace, transactionID: id.uuidString) }
             }
         } else {
             let expectedKeys = Set(currentIDs.map { "transaction-\($0)" })
@@ -326,6 +362,14 @@ struct IncrementalLedgerRepository: Sendable {
             try database.removeAllIndexedTransactions(bookID: namespace)
             for transaction in transactions { try index(transaction, namespace: namespace) }
         }
+        if !canUpdateProjection {
+            try database.removeAllPostings(bookID: namespace)
+            for tx in transactions {
+                try database.replacePostings(bookID: namespace, transactionID: tx.id.uuidString,
+                    postings: LedgerPostingProjection.postings(for: tx, accountsByID: accountsByID, rates: rates))
+            }
+        }
+        try certifyPostings(namespace: namespace, ids: transactions.map(\.id), inputDigest: inputDigest)
         try database.setTransactionIndexState(
             bookID: namespace,
             transactionCount: transactions.count,
@@ -339,17 +383,23 @@ struct IncrementalLedgerRepository: Sendable {
     func applyTransactionDelta(_ delta: LedgerTransactionDelta, bookID: UUID) throws {
         guard !delta.upserts.isEmpty || !delta.removedIDs.isEmpty else { return }
         try ensureIndexPopulated(for: bookID)
+        try ensurePostingIndexPopulated(for: bookID)
         let namespace = bookID.uuidString
         try database.transaction {
             var header: Header = try read(namespace, "header")
             guard header.book.id == bookID else { throw PersistenceIntegrityError.identifierMismatch("book") }
             try validateCatalog(header, namespace: namespace)
+            let accounts: [LedgerAccount] = try readIdentified(namespace, ids: header.accountIDs,
+                                                                 prefix: "account", label: "account")
+            let accountsByID = try uniqueDictionary(accounts, label: "account")
+            let rates = header.book.state.settings.rates
             var known = Set(header.transactionIDs)
             guard delta.removedIDs.isSubset(of: known) else { throw PersistenceIntegrityError.identifierMismatch("removed transaction") }
 
             for id in delta.removedIDs {
                 try database.remove(namespace, "transaction-\(id)")
                 try database.removeIndexedTransaction(bookID: namespace, transactionID: id.uuidString)
+                try database.removePostings(bookID: namespace, transactionID: id.uuidString)
                 known.remove(id)
             }
             header.transactionIDs.removeAll { delta.removedIDs.contains($0) }
@@ -358,6 +408,9 @@ struct IncrementalLedgerRepository: Sendable {
                 if known.insert(transaction.id).inserted { header.transactionIDs.append(transaction.id) }
                 try database.put(namespace, "transaction-\(transaction.id)", encoder.encode(transaction))
                 try index(transaction, namespace: namespace)
+                try database.replacePostings(bookID: namespace, transactionID: transaction.id.uuidString,
+                    postings: LedgerPostingProjection.postings(for: transaction,
+                                                                accountsByID: accountsByID, rates: rates))
             }
             header.validatedPocketBalances = nil
             header.book.updatedAt = .now
@@ -368,6 +421,8 @@ struct IncrementalLedgerRepository: Sendable {
                 idDigest: Self.idDigest(header.transactionIDs),
                 formatVersion: Self.indexFormatVersion
             )
+            try certifyPostings(namespace: namespace, ids: header.transactionIDs,
+                                inputDigest: projectionInputDigest(accounts: accounts, rates: rates))
         }
     }
 
@@ -491,6 +546,7 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
 
     func pocketBalances(for account: LedgerAccount, bookID: UUID) throws -> [(currency: CurrencyCode, balance: Double)] {
         try ensureIndexPopulated(for: bookID)
+        try ensurePostingIndexPopulated(for: bookID)
         let pockets = account.normalizedPockets
         var result: [(currency: CurrencyCode, balance: Double)] = []
         for pocket in pockets {
@@ -554,6 +610,68 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
             duration: Date.now.timeIntervalSince(rebuildStart),
             count: expected.transactionCount
         )
+    }
+
+    private func projectionInputDigest(accounts: [LedgerAccount], rates: [CurrencyCode: Double]) throws -> String {
+        let inputs = ProjectionInputs(
+            accounts: accounts.map { ProjectionAccountInput(id: $0.id, currency: $0.currency,
+                                                            pockets: $0.normalizedPockets.map(\.currency)) }
+                .sorted { $0.id.uuidString < $1.id.uuidString },
+            rates: rates.map { RateInput(currency: $0.key, value: $0.value) }
+                .sorted { $0.currency.rawValue < $1.currency.rawValue }
+        )
+        return SHA256.hash(data: try encoder.encode(inputs)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func postingIndexIsComplete(namespace: String, ids: [UUID], inputDigest: String) throws -> Bool {
+        guard let state = try database.postingIndexState(bookID: namespace),
+              state.transactionCount == ids.count,
+              state.idDigest == Self.idDigest(ids),
+              state.inputDigest == inputDigest,
+              state.formatVersion == Self.postingFormatVersion else { return false }
+        let actual = try database.postingIntegrity(bookID: namespace)
+        return actual.count == state.postingCount && actual.digest == state.postingDigest
+    }
+
+    private func certifyPostings(namespace: String, ids: [UUID], inputDigest: String) throws {
+        let integrity = try database.postingIntegrity(bookID: namespace)
+        try database.setPostingIndexState(bookID: namespace, state: .init(
+            transactionCount: ids.count,
+            idDigest: Self.idDigest(ids),
+            inputDigest: inputDigest,
+            postingCount: integrity.count,
+            postingDigest: integrity.digest,
+            formatVersion: Self.postingFormatVersion
+        ))
+    }
+
+    private func ensurePostingIndexPopulated(for bookID: UUID) throws {
+        let namespace = bookID.uuidString
+        let header: Header = try read(namespace, "header")
+        guard header.book.id == bookID else { throw PersistenceIntegrityError.identifierMismatch("book") }
+        try validateCatalog(header, namespace: namespace)
+        let accounts: [LedgerAccount] = try readIdentified(namespace, ids: header.accountIDs,
+                                                            prefix: "account", label: "account")
+        let rates = header.book.state.settings.rates
+        let inputDigest = try projectionInputDigest(accounts: accounts, rates: rates)
+        if try postingIndexIsComplete(namespace: namespace, ids: header.transactionIDs, inputDigest: inputDigest) { return }
+        let started = Date.now
+        try database.transaction {
+            let accountsByID = try uniqueDictionary(accounts, label: "account")
+            try database.removeAllPostings(bookID: namespace)
+            let transactions: [LedgerTransaction] = try readIdentified(
+                namespace, ids: header.transactionIDs, prefix: "transaction", label: "transaction"
+            )
+            for transaction in transactions {
+                try database.replacePostings(bookID: namespace, transactionID: transaction.id.uuidString,
+                    postings: LedgerPostingProjection.postings(for: transaction,
+                                                                accountsByID: accountsByID, rates: rates))
+            }
+            try certifyPostings(namespace: namespace, ids: header.transactionIDs, inputDigest: inputDigest)
+        }
+        LedgerDiagnostics.recordLazyMetrics(operation: "posting-index-rebuild",
+                                            duration: Date.now.timeIntervalSince(started),
+                                            count: header.transactionIDs.count)
     }
 
     private func index(_ tx: LedgerTransaction, namespace: String) throws {

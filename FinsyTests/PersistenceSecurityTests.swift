@@ -512,6 +512,60 @@ final class PersistenceSecurityTests: XCTestCase {
         XCTAssertThrowsError(try repository.load())
     }
 
+    func testPostingProjectionMatchesCompleteLedgerPocketBalances() throws {
+        let state = SeedData.make()
+        let accounts = Dictionary(state.accounts.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let now = Date.now
+        let postings = state.transactions.flatMap {
+            LedgerPostingProjection.postings(for: $0, accountsByID: accounts, rates: state.settings.rates)
+        }.filter { $0.effectiveAt <= now }
+
+        for account in state.accounts where account.deletedAt == nil && account.type != .stocks {
+            let expected = LedgerCalculations.pocketBalances(for: account, in: state)
+            for pocket in expected {
+                let actual = try XCTUnwrap(account.normalizedPockets.first(where: { $0.currency == pocket.currency })).openingBalance
+                    + postings.filter { $0.accountID == account.id && $0.currency == pocket.currency }.reduce(0) { $0 + $1.amount }
+                XCTAssertEqual(actual, pocket.balance, accuracy: 0.001)
+            }
+        }
+    }
+
+    func testPostingIndexMatchesFullBalancesAndRebuildsAfterRowLoss() throws {
+        let database = try LedgerDiskDatabase(url: temporaryFolder().appending(path: "ledger.sqlite"))
+        let repository = IncrementalLedgerRepository(database: database)
+        let original = book()
+        let library = LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion,
+                                    activeBookID: original.id, books: [original])
+        try repository.save(library, previous: nil)
+
+        for account in original.state.accounts where account.deletedAt == nil && account.type != .stocks {
+            let expected = LedgerCalculations.pocketBalances(for: account, in: original.state)
+            let actual = try repository.pocketBalances(for: account, bookID: original.id)
+            XCTAssertEqual(actual.count, expected.count)
+            for (actualPocket, expectedPocket) in zip(actual, expected) {
+                XCTAssertEqual(actualPocket.currency, expectedPocket.currency)
+                XCTAssertEqual(actualPocket.balance, expectedPocket.balance, accuracy: 0.001)
+            }
+        }
+
+        let accounts = Dictionary(original.state.accounts.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let row = try XCTUnwrap(original.state.transactions.first {
+            !LedgerPostingProjection.postings(for: $0, accountsByID: accounts,
+                                              rates: original.state.settings.rates).isEmpty
+        })
+        try database.removePostings(bookID: original.id.uuidString, transactionID: row.id.uuidString)
+        let account = try XCTUnwrap(original.state.accounts.first { $0.deletedAt == nil && $0.type != .stocks })
+        let rebuilt = try repository.pocketBalances(for: account, bookID: original.id)
+        let expected = LedgerCalculations.pocketBalances(for: account, in: original.state)
+        for (actualPocket, expectedPocket) in zip(rebuilt, expected) {
+            XCTAssertEqual(actualPocket.balance, expectedPocket.balance, accuracy: 0.001)
+        }
+        let state = try XCTUnwrap(database.postingIndexState(bookID: original.id.uuidString))
+        let integrity = try database.postingIntegrity(bookID: original.id.uuidString)
+        XCTAssertEqual(state.postingCount, integrity.count)
+        XCTAssertEqual(state.postingDigest, integrity.digest)
+    }
+
     func testIndexedFetchRejectsBlobWhoseEmbeddedIDDoesNotMatchKey() throws {
         let database = try LedgerDiskDatabase(url: temporaryFolder().appending(path: "ledger.sqlite"))
         let repository = IncrementalLedgerRepository(database: database)

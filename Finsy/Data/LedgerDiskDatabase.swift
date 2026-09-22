@@ -1,5 +1,6 @@
 import Foundation
 import SQLite3
+import CryptoKit
 
 /// A connection is confined to its caller's actor/thread. Every value is bound, never interpolated.
 final class LedgerDiskDatabase: @unchecked Sendable {
@@ -55,6 +56,30 @@ final class LedgerDiskDatabase: @unchecked Sendable {
                 book_id TEXT PRIMARY KEY NOT NULL,
                 transaction_count INTEGER NOT NULL,
                 id_digest TEXT NOT NULL,
+                format_version INTEGER NOT NULL
+            ) WITHOUT ROWID
+            """)
+            try execute("""
+            CREATE TABLE IF NOT EXISTS transaction_postings (
+                book_id TEXT NOT NULL,
+                transaction_id TEXT NOT NULL,
+                side INTEGER NOT NULL,
+                account_id TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                amount REAL NOT NULL,
+                effective_at REAL NOT NULL,
+                PRIMARY KEY (book_id, transaction_id, side)
+            ) WITHOUT ROWID
+            """)
+            try execute("CREATE INDEX IF NOT EXISTS idx_postings_account ON transaction_postings (book_id, account_id, currency, effective_at)")
+            try execute("""
+            CREATE TABLE IF NOT EXISTS posting_index_state (
+                book_id TEXT PRIMARY KEY NOT NULL,
+                transaction_count INTEGER NOT NULL,
+                id_digest TEXT NOT NULL,
+                input_digest TEXT NOT NULL,
+                posting_count INTEGER NOT NULL,
+                posting_digest TEXT NOT NULL,
                 format_version INTEGER NOT NULL
             ) WITHOUT ROWID
             """)
@@ -260,7 +285,9 @@ final class LedgerDiskDatabase: @unchecked Sendable {
         for sql in [
             "SELECT 1 FROM documents LIMIT 1",
             "SELECT 1 FROM transactions_index LIMIT 1",
-            "SELECT 1 FROM transaction_index_state LIMIT 1"
+            "SELECT 1 FROM transaction_index_state LIMIT 1",
+            "SELECT 1 FROM transaction_postings LIMIT 1",
+            "SELECT 1 FROM posting_index_state LIMIT 1"
         ] {
             let query = try statement(sql)
             let status = sqlite3_step(query)
@@ -344,32 +371,135 @@ final class LedgerDiskDatabase: @unchecked Sendable {
     }
 
     func accountPocketPostingsSum(bookID: String, accountID: String, currency: String) throws -> Double {
-        let sql = """
-        SELECT
-            COALESCE((
-                SELECT SUM(
-                    CASE
-                        WHEN type IN ('expense', 'transfer') THEN -(COALESCE(account_amount, amount))
-                        WHEN type = 'income' THEN COALESCE(account_amount, amount)
-                        ELSE 0
-                    END
-                )
-                FROM transactions_index
-                WHERE book_id = ? AND account_id = ? AND COALESCE(account_currency, currency) = ? AND is_deleted = 0 AND is_reversal = 0
-            ), 0)
-            +
-            COALESCE((
-                SELECT SUM(COALESCE(destination_amount, account_amount, amount))
-                FROM transactions_index
-                WHERE book_id = ? AND destination_account_id = ? AND type = 'transfer'
-                  AND COALESCE(destination_currency, currency) = ?
-                  AND is_deleted = 0 AND is_reversal = 0
-            ), 0)
-        """
-        let query = try statement(sql, strings: [bookID, accountID, currency, bookID, accountID, currency])
+        let query = try statement("""
+            SELECT COALESCE(SUM(amount), 0) FROM transaction_postings
+            WHERE book_id = ? AND account_id = ? AND currency = ? AND effective_at <= ?
+            """, strings: [bookID, accountID, currency])
         defer { sqlite3_finalize(query) }
+        guard sqlite3_bind_double(query, 4, Date.now.timeIntervalSince1970) == SQLITE_OK else { throw error() }
         guard sqlite3_step(query) == SQLITE_ROW else { throw error() }
         return sqlite3_column_double(query, 0)
+    }
+
+    func replacePostings(bookID: String, transactionID: String, postings: [LedgerPosting]) throws {
+        try removePostings(bookID: bookID, transactionID: transactionID)
+        let sql = """
+        INSERT INTO transaction_postings(book_id, transaction_id, side, account_id, currency, amount, effective_at)
+        VALUES(?, ?, ?, ?, ?, ?, ?)
+        """
+        var query: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, sql, -1, &query, nil) == SQLITE_OK, let query else { throw error() }
+        defer { sqlite3_finalize(query) }
+        for (side, posting) in postings.enumerated() {
+            guard posting.transactionID.uuidString == transactionID,
+                  sqlite3_bind_text(query, 1, bookID, -1, transient) == SQLITE_OK,
+                  sqlite3_bind_text(query, 2, transactionID, -1, transient) == SQLITE_OK,
+                  sqlite3_bind_int64(query, 3, Int64(side)) == SQLITE_OK,
+                  sqlite3_bind_text(query, 4, posting.accountID.uuidString, -1, transient) == SQLITE_OK,
+                  sqlite3_bind_text(query, 5, posting.currency.rawValue, -1, transient) == SQLITE_OK,
+                  sqlite3_bind_double(query, 6, posting.amount) == SQLITE_OK,
+                  sqlite3_bind_double(query, 7, posting.effectiveAt.timeIntervalSince1970) == SQLITE_OK,
+                  sqlite3_step(query) == SQLITE_DONE else { throw error() }
+            sqlite3_reset(query)
+            sqlite3_clear_bindings(query)
+        }
+    }
+
+    func removePostings(bookID: String, transactionID: String) throws {
+        let query = try statement("DELETE FROM transaction_postings WHERE book_id = ? AND transaction_id = ?", strings: [bookID, transactionID])
+        defer { sqlite3_finalize(query) }
+        guard sqlite3_step(query) == SQLITE_DONE else { throw error() }
+    }
+
+    func removeAllPostings(bookID: String) throws {
+        let query = try statement("DELETE FROM transaction_postings WHERE book_id = ?", strings: [bookID])
+        defer { sqlite3_finalize(query) }
+        guard sqlite3_step(query) == SQLITE_DONE else { throw error() }
+    }
+
+    struct PostingIndexState: Equatable {
+        var transactionCount: Int
+        var idDigest: String
+        var inputDigest: String
+        var postingCount: Int
+        var postingDigest: String
+        var formatVersion: Int
+    }
+
+    func postingIndexState(bookID: String) throws -> PostingIndexState? {
+        let query = try statement("""
+            SELECT transaction_count, id_digest, input_digest, posting_count, posting_digest, format_version
+            FROM posting_index_state WHERE book_id = ?
+            """, strings: [bookID])
+        defer { sqlite3_finalize(query) }
+        let status = sqlite3_step(query)
+        if status == SQLITE_DONE { return nil }
+        guard status == SQLITE_ROW,
+              let idDigest = sqlite3_column_text(query, 1),
+              let inputDigest = sqlite3_column_text(query, 2),
+              let postingDigest = sqlite3_column_text(query, 4) else { throw error() }
+        return PostingIndexState(
+            transactionCount: Int(sqlite3_column_int64(query, 0)),
+            idDigest: String(cString: idDigest),
+            inputDigest: String(cString: inputDigest),
+            postingCount: Int(sqlite3_column_int64(query, 3)),
+            postingDigest: String(cString: postingDigest),
+            formatVersion: Int(sqlite3_column_int64(query, 5))
+        )
+    }
+
+    func setPostingIndexState(bookID: String, state: PostingIndexState) throws {
+        let sql = """
+        INSERT INTO posting_index_state(book_id, transaction_count, id_digest, input_digest,
+            posting_count, posting_digest, format_version) VALUES(?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(book_id) DO UPDATE SET
+            transaction_count=excluded.transaction_count,
+            id_digest=excluded.id_digest,
+            input_digest=excluded.input_digest,
+            posting_count=excluded.posting_count,
+            posting_digest=excluded.posting_digest,
+            format_version=excluded.format_version
+        """
+        var query: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, sql, -1, &query, nil) == SQLITE_OK, let query else { throw error() }
+        defer { sqlite3_finalize(query) }
+        guard sqlite3_bind_text(query, 1, bookID, -1, transient) == SQLITE_OK,
+              sqlite3_bind_int64(query, 2, Int64(state.transactionCount)) == SQLITE_OK,
+              sqlite3_bind_text(query, 3, state.idDigest, -1, transient) == SQLITE_OK,
+              sqlite3_bind_text(query, 4, state.inputDigest, -1, transient) == SQLITE_OK,
+              sqlite3_bind_int64(query, 5, Int64(state.postingCount)) == SQLITE_OK,
+              sqlite3_bind_text(query, 6, state.postingDigest, -1, transient) == SQLITE_OK,
+              sqlite3_bind_int64(query, 7, Int64(state.formatVersion)) == SQLITE_OK,
+              sqlite3_step(query) == SQLITE_DONE else { throw error() }
+    }
+
+    func removePostingIndexState(bookID: String) throws {
+        let query = try statement("DELETE FROM posting_index_state WHERE book_id = ?", strings: [bookID])
+        defer { sqlite3_finalize(query) }
+        guard sqlite3_step(query) == SQLITE_DONE else { throw error() }
+    }
+
+    /// Streams every derived row into a content digest without retaining the result set.
+    func postingIntegrity(bookID: String) throws -> (count: Int, digest: String) {
+        let query = try statement("""
+            SELECT transaction_id, side, account_id, currency, amount, effective_at
+            FROM transaction_postings WHERE book_id = ? ORDER BY transaction_id, side
+            """, strings: [bookID])
+        defer { sqlite3_finalize(query) }
+        var hash = SHA256()
+        var count = 0
+        while true {
+            let status = sqlite3_step(query)
+            if status == SQLITE_DONE { break }
+            guard status == SQLITE_ROW,
+                  let transactionID = sqlite3_column_text(query, 0),
+                  let accountID = sqlite3_column_text(query, 2),
+                  let currency = sqlite3_column_text(query, 3) else { throw error() }
+            let row = "\(String(cString: transactionID))|\(sqlite3_column_int64(query, 1))|\(String(cString: accountID))|\(String(cString: currency))|\(sqlite3_column_double(query, 4).bitPattern)|\(sqlite3_column_double(query, 5).bitPattern)\n"
+            hash.update(data: Data(row.utf8))
+            count += 1
+        }
+        return (count, hash.finalize().map { String(format: "%02x", $0) }.joined())
     }
 
     func transactionCount(bookID: String, includeDeleted: Bool = false) throws -> Int {

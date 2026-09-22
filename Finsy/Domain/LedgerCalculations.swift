@@ -61,14 +61,22 @@ enum LedgerCalculations {
     /// Actual amount posted to the source account pocket, in that pocket's currency.
     /// `accountAmount` is authoritative; the FX estimate is only a fallback for legacy rows.
     static func sourcePosting(_ transaction: LedgerTransaction, for account: LedgerAccount, in state: LedgerState) -> Double {
+        sourcePosting(transaction, for: account, rates: state.settings.rates)
+    }
+
+    static func sourcePosting(_ transaction: LedgerTransaction, for account: LedgerAccount, rates: [CurrencyCode: Double]) -> Double {
         if let accountAmount = transaction.accountAmount, accountAmount.isFinite { return accountAmount }
-        return convert(transaction.amount, from: transaction.currency, to: sourcePocket(transaction, for: account), rates: state.settings.rates)
+        return convert(transaction.amount, from: transaction.currency, to: sourcePocket(transaction, for: account), rates: rates)
     }
 
     /// Actual amount posted to the destination account pocket, in that pocket's currency.
     static func destinationPosting(_ transaction: LedgerTransaction, for account: LedgerAccount, in state: LedgerState) -> Double {
+        destinationPosting(transaction, for: account, rates: state.settings.rates)
+    }
+
+    static func destinationPosting(_ transaction: LedgerTransaction, for account: LedgerAccount, rates: [CurrencyCode: Double]) -> Double {
         if let destinationAmount = transaction.destinationAmount, destinationAmount.isFinite { return destinationAmount }
-        return convert(transaction.amount, from: transaction.currency, to: destinationPocket(transaction, for: account), rates: state.settings.rates)
+        return convert(transaction.amount, from: transaction.currency, to: destinationPocket(transaction, for: account), rates: rates)
     }
 
     /// Balance of one pocket: its own opening balance plus only the postings routed to it.

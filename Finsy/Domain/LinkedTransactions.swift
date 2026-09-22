@@ -112,15 +112,21 @@ enum GroupStatusPresentation: Equatable, Sendable {
 enum TransactionSemantics {
     /// Determines whether a transaction produces a real balance posting to the account.
     static func posts(_ transaction: LedgerTransaction, now: Date = .now) -> Bool {
-        guard transaction.deletedAt == nil else { return false }
+        postingStartsAt(transaction).map { $0 <= now } ?? false
+    }
+
+    /// Earliest date a transaction contributes to balances. Derived postings use this same
+    /// authority, so an installment becoming due does not require rewriting its index row.
+    static func postingStartsAt(_ transaction: LedgerTransaction) -> Date? {
+        guard transaction.deletedAt == nil else { return nil }
 
         // Group parents
         if let mode = transaction.groupMode {
             switch mode {
             case .split, .reimbursement, .refund:
-                return true // Parent carries the full original account debit
+                return Date.distantPast // Parent carries the full original account debit
             case .installment, .combinedPayment:
-                return false // Installment and combined payment parents carry zero account posting
+                return nil // Installment and combined payment parents carry zero account posting
             }
         }
 
@@ -128,17 +134,21 @@ enum TransactionSemantics {
         if let kind = transaction.linkedTransactionKind {
             switch kind {
             case .splitSelfExpense, .reimbursementOriginal, .refundOriginal, .combinedPaymentRefund:
-                return false // Display-only or non-posting child records
+                return nil // Display-only or non-posting child records
             case .splitSettlement, .reimbursementIncome:
-                return transaction.isCompleted(asOf: now) // Only posts when money is received
+                if transaction.linkedStatus == .completed { return transaction.completedAt ?? transaction.occurredAt }
+                return transaction.linkedStatus == nil ? transaction.occurredAt : nil
             case .refundIncome, .combinedPaymentItem, .combinedPaymentRefundSupport:
-                return true // Real money movement / reversal
+                return Date.distantPast // Real money movement / reversal
             case .installment:
-                return transaction.isCompleted(asOf: now) // Posts when due or early completed
+                if transaction.linkedStatus == .completed {
+                    return min(transaction.completedAt ?? transaction.occurredAt, transaction.occurredAt)
+                }
+                return transaction.occurredAt
             }
         }
 
-        return true
+        return Date.distantPast
     }
 
     /// Single authority for Expense Analytics effect, historical-FX converted to `target`.
