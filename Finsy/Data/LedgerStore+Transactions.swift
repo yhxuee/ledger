@@ -11,6 +11,16 @@ public enum TransactionCreationOrigin: Sendable {
     case system
 }
 
+public struct RecordTransactionResult: Sendable {
+    public let transaction: LedgerTransaction
+    public let activityOutcome: RecentTransactionActivityOutcome
+
+    public init(transaction: LedgerTransaction, activityOutcome: RecentTransactionActivityOutcome) {
+        self.transaction = transaction
+        self.activityOutcome = activityOutcome
+    }
+}
+
 extension LedgerStore {
     /// Resolves a requested currency pocket against an account.
     /// Single-currency accounts only ever post to their primary currency; a multi-currency
@@ -168,7 +178,7 @@ extension LedgerStore {
         linkedRecovery: Bool = false,
         origin: TransactionCreationOrigin = .user,
         presentation: RecentTransactionPresentation = .standard
-    ) async -> LedgerTransaction? {
+    ) async -> RecordTransactionResult? {
         guard canMutateLedger else { rejectRecoveryMutation(); return nil }
         guard let item = try? buildTransaction(type: type, accountID: accountID, destinationAccountID: destinationAccountID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: noteAttachmentID, purchaseSessionID: purchaseSessionID, purchaseItemID: purchaseItemID, recurringRuleID: recurringRuleID, accountCurrency: accountCurrency, accountAmount: accountAmount, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: destinationAmount, taxSnapshot: taxSnapshot, couponSnapshot: couponSnapshot, linkedRecovery: linkedRecovery, in: state) else { return nil }
         mutateState { state in
@@ -204,6 +214,7 @@ extension LedgerStore {
             return nil
         }
 
+        var activityOutcome: RecentTransactionActivityOutcome = .skippedNoPresentation
         if presentation != .none {
             let outcome = await RecentTransactionActivityCoordinator.shared.didRecordTransaction(
                 recordedItem,
@@ -212,6 +223,7 @@ extension LedgerStore {
                 ledgerBookID: recordedBookID,
                 presentation: presentation
             )
+            activityOutcome = outcome
             switch outcome {
             case .requestFailed(_, let code, let message):
                 self.recentActivityWarning = String(format: String(localized: "The transaction was saved, but its Live Activity could not start (%lld: %@)."), Int64(code), message)
@@ -221,7 +233,7 @@ extension LedgerStore {
                 break
             }
         }
-        return recordedItem
+        return RecordTransactionResult(transaction: recordedItem, activityOutcome: activityOutcome)
     }
 
     func updateTransaction(_ item: LedgerTransaction) {

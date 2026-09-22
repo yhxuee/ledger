@@ -28,10 +28,12 @@ struct FinsyApp: App {
                     )
                 }
                 .onChange(of: store.activeBookID) { _, _ in
-                    FinsyMaintenanceCoordinator.shared.performLedgerSwitchMaintenance(
-                        store: store,
-                        preferences: preferences
-                    )
+                    Task { @MainActor in
+                        await FinsyMaintenanceCoordinator.shared.performLedgerSwitchMaintenance(
+                            store: store,
+                            preferences: preferences
+                        )
+                    }
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {

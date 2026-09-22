@@ -314,11 +314,7 @@ public enum LedgerAccessState: Sendable {
     }
 
     func transaction(id: UUID) -> LedgerTransaction? {
-        if let inMemory = state.transactions.first(where: { $0.id == id }) {
-            return inMemory
-        }
-        guard persistenceEnabled else { return nil }
-        return try? Self.localRepository.transactionRepository().transaction(id: id, bookID: activeBookID)
+        state.transactions.first(where: { $0.id == id })
     }
 
     func transactions(from: Date? = nil, to: Date? = nil) -> [LedgerTransaction] {

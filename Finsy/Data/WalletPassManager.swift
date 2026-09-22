@@ -79,10 +79,30 @@ final class WalletPassManager: ObservableObject {
         session: PurchaseSession,
         store: LedgerStore
     ) -> PurchaseReceiptPassSnapshot {
-        let completedItems = session.items.filter { $0.isCompleted }
-        let total = completedItems.reduce(0.0) { $0 + $1.amount }
+        let categoryMap = Dictionary(store.state.categories.map { ($0.id, $0.displayName) }, uniquingKeysWith: { first, _ in first })
+        let orderedItems = session.orderedItems
+        let passItems: [PurchaseReceiptPassItem] = orderedItems.map { item in
+            let trimmedNote = item.note.trimmingCharacters(in: .whitespacesAndNewlines)
+            let catName = categoryMap[item.categoryID] ?? item.categoryID.rawValue
+            let name = trimmedNote.isEmpty ? catName : trimmedNote
+            let formattedAmt = "\(session.currency.symbol)\(String(format: "%.2f", item.amount))"
+            return PurchaseReceiptPassItem(
+                name: name,
+                category: catName,
+                amount: item.amount,
+                formattedAmount: formattedAmt
+            )
+        }
+
+        let total = session.plannedAmount
         let formattedTotal = "\(session.currency.symbol)\(String(format: "%.2f", total))"
-        let itemsSummary = completedItems.prefix(3).map(\.note).joined(separator: ", ") + (completedItems.count > 3 ? "..." : "")
+        let tax = PurchaseReceiptCalculations.resolvedTax(for: session, in: store.state, isCompleted: true)
+        let formattedTax = "\(session.currency.symbol)\(String(format: "%.2f", tax))"
+
+        let itemsSummary = orderedItems.prefix(3).map { item in
+            let trimmedNote = item.note.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmedNote.isEmpty ? (categoryMap[item.categoryID] ?? item.categoryID.rawValue) : trimmedNote
+        }.joined(separator: ", ") + (orderedItems.count > 3 ? "..." : "")
 
         return PurchaseReceiptPassSnapshot(
             sessionID: session.id,
@@ -90,8 +110,11 @@ final class WalletPassManager: ObservableObject {
             totalAmount: total,
             currency: session.currency,
             formattedTotal: formattedTotal,
-            itemCount: completedItems.count,
+            itemCount: orderedItems.count,
             itemsSummary: itemsSummary,
+            items: passItems,
+            taxAmount: tax,
+            formattedTax: formattedTax,
             finalizedAt: session.completedAt ?? Date.now
         )
     }

@@ -135,16 +135,21 @@ struct PurchaseWalletTicketCard: View {
             VStack(spacing: 10) {
                 ForEach(orderedItems) { item in
                     HStack(alignment: .top) {
+                        let trimmedNote = item.note.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let categoryName = categoryResolver(item.categoryID)
                         VStack(alignment: .leading, spacing: 2) {
-                            let title = item.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                ? categoryResolver(item.categoryID)
-                                : item.note
-                            Text(title)
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.primary)
-                            Text(categoryResolver(item.categoryID))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                            if trimmedNote.isEmpty {
+                                Text(categoryName)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.primary)
+                            } else {
+                                Text(trimmedNote)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                Text(categoryName)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         Spacer()
                         SensitiveMoneyText(

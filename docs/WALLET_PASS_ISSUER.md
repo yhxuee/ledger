@@ -38,3 +38,37 @@ public protocol WalletPassIssuer: Sendable {
 2. **`MockWalletPassIssuer` (Test & Debug)**:
    - Available under `#if DEBUG`.
    - Records incoming snapshots (`lastAccountSnapshot`, `lastPurchaseSnapshot`, `lastTaxSnapshot`) for assertion in unit tests without requiring live network calls.
+
+---
+
+## 3. Pass Snapshot Payloads
+
+### `PurchaseReceiptPassSnapshot`
+The purchase receipt pass includes itemized lines and computed tax:
+```json
+{
+  "passTypeIdentifier": "pass.com.finsy.receipt",
+  "serialNumber": "purchase-UUID",
+  "sessionID": "UUID",
+  "storeName": "Store Name",
+  "totalAmount": 128.50,
+  "currency": "HKD",
+  "formattedTotal": "HK$128.50",
+  "itemCount": 3,
+  "itemsSummary": "Apples, Bread, Milk",
+  "items": [
+    {
+      "name": "Apples",
+      "category": "Groceries",
+      "amount": 25.0,
+      "formattedAmount": "HK$25.00"
+    }
+  ],
+  "taxAmount": 10.50,
+  "formattedTax": "HK$10.50",
+  "finalizedAt": "2026-09-22T12:00:00Z"
+}
+```
+- `items`: Itemized array representing canonical `session.orderedItems`.
+- `taxAmount` / `formattedTax`: Authoritative recorded tax or category-rate tax calculated via `PurchaseReceiptCalculations`.
+

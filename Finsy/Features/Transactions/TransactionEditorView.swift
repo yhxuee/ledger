@@ -455,13 +455,6 @@ struct TransactionEditorView: View {
         .offset(y: isHandingOff ? -40 : 0)
         .scaleEffect(isHandingOff ? 0.95 : 1.0)
         .opacity(isHandingOff ? 0 : 1.0)
-        .onDisappear {
-            if entryMode == .turbo {
-                Task {
-                    await RecentTransactionActivityCoordinator.shared.endCurrentActivity()
-                }
-            }
-        }
     }
 
     @ViewBuilder private var editorContent: some View {
@@ -1210,6 +1203,7 @@ struct TransactionEditorView: View {
                   store.ensureCurrencyPocket(accountID: accountID, currency: currency),
                   store.ensureCurrencyPocket(accountID: accountID, currency: target) else { return }
         }
+        var recordedResult: RecordTransactionResult?
         if var original {
             original.type = type; original.accountID = accountID; original.destinationAccountID = type == .transfer ? destinationID : nil
             original.amount = amount; original.currency = currency; original.categoryID = type == .transfer ? .other : categoryID
@@ -1225,11 +1219,29 @@ struct TransactionEditorView: View {
             store.updateTransaction(original)
         } else {
             let presentation: RecentTransactionPresentation = (entryMode == .turbo) ? .none : .standard
-            guard await store.recordTransaction(type: type, accountID: accountID, destinationAccountID: destinationID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: savedAttachmentID, accountCurrency: sourceAccountCurrency, accountAmount: sourcePostingValue, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: type == .transfer ? destinationPostingValue : nil, taxSnapshot: taxSnapshot, couponSnapshot: selectedCouponSnapshot, presentation: presentation) != nil else {
+            guard let result = await store.recordTransaction(
+                type: type,
+                accountID: accountID,
+                destinationAccountID: destinationID,
+                amount: amount,
+                currency: currency,
+                categoryID: categoryID,
+                occurredAt: occurredAt,
+                note: note,
+                noteAttachmentID: savedAttachmentID,
+                accountCurrency: sourceAccountCurrency,
+                accountAmount: sourcePostingValue,
+                destinationAccountCurrency: destinationAccountCurrency,
+                destinationAmount: type == .transfer ? destinationPostingValue : nil,
+                taxSnapshot: taxSnapshot,
+                couponSnapshot: selectedCouponSnapshot,
+                presentation: presentation
+            ) else {
                 if noteImageChanged, let savedAttachmentID { try? await AttachmentStore.shared.delete(identifier: savedAttachmentID) }
                 store.presentedError = String(localized: "The transaction could not be saved.")
                 return
             }
+            recordedResult = result
         }
         if let oldIdentifier = removedAttachmentID ?? (noteImageChanged ? noteAttachmentID : nil), oldIdentifier != savedAttachmentID {
             try? await AttachmentStore.shared.delete(identifier: oldIdentifier)
@@ -1255,7 +1267,7 @@ struct TransactionEditorView: View {
             syncAmountFields()
             return
         }
-        if original == nil && entryMode == .normal {
+        if let result = recordedResult, case .started = result.activityOutcome {
             withAnimation(.easeOut(duration: 0.25)) {
                 isHandingOff = true
             }

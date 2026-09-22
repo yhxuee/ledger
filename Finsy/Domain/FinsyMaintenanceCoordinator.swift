@@ -14,6 +14,8 @@ final class FinsyMaintenanceCoordinator {
 
     private init() {}
 
+    private var ledgerSwitchGeneration = 0
+
     /// Performs one-time app-launch maintenance operations (biometrics, observers, migrations,
     /// catalog/rates/quotes refresh, background tasks).
     func performAppLaunchMaintenance(
@@ -29,7 +31,7 @@ final class FinsyMaintenanceCoordinator {
         RecentTransactionActivityCoordinator.shared.registerObservers(store: store)
 
         // Perform initial book-specific reconciliation
-        performLedgerSwitchMaintenance(store: store, preferences: preferences)
+        await performLedgerSwitchMaintenance(store: store, preferences: preferences)
 
         _ = try? await store.refreshCurrencyCatalogIfNeeded()
         _ = try? await store.refreshExchangeRatesIfNeeded()
@@ -49,16 +51,25 @@ final class FinsyMaintenanceCoordinator {
     }
 
     /// Performs book-specific reconciliation when switching active ledgers.
-    /// This is synchronous/fast and is never blocked by global app-launch maintenance.
+    /// Reconciles recent actions, active purchases, recurring rules, installments, widget snapshots,
+    /// and coupon reminder notifications.
     func performLedgerSwitchMaintenance(
         store: LedgerStore,
         preferences: AppPreferencesStore
-    ) {
+    ) async {
+        ledgerSwitchGeneration += 1
+        let generation = ledgerSwitchGeneration
+        let targetBookID = store.activeBookID
+
         RecentTransactionActivityCoordinator.shared.reconcilePendingActions(store: store)
         store.reconcileSharedActivePurchases()
         store.processDueRecurring()
         store.refreshDueInstallments()
         OverviewWidgetRelay.updateSnapshot(store: store, preferences: preferences.value)
+
+        await FinsyNotificationScheduler.shared.reconcileCouponReminders(accounts: store.state.accounts)
+
+        guard generation == ledgerSwitchGeneration, targetBookID == store.activeBookID else { return }
     }
 
     /// Performs foreground-transition maintenance operations with in-flight deduplication.
@@ -67,7 +78,9 @@ final class FinsyMaintenanceCoordinator {
         preferences: AppPreferencesStore,
         privacy: PrivacyController
     ) {
-        performLedgerSwitchMaintenance(store: store, preferences: preferences)
+        Task { @MainActor in
+            await performLedgerSwitchMaintenance(store: store, preferences: preferences)
+        }
 
         guard !isPerformingBackgroundMaintenance else { return }
         isPerformingBackgroundMaintenance = true

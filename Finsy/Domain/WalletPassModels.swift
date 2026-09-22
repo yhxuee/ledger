@@ -53,6 +53,20 @@ struct AccountPassSnapshot: Codable, Hashable, Sendable {
     }
 }
 
+struct PurchaseReceiptPassItem: Codable, Hashable, Sendable {
+    var name: String
+    var category: String
+    var amount: Double
+    var formattedAmount: String
+
+    init(name: String, category: String, amount: Double, formattedAmount: String) {
+        self.name = name
+        self.category = category
+        self.amount = amount
+        self.formattedAmount = formattedAmount
+    }
+}
+
 struct PurchaseReceiptPassSnapshot: Codable, Hashable, Sendable {
     var passTypeIdentifier: String
     var serialNumber: String
@@ -63,7 +77,14 @@ struct PurchaseReceiptPassSnapshot: Codable, Hashable, Sendable {
     var formattedTotal: String
     var itemCount: Int
     var itemsSummary: String
+    var items: [PurchaseReceiptPassItem]
+    var taxAmount: Double
+    var formattedTax: String
     var finalizedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case passTypeIdentifier, serialNumber, sessionID, storeName, totalAmount, currency, formattedTotal, itemCount, itemsSummary, items, taxAmount, formattedTax, finalizedAt
+    }
 
     init(
         passTypeIdentifier: String = "pass.com.finsy.receipt",
@@ -74,6 +95,9 @@ struct PurchaseReceiptPassSnapshot: Codable, Hashable, Sendable {
         formattedTotal: String,
         itemCount: Int,
         itemsSummary: String,
+        items: [PurchaseReceiptPassItem] = [],
+        taxAmount: Double = 0.0,
+        formattedTax: String = "",
         finalizedAt: Date
     ) {
         self.passTypeIdentifier = passTypeIdentifier
@@ -85,7 +109,27 @@ struct PurchaseReceiptPassSnapshot: Codable, Hashable, Sendable {
         self.formattedTotal = formattedTotal
         self.itemCount = itemCount
         self.itemsSummary = itemsSummary
+        self.items = items
+        self.taxAmount = taxAmount
+        self.formattedTax = formattedTax
         self.finalizedAt = finalizedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        passTypeIdentifier = try container.decodeIfPresent(String.self, forKey: .passTypeIdentifier) ?? "pass.com.finsy.receipt"
+        serialNumber = try container.decodeIfPresent(String.self, forKey: .serialNumber) ?? ""
+        sessionID = try container.decode(UUID.self, forKey: .sessionID)
+        storeName = try container.decode(String.self, forKey: .storeName)
+        totalAmount = try container.decode(Double.self, forKey: .totalAmount)
+        currency = try container.decode(CurrencyCode.self, forKey: .currency)
+        formattedTotal = try container.decode(String.self, forKey: .formattedTotal)
+        itemCount = try container.decode(Int.self, forKey: .itemCount)
+        itemsSummary = try container.decodeIfPresent(String.self, forKey: .itemsSummary) ?? ""
+        items = try container.decodeIfPresent([PurchaseReceiptPassItem].self, forKey: .items) ?? []
+        taxAmount = try container.decodeIfPresent(Double.self, forKey: .taxAmount) ?? 0.0
+        formattedTax = try container.decodeIfPresent(String.self, forKey: .formattedTax) ?? ""
+        finalizedAt = try container.decode(Date.self, forKey: .finalizedAt)
     }
 }
 

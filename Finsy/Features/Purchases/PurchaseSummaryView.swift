@@ -14,7 +14,6 @@ struct PurchaseSummaryView: View {
     @State private var receiptImage: UIImage?
     @State private var showingCamera = false
     @State private var saving = false
-    @State private var storedReceiptImage: UIImage?
     @State private var generatingPass = false
     @State private var passToPresent: PKPass?
     @State private var showingAddPassSheet = false
@@ -46,40 +45,7 @@ struct PurchaseSummaryView: View {
 
     private var totalTax: Double {
         guard let session else { return 0 }
-        if readOnly {
-            let txByID = Dictionary(store.state.transactions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            var sum: Double = 0
-            var foundAny = false
-            for item in session.items {
-                if let linkedID = item.linkedTransactionID, let tx = txByID[linkedID], let tax = tx.taxAmount {
-                    sum += tax
-                    foundAny = true
-                }
-            }
-            if foundAny {
-                return sum
-            }
-            let sessionTxs = store.state.transactions.filter { $0.purchaseSessionID == session.id && $0.deletedAt == nil }
-            if !sessionTxs.isEmpty {
-                return sessionTxs.reduce(0) { $0 + ($1.taxAmount ?? 0) }
-            }
-        }
-        // Pre-finalization preview or fallback when no linked snapshots exist
-        var sum: Double = 0
-        for item in session.items {
-            let cat = store.state.categories.first(where: { $0.id == item.categoryID })
-            if let cat {
-                let taxSnapshot = TaxCalculations.resolve(
-                    entered: item.amount,
-                    type: .expense,
-                    rate: store.state.settings.taxRate(for: cat),
-                    mode: .finalAmount,
-                    exempt: false
-                )
-                sum += taxSnapshot?.tax ?? 0
-            }
-        }
-        return sum
+        return PurchaseReceiptCalculations.resolvedTax(for: session, in: store.state, isCompleted: readOnly)
     }
 
     var body: some View {
@@ -136,30 +102,6 @@ struct PurchaseSummaryView: View {
                             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
-                        }
-
-                        if session.receiptAttachmentID != nil {
-                            Section {
-                                Group {
-                                    if let storedReceiptImage {
-                                        Image(uiImage: storedReceiptImage)
-                                            .resizable()
-                                            .scaledToFit()
-                                            .frame(maxHeight: 260)
-                                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                    } else {
-                                        Label("Receipt stored securely outside the ledger JSON.", systemImage: "doc.viewfinder")
-                                    }
-                                }
-                                .padding(16)
-                                .frame(maxWidth: .infinity)
-                                .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                                .listRowBackground(Color.clear)
-                                .listRowSeparator(.hidden)
-                            } header: {
-                                Text("Receipt").font(.subheadline.weight(.semibold))
-                            }
                         }
                     } else {
                         Section {
@@ -247,10 +189,6 @@ struct PurchaseSummaryView: View {
             // Final controlled reconciliation before reviewing/finalizing, so an item that was
             // checked on the Lock Screen is never omitted from the created transactions.
             store.reconcileSharedActivePurchases()
-        }
-        .task(id: session?.receiptAttachmentID) {
-            guard let identifier = session?.receiptAttachmentID else { return }
-            storedReceiptImage = await AttachmentStore.shared.loadReceipt(identifier: identifier)
         }
     }
 
