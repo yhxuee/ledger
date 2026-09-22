@@ -512,6 +512,21 @@ final class PersistenceSecurityTests: XCTestCase {
         XCTAssertThrowsError(try repository.load())
     }
 
+    func testIndexedFetchRejectsBlobWhoseEmbeddedIDDoesNotMatchKey() throws {
+        let database = try LedgerDiskDatabase(url: temporaryFolder().appending(path: "ledger.sqlite"))
+        let repository = IncrementalLedgerRepository(database: database)
+        let original = book()
+        let library = LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion, activeBookID: original.id, books: [original])
+        try repository.save(library, previous: nil)
+        let first = try XCTUnwrap(original.state.transactions.first { $0.deletedAt == nil })
+        var wrong = first
+        wrong.id = UUID()
+        try database.put(original.id.uuidString, "transaction-\(first.id)", JSONEncoder().encode(wrong))
+
+        XCTAssertThrowsError(try repository.transaction(id: first.id, bookID: original.id))
+        XCTAssertThrowsError(try repository.transactionPage(bookID: original.id, after: nil, limit: 500))
+    }
+
     func testKeysetPaginationIsStableAcrossIdenticalTimestamps() throws {
         let database = try LedgerDiskDatabase(url: temporaryFolder().appending(path: "ledger.sqlite"))
         let repository = IncrementalLedgerRepository(database: database)

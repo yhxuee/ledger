@@ -422,7 +422,9 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
     func transaction(id: UUID, bookID: UUID) throws -> LedgerTransaction? {
         let key = "transaction-\(id)"
         guard let data = try database.data(bookID.uuidString, key) else { return nil }
-        return try decoder.decode(LedgerTransaction.self, from: data)
+        let transaction = try decoder.decode(LedgerTransaction.self, from: data)
+        guard transaction.id == id else { throw PersistenceIntegrityError.identifierMismatch("transaction") }
+        return transaction
     }
 
     func transactions(bookID: UUID, from: Date?, to: Date?, limit: Int?, offset: Int?) throws -> [LedgerTransaction] {
@@ -431,9 +433,7 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
         }
         try ensureIndexPopulated(for: bookID)
         let ids = try database.transactionIDs(bookID: bookID.uuidString, from: from, to: to, limit: limit, offset: offset)
-        return try database.values(bookID.uuidString, keys: ids.map { "transaction-\($0)" }) {
-            try decoder.decode(LedgerTransaction.self, from: $0)
-        }
+        return try readIndexedTransactions(ids, bookID: bookID)
     }
 
     func recentTransactions(bookID: UUID, before: Date?, beforeID: UUID?, limit: Int) throws -> [LedgerTransaction] {
@@ -442,9 +442,17 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
         }
         try ensureIndexPopulated(for: bookID)
         let ids = try database.recentTransactionIDs(bookID: bookID.uuidString, before: before, beforeID: beforeID?.uuidString, limit: limit)
-        return try database.values(bookID.uuidString, keys: ids.map { "transaction-\($0)" }) {
+        return try readIndexedTransactions(ids, bookID: bookID)
+    }
+
+    private func readIndexedTransactions(_ ids: [String], bookID: UUID) throws -> [LedgerTransaction] {
+        let values = try database.values(bookID.uuidString, keys: ids.map { "transaction-\($0)" }) {
             try decoder.decode(LedgerTransaction.self, from: $0)
         }
+        guard zip(ids, values).allSatisfy({ pair in UUID(uuidString: pair.0) == pair.1.id }) else {
+            throw PersistenceIntegrityError.identifierMismatch("transaction")
+        }
+        return values
     }
 
     func transactionCount(bookID: UUID) throws -> Int {

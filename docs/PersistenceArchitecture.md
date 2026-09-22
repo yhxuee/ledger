@@ -18,7 +18,8 @@
    Index rows and a `(formatVersion, transactionCount, SHA-256(sorted transaction IDs))`
    certificate are committed in the same SQLite transaction as mutations. A missing/mismatched
    certificate, row count, or digest of the actual index IDs causes a transactional full rebuild
-   before any index query runs.
+   before any index query runs. Indexed blob reads also verify each decoded transaction ID against
+   its requested key; a mismatched payload is an integrity error.
 7. `library.json` is a legacy one-way import source. SQLite saves do not update it, so it is not a
    current replica. If SQLite exists but fails structural or semantic validation, a valid JSON
    snapshot may be shown only in read-only recovery mode. It never overwrites SQLite automatically.
