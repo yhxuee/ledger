@@ -20,6 +20,10 @@
    certificate, row count, or digest of the actual index IDs causes a transactional full rebuild
    before any index query runs. Indexed blob reads also verify each decoded transaction ID against
    its requested key; a mismatched payload is an integrity error.
+   The account posting table is also derived. It uses the same posting, pocket, timing, and FX
+   rules as the in-memory balance engine. Its certificate binds the complete transaction ID set,
+   posting inputs, row count, and a digest of the actual posting rows. A missing or mismatched
+   certificate triggers a transactional rebuild from canonical blobs before a balance query.
 7. `library.json` is a legacy one-way import source. SQLite saves do not update it, so it is not a
    current replica. If SQLite exists but fails structural or semantic validation, a valid JSON
    snapshot may be shown only in read-only recovery mode. It never overwrites SQLite automatically.
@@ -29,8 +33,8 @@
    `BEGIN IMMEDIATE` transaction. Termination before commit leaves the previous complete snapshot;
    termination after commit exposes the new complete snapshot.
    The repository also offers `applyTransactionDelta` for explicit upserts and hard removals. It
-   leaves every unmentioned canonical ID and blob untouched and updates the header, index, and
-   certificate atomically. Normal user deletion is a tombstone upsert. The running store has not
+   leaves every unmentioned canonical ID and blob untouched and updates the header, indexes, and
+   certificates atomically. Normal user deletion is a tombstone upsert. The running store has not
    switched to this path yet; it still saves complete snapshots until all domain consumers migrate.
 9. Full `BackupCodec.validate` runs after complete materialization. It is never run against a page.
    `loadMetadata()` provides a separate nontransaction snapshot for the future lazy store. It
@@ -64,7 +68,8 @@ The cursor contains both values and the next predicate is `(date < cursorDate) O
 (date == cursorDate AND id < cursorID)`. Equal timestamps therefore cannot skip or duplicate rows.
 `hasMoreTransactions` currently remains false because the production Ledger screen uses the fully
 materialized state; repository pagination is available for bounded consumers but is not presented
-as canonical state.
+as canonical state. Filtered keyset pages apply account, expense-category, and half-open date
+predicates in SQLite before the limit, so a page can be smaller than its limit only at exhaustion.
 
 A corrupt SQLite store is one that cannot open, decode, satisfy its manifest/header/blob catalogs,
 match entity IDs, or pass complete semantic validation. An older store with a valid manifest and
@@ -106,8 +111,11 @@ materialize any linked records their operation needs.
 
 ## Scalability boundary
 
-Incremental saves and bounded repository queries scale without rewriting or decoding unrelated
-transactions. Startup still fully hydrates every book because the existing domain layer requires a
+Incremental saves avoid rewriting unrelated transaction blobs, but complete catalog digest checks,
+posting-integrity checks, and header serialization remain proportional to ledger size. Posting
+index rebuilds decode all transactions once on migration or after a certificate mismatch. Bounded
+page queries decode only returned transactions after index verification. Startup still fully
+hydrates every book because the existing domain layer requires a
 complete `LedgerState` for exact financial semantics. Reintroducing the former 300-active/0-inactive
 scheme would violate the invariants above and risk data loss. Genuine lazy startup requires a new
 repository-backed domain state/query layer for balances, linked records, recurring processing,
