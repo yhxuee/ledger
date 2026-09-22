@@ -12,7 +12,7 @@ extension LedgerStore {
     }
 
     func switchBook(to id: UUID) {
-        guard canMutateLedger else { rejectRecoveryMutation(); return }
+        guard canMutateLedger else { switchRecoveredBook(to: id); return }
         guard id != activeBookID else { return }
         commitActiveBook()
         guard let book = books.first(where: { $0.id == id }) else { return }

@@ -401,6 +401,16 @@ final class PersistenceSecurityTests: XCTestCase {
         XCTAssertEqual(store.backupEnvelope().data, before)
     }
 
+    func testRecoveryModeCanSelectAnotherBookForExport() {
+        let store = LedgerStore(stateForTesting: SeedData.make(), recoveryMode: .legacyJSONReadOnlyRecovery)
+        let other = book()
+        store.books.append(other)
+        store.switchBook(to: other.id)
+        XCTAssertEqual(store.activeBookID, other.id)
+        XCTAssertEqual(store.backupEnvelope().data, other.state)
+        XCTAssertFalse(store.persistenceEnabled)
+    }
+
     func testMissingOrOrphanedEntityBlobRejectsSQLiteSnapshot() throws {
         let root = try temporaryFolder()
         let database = try LedgerDiskDatabase(url: root.appending(path: "ledger.sqlite"))

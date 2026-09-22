@@ -81,6 +81,25 @@ final class LedgerStore: ObservableObject {
         undoMessage = nil
         presentedError = String(localized: "This recovered snapshot is read-only. Export it before resetting or replacing local data.")
     }
+
+    func leaveRecoveryModeAfterReset() {
+        persistenceRecoveryMode = nil
+        persistenceBaseline = nil
+    }
+
+    /// Ledger selection is read-only navigation and remains available for exporting every book
+    /// in a recovered JSON library. This never commits or schedules a SQLite save.
+    func switchRecoveredBook(to id: UUID) {
+        guard persistenceRecoveryMode == .legacyJSONReadOnlyRecovery,
+              let book = books.first(where: { $0.id == id }) else { return }
+        activeBookID = id
+        activeMutationImpact = .full
+        state = book.state
+        activeMutationImpact = nil
+        undoTransactions = []
+        activeUndoOperation = nil
+        undoMessage = nil
+    }
     @Published private(set) var financialRevision: UInt64 = 0
 
     var cachedIndex: LedgerIndex?

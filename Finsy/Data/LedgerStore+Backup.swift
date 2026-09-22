@@ -30,8 +30,7 @@ extension LedgerStore {
         await CloudLedgerService.shared.resetLocalState()
         try Self.localRepository.resetLocalData()
         try PurchaseSharedStateStore.resetLocalSnapshots()
-        persistenceRecoveryMode = nil
-        persistenceBaseline = nil
+        leaveRecoveryModeAfterReset()
         Task { await PurchaseLiveActivityController.shared.endAll() }
         let initial = SeedData.makeProductionEmpty()
         let book = LedgerBook(id: UUID(), name: "Ledger 1", state: initial, createdAt: .now, updatedAt: .now)
