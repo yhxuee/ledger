@@ -371,9 +371,28 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
     }
 
     func allTransactionIDs(bookID: UUID) throws -> [UUID] {
+        try transactionCatalog(bookID: bookID).ids
+    }
+
+    func transactionCatalog(bookID: UUID) throws -> LedgerTransactionCatalog {
         let header: Header = try read(bookID.uuidString, "header")
+        guard header.book.id == bookID else { throw PersistenceIntegrityError.identifierMismatch("book") }
         try validateCatalog(header, namespace: bookID.uuidString)
-        return header.transactionIDs
+        return try LedgerTransactionCatalog(bookID: bookID, ids: header.transactionIDs)
+    }
+
+    func transactionPage(bookID: UUID, after: LedgerTransactionCursor?, limit: Int) throws -> LedgerTransactionPage {
+        guard (1...500).contains(limit) else { throw PersistenceIntegrityError.invalidPagination }
+        let fetched = try recentTransactions(
+            bookID: bookID,
+            before: after?.occurredAt,
+            beforeID: after?.id,
+            limit: limit + 1
+        )
+        let hasMore = fetched.count > limit
+        let transactions = hasMore ? Array(fetched.prefix(limit)) : fetched
+        let nextCursor = hasMore ? transactions.last.map { LedgerTransactionCursor(occurredAt: $0.occurredAt, id: $0.id) } : nil
+        return LedgerTransactionPage(bookID: bookID, transactions: transactions, nextCursor: nextCursor, hasMore: hasMore)
     }
 
     func pocketBalances(for account: LedgerAccount, bookID: UUID) throws -> [(currency: CurrencyCode, balance: Double)] {

@@ -414,12 +414,12 @@ final class LedgerDiskDatabase: @unchecked Sendable {
 
         var results: [String] = []
         results.reserveCapacity(limit)
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            if let text = sqlite3_column_text(stmt, 0) {
-                results.append(String(cString: text))
-            }
+        while true {
+            let status = sqlite3_step(stmt)
+            if status == SQLITE_DONE { return results }
+            guard status == SQLITE_ROW, let text = sqlite3_column_text(stmt, 0) else { throw error() }
+            results.append(String(cString: text))
         }
-        return results
     }
 
     func transactionIDs(bookID: String, from: Date? = nil, to: Date? = nil, limit: Int? = nil, offset: Int? = nil) throws -> [String] {
@@ -446,23 +446,23 @@ final class LedgerDiskDatabase: @unchecked Sendable {
         }
 
         var results: [String] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            if let text = sqlite3_column_text(stmt, 0) {
-                results.append(String(cString: text))
-            }
+        while true {
+            let status = sqlite3_step(stmt)
+            if status == SQLITE_DONE { return results }
+            guard status == SQLITE_ROW, let text = sqlite3_column_text(stmt, 0) else { throw error() }
+            results.append(String(cString: text))
         }
-        return results
     }
 
     func allIndexedTransactionIDs(bookID: String) throws -> [String] {
         let query = try statement("SELECT transaction_id FROM transactions_index WHERE book_id = ? ORDER BY occurred_at DESC, transaction_id DESC", strings: [bookID])
         defer { sqlite3_finalize(query) }
         var results: [String] = []
-        while sqlite3_step(query) == SQLITE_ROW {
-            if let text = sqlite3_column_text(query, 0) {
-                results.append(String(cString: text))
-            }
+        while true {
+            let status = sqlite3_step(query)
+            if status == SQLITE_DONE { return results }
+            guard status == SQLITE_ROW, let text = sqlite3_column_text(query, 0) else { throw error() }
+            results.append(String(cString: text))
         }
-        return results
     }
 }

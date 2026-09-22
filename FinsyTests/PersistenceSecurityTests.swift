@@ -472,6 +472,10 @@ final class PersistenceSecurityTests: XCTestCase {
         let library = LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion, activeBookID: original.id, books: [original])
         try repository.save(library, previous: nil)
 
+        let catalog = try repository.transactionCatalog(bookID: original.id)
+        XCTAssertEqual(catalog.count, 750)
+        XCTAssertEqual(Set(catalog.ids), Set(original.state.transactions.map(\.id)))
+
         var ids: [UUID] = []
         var cursorDate: Date?
         var cursorID: UUID?
@@ -485,6 +489,17 @@ final class PersistenceSecurityTests: XCTestCase {
         XCTAssertEqual(ids.count, 750)
         XCTAssertEqual(Set(ids).count, 750)
         XCTAssertEqual(ids, ids.sorted { $0.uuidString > $1.uuidString })
+
+        var pageIDs: [UUID] = []
+        var cursor: LedgerTransactionCursor?
+        repeat {
+            let page = try repository.transactionPage(bookID: original.id, after: cursor, limit: 113)
+            pageIDs.append(contentsOf: page.transactions.map(\.id))
+            cursor = page.nextCursor
+            if !page.hasMore { break }
+            XCTAssertNotNil(cursor)
+        } while true
+        XCTAssertEqual(pageIDs, ids)
     }
 
     func testCloudMergeRejectsDuplicateRemoteIDsWithoutTrapping() throws {

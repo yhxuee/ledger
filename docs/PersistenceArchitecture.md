@@ -11,15 +11,19 @@
    the header incomplete.
 4. `LedgerState.transactions` always means the complete canonical transaction set for that book.
    It is never a UI page and is never partially hydrated.
-5. `recentTransactions` and `transactions(from:to:)` return detached query results. They do not
-   alter `LedgerState` and cannot be passed to the normal save path as a canonical snapshot.
+5. `LedgerTransactionCatalog` contains the complete durable ID set, including tombstones.
+   `LedgerTransactionPage` and `recentTransactions` return detached bounded query results.
+   Neither alters `LedgerState` nor can be passed to the normal save path as a canonical snapshot.
 6. The transaction index is derived. Header IDs and transaction blobs remain authoritative.
    Index rows and a `(formatVersion, transactionCount, SHA-256(sorted transaction IDs))`
    certificate are committed in the same SQLite transaction as mutations. A missing/mismatched
-   certificate or row count causes a transactional full rebuild before any index query runs.
+   certificate, row count, or digest of the actual index IDs causes a transactional full rebuild
+   before any index query runs.
 7. `library.json` is a legacy one-way import source. SQLite saves do not update it, so it is not a
    current replica. If SQLite exists but fails structural or semantic validation, a valid JSON
    snapshot may be shown only in read-only recovery mode. It never overwrites SQLite automatically.
+   An SQLite file with ledger rows but no manifest is incomplete, not a clean legacy import target.
+   Mutations in recovery mode are rejected at their entry points; export remains available.
 8. A save updates entity blobs, header, manifest, derived index, and index certificate in one
    `BEGIN IMMEDIATE` transaction. Termination before commit leaves the previous complete snapshot;
    termination after commit exposes the new complete snapshot.
@@ -39,7 +43,7 @@ complete data from `LedgerState`; storage tools can independently call `material
 Because partial canonical state is forbidden, there is no merge step between unsaved edits and
 unloaded durable transactions.
 
-Index completeness is established by the certificate and row count. The certificate is published
+Index completeness is established by the certificate, row count, and actual index ID digest. The certificate is published
 atomically only after every row has been indexed. An interrupted rebuild rolls back, leaving the
 old certificate/index or no certificate; the next query rebuilds it. The stable keyset order is:
 
@@ -100,4 +104,3 @@ scheme would violate the invariants above and risk data loss. Genuine lazy start
 repository-backed domain state/query layer for balances, linked records, recurring processing,
 undo, CloudKit, backup, analytics, and statements. Until that layer exists, full hydration is the
 intentional correctness boundary rather than an unsafe partial-state optimization.
-
