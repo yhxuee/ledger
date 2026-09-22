@@ -1,4 +1,3 @@
-import PassKit
 import SwiftUI
 
 /// Custom shape representing a physical receipt or ticket with repeated triangular
@@ -70,60 +69,28 @@ private struct PerforatedDivider: View {
 
 /// A physical receipt/event-ticket styled summary card for purchase sessions.
 /// Features top and bottom triangular tear notches, paper surface styling,
-/// clean typography, and an integrated "Add to Apple Wallet" pass action.
+/// clean receipt typography, and detailed itemized items.
 struct PurchaseWalletTicketCard: View {
     let session: PurchaseSession
-    let readOnly: Bool
+    let categoryResolver: (LedgerCategoryID) -> String
+    let totalTax: Double
     let baseCurrency: CurrencyCode?
     let baseCurrencyEquivalent: Double?
-    let isGeneratingPass: Bool
-    let onAddToWallet: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
 
     init(
         session: PurchaseSession,
-        readOnly: Bool,
+        categoryResolver: @escaping (LedgerCategoryID) -> String,
+        totalTax: Double,
         baseCurrency: CurrencyCode? = nil,
-        baseCurrencyEquivalent: Double? = nil,
-        isGeneratingPass: Bool = false,
-        onAddToWallet: @escaping () -> Void
+        baseCurrencyEquivalent: Double? = nil
     ) {
         self.session = session
-        self.readOnly = readOnly
+        self.categoryResolver = categoryResolver
+        self.totalTax = totalTax
         self.baseCurrency = baseCurrency
         self.baseCurrencyEquivalent = baseCurrencyEquivalent
-        self.isGeneratingPass = isGeneratingPass
-        self.onAddToWallet = onAddToWallet
-    }
-
-    private var completedItemsCount: Int {
-        session.items.filter(\.isCompleted).count
-    }
-
-    private var isPassLibraryAvailable: Bool {
-        WalletPassManager.shared.isPassLibraryAvailable
-    }
-
-    private var isIssuerConfigured: Bool {
-        WalletPassManager.shared.isIssuerConfigured
-    }
-
-    private var isWalletActionEnabled: Bool {
-        readOnly && isPassLibraryAvailable && isIssuerConfigured && !isGeneratingPass
-    }
-
-    private var walletStatusMessage: String? {
-        if !readOnly {
-            return String(localized: "Apple Wallet pass is available after completing purchase.")
-        }
-        if !isPassLibraryAvailable {
-            return String(localized: "Apple Wallet is unavailable on this device.")
-        }
-        if !isIssuerConfigured {
-            return String(localized: "Apple Wallet pass issuance is unavailable.")
-        }
-        return nil
     }
 
     private var formattedDate: String {
@@ -163,19 +130,49 @@ struct PurchaseWalletTicketCard: View {
 
             PerforatedDivider()
 
-            // Summary Financial Section
-            VStack(spacing: 8) {
+            // Itemized list
+            let orderedItems = session.orderedItems
+            VStack(spacing: 10) {
+                ForEach(orderedItems) { item in
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            let title = item.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                ? categoryResolver(item.categoryID)
+                                : item.note
+                            Text(title)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.primary)
+                            Text(categoryResolver(item.categoryID))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        SensitiveMoneyText(
+                            amount: item.amount,
+                            currency: session.currency,
+                            maxIntegerDigits: 4
+                        )
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.primary)
+                    }
+                }
+            }
+
+            PerforatedDivider()
+
+            // Financial Summary: Total & Tax
+            VStack(spacing: 6) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(String(format: String(localized: "%d completed items"), completedItemsCount))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    Text("TOTAL")
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.primary)
                     Spacer()
                     SensitiveMoneyText(
                         amount: session.plannedAmount,
                         currency: session.currency,
                         maxIntegerDigits: 4
                     )
-                    .font(.title2.bold().monospacedDigit())
+                    .font(.headline.bold().monospacedDigit())
                     .foregroundStyle(.primary)
                 }
 
@@ -183,48 +180,30 @@ struct PurchaseWalletTicketCard: View {
                     HStack(spacing: 4) {
                         Spacer()
                         Text("≈")
-                            .font(.subheadline)
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                         SensitiveMoneyText(
                             amount: converted,
                             currency: base,
                             maxIntegerDigits: 4
                         )
-                        .font(.subheadline.monospacedDigit())
+                        .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                     }
                 }
-            }
 
-            PerforatedDivider()
-
-            // Integrated Apple Wallet Action
-            VStack(spacing: 6) {
-                Button(action: onAddToWallet) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "wallet.pass.fill")
-                            .font(.system(size: 15, weight: .medium))
-                        Text(isGeneratingPass ? String(localized: "Adding to Apple Wallet...") : String(localized: "Add to Apple Wallet"))
-                            .font(.subheadline.weight(.semibold))
-                        if isGeneratingPass {
-                            Spacer()
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(isWalletActionEnabled ? Color.primary : Color.secondary.opacity(0.3))
-                .disabled(!isWalletActionEnabled)
-
-                if let message = walletStatusMessage {
-                    Text(message)
-                        .font(.caption2)
+                HStack(alignment: .firstTextBaseline) {
+                    Text("TAX")
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
+                    Spacer()
+                    SensitiveMoneyText(
+                        amount: totalTax,
+                        currency: session.currency,
+                        maxIntegerDigits: 4
+                    )
+                    .font(.subheadline.weight(.medium).monospacedDigit())
+                    .foregroundStyle(.secondary)
                 }
             }
         }

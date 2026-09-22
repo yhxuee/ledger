@@ -129,16 +129,19 @@ final class RecentTransactionActivityCoordinator {
             return .skippedPurchaseTransaction
         }
 
-        // Newest transaction wins: cancel prior lifecycle and clear state
+        // Newest transaction wins: set operationID before any suspension point
+        let operationID = UUID()
+        currentOperationID = operationID
+        activeActivityID = nil
         lifecycleTask?.cancel()
         lifecycleTask = nil
 
         // End any active recent transaction activity immediately
         await endRecentActivities()
 
-        let operationID = UUID()
-        currentOperationID = operationID
-        activeActivityID = nil
+        guard currentOperationID == operationID else {
+            return .superseded
+        }
 
         let createdAt = Date.now
         let duration: TimeInterval = (presentation == .transient) ? 3.0 : 8.5
@@ -239,6 +242,12 @@ final class RecentTransactionActivityCoordinator {
                     staleDate: expiresAt
                 )
             }
+
+            guard currentOperationID == operationID else {
+                await Self.endActivity(id: activity.id)
+                return .superseded
+            }
+
             activeActivityID = activity.id
 
             let alertConfig = AlertConfiguration(
@@ -253,15 +262,16 @@ final class RecentTransactionActivityCoordinator {
             )
 
             guard currentOperationID == operationID else {
+                await Self.endActivity(id: activity.id)
                 return .superseded
             }
 
-            LedgerDiagnostics.activity.info("Recent transaction activity started presentation=\(String(describing: presentation)) id=\(activity.id)")
+            LedgerDiagnostics.activity.info("Recent transaction activity started presentation=\(String(describing: presentation)) id=\(activity.id) activityState=\(String(describing: activity.activityState))")
 
             #if DEBUG
             let appState = await UIApplication.shared.applicationState
             let appGroupAvailable = RecentTransactionSharedStore.containerURL() != nil
-            print("[RecentActivity] started id=\(activity.id) presentation=\(presentation) appState=\(appState.rawValue) appGroupAvailable=\(appGroupAvailable)")
+            print("[RecentActivity] started id=\(activity.id) activityState=\(activity.activityState) presentation=\(presentation) appState=\(appState.rawValue) appGroupAvailable=\(appGroupAvailable)")
             #endif
 
             let sleepSeconds: Double = (presentation == .transient) ? 3.0 : 8.5

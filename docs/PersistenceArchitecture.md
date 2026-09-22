@@ -11,9 +11,9 @@
    the header incomplete.
 4. `LedgerState.transactions` always means the complete canonical transaction set for that book.
    It is never a UI page and is never partially hydrated.
-5. `LedgerTransactionCatalog` contains the complete durable ID set, including tombstones.
-   `LedgerTransactionPage` and `recentTransactions` return detached bounded query results.
-   Neither alters `LedgerState` nor can be passed to the normal save path as a canonical snapshot.
+5. Bounded keyset query results (`LedgerTransactionPage` and `recentTransactions`) return detached
+   records for presentation or tools. They do not alter `LedgerState` nor can they be passed to the save
+   path as a canonical snapshot. The production app uses fully materialized `LedgerState`.
 6. The transaction index is derived. Header IDs and transaction blobs remain authoritative.
    Index rows and a `(formatVersion, transactionCount, SHA-256(sorted transaction IDs))`
    certificate are committed in the same SQLite transaction as mutations. A missing/mismatched
@@ -24,19 +24,12 @@
    current replica. If SQLite exists but fails structural or semantic validation, a valid JSON
    snapshot may be shown only in read-only recovery mode. It never overwrites SQLite automatically.
    An SQLite file with ledger rows but no manifest is incomplete, not a clean legacy import target.
-   Mutations in recovery mode are rejected at their entry points; export remains available.
+   Mutations in recovery mode or when startup load fails are rejected at their entry points; export remains available.
 8. A save updates entity blobs, header, manifest, derived index, and index certificate in one
    `BEGIN IMMEDIATE` transaction. Termination before commit leaves the previous complete snapshot;
-   termination after commit exposes the new complete snapshot.
-   The repository also offers `applyTransactionDelta` for explicit upserts and hard removals. It
-   leaves every unmentioned canonical ID and blob untouched and updates the header, index, and
-   certificate atomically. Normal user deletion is a tombstone upsert. The running store has not
-   switched to this path yet; it still saves complete snapshots until all domain consumers migrate.
-9. Full `BackupCodec.validate` runs after complete materialization. It is never run against a page.
-   `loadMetadata()` provides a separate nontransaction snapshot for the future lazy store. It
-   verifies manifest/header/catalog/index structure without decoding transaction payloads when
-   the index is healthy. It cannot prove the embedded ID or semantics of an unread payload; full
-   validation remains mandatory at import, backup, and other complete-snapshot boundaries.
+   termination after commit exposes the new complete snapshot. Canonical writes save complete snapshots.
+9. Full `BackupCodec.validate` runs after complete materialization. It is never run against a partial page.
+   Full validation remains mandatory at import, backup, and complete-snapshot boundaries.
 10. CloudKit generation, conflict merging, encryption migration, backup/export, calculations,
     recurring processing, undo, and ledger switching operate on fully materialized state.
 11. Unsigned builds retain the `FINSY_UNSIGNED_BUILD` runtime gate and never initialize
@@ -112,8 +105,4 @@ complete `LedgerState` for exact financial semantics. Reintroducing the former 3
 scheme would violate the invariants above and risk data loss. Genuine lazy startup requires a new
 repository-backed domain state/query layer for balances, linked records, recurring processing,
 undo, CloudKit, backup, analytics, and statements. Until that layer exists, full hydration is the
-intentional correctness boundary rather than an unsafe partial-state optimization.
-
-`loadMetadata()`, typed pages, the complete ID catalog, and explicit transaction deltas are
-preparation for that migration. Production `LedgerStore` has not switched to them, so normal
-startup still decodes every transaction. This remains an open scalability limitation.
+Full hydration remains the intentional correctness boundary rather than an unsafe partial-state optimization. Dead lazy-startup and pagination scaffolding have been removed to preserve architectural integrity.

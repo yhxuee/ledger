@@ -45,55 +45,6 @@ struct IncrementalLedgerRepository: Sendable {
         encoder.outputFormatting = [.sortedKeys]
     }
 
-    /// Loads structural book metadata without decoding transaction payloads. A damaged derived
-    /// index may still require a one-time rebuild that explicitly decodes canonical blobs.
-    func loadMetadata() throws -> LedgerLibraryMetadata? {
-        let metadata: LedgerLibraryMetadata? = try database.transaction(write: false) {
-            guard let data = try database.data("library", "manifest") else {
-                guard try !database.hasLedgerContent() else { throw PersistenceIntegrityError.missingManifest }
-                return nil
-            }
-            let manifest = try decoder.decode(Manifest.self, from: data)
-            guard manifest.schemaVersion <= BackupCodec.currentSchemaVersion else { throw BackupError.futureSchema(manifest.schemaVersion) }
-            try requireUnique(manifest.bookIDs, label: "book")
-            guard manifest.bookIDs.contains(manifest.activeBookID) else {
-                throw PersistenceIntegrityError.identifierMismatch("active book")
-            }
-            let books = try manifest.bookIDs.map { id -> LedgerBookMetadata in
-                let namespace = id.uuidString
-                let header: Header = try read(namespace, "header")
-                guard header.book.id == id else { throw PersistenceIntegrityError.identifierMismatch("book") }
-                try validateCatalog(header, namespace: namespace)
-                let book = header.book
-                return LedgerBookMetadata(
-                    id: id,
-                    name: book.name,
-                    createdAt: book.createdAt,
-                    updatedAt: book.updatedAt,
-                    storageKind: book.effectiveStorageKind,
-                    cloudZoneName: book.cloudZoneName,
-                    cloudZoneOwnerName: book.cloudZoneOwnerName,
-                    isEncrypted: book.isEncrypted == true,
-                    encryptionVersion: book.encryptionVersion,
-                    keyFingerprint: book.keyFingerprint,
-                    encryptionState: book.effectiveEncryptionState,
-                    encryptionUpdatedAt: book.encryptionUpdatedAt,
-                    accounts: try readIdentified(namespace, ids: header.accountIDs, prefix: "account", label: "account"),
-                    categories: book.state.categories,
-                    settings: book.state.settings,
-                    recurringRules: try readIdentified(namespace, ids: header.recurringIDs ?? [], prefix: "recurring", label: "recurring rule"),
-                    purchaseSessions: try readIdentified(namespace, ids: header.purchaseIDs ?? [], prefix: "purchase", label: "purchase session"),
-                    transactionCatalog: try LedgerTransactionCatalog(bookID: id, ids: header.transactionIDs)
-                )
-            }
-            return LedgerLibraryMetadata(schemaVersion: manifest.schemaVersion, activeBookID: manifest.activeBookID, books: books)
-        }
-        if let metadata {
-            for book in metadata.books { try ensureIndexPopulated(for: book.id) }
-        }
-        return metadata
-    }
-
     func load() throws -> LedgerLibrary? {
         let started = Date.now
         var totalTxs = 0
@@ -334,43 +285,6 @@ struct IncrementalLedgerRepository: Sendable {
         )
     }
 
-    /// Atomically applies named changes against the durable catalog. In particular, an ID absent
-    /// from `upserts` is left untouched even if no UI page currently contains that record.
-    func applyTransactionDelta(_ delta: LedgerTransactionDelta, bookID: UUID) throws {
-        guard !delta.upserts.isEmpty || !delta.removedIDs.isEmpty else { return }
-        try ensureIndexPopulated(for: bookID)
-        let namespace = bookID.uuidString
-        try database.transaction {
-            var header: Header = try read(namespace, "header")
-            guard header.book.id == bookID else { throw PersistenceIntegrityError.identifierMismatch("book") }
-            try validateCatalog(header, namespace: namespace)
-            var known = Set(header.transactionIDs)
-            guard delta.removedIDs.isSubset(of: known) else { throw PersistenceIntegrityError.identifierMismatch("removed transaction") }
-
-            for id in delta.removedIDs {
-                try database.remove(namespace, "transaction-\(id)")
-                try database.removeIndexedTransaction(bookID: namespace, transactionID: id.uuidString)
-                known.remove(id)
-            }
-            header.transactionIDs.removeAll { delta.removedIDs.contains($0) }
-
-            for transaction in delta.upserts {
-                if known.insert(transaction.id).inserted { header.transactionIDs.append(transaction.id) }
-                try database.put(namespace, "transaction-\(transaction.id)", encoder.encode(transaction))
-                try index(transaction, namespace: namespace)
-            }
-            header.validatedPocketBalances = nil
-            header.book.updatedAt = .now
-            try database.put(namespace, "header", encoder.encode(header))
-            try database.setTransactionIndexState(
-                bookID: namespace,
-                transactionCount: header.transactionIDs.count,
-                idDigest: Self.idDigest(header.transactionIDs),
-                formatVersion: Self.indexFormatVersion
-            )
-        }
-    }
-
     private func update<T: Codable & Equatable & Identifiable>(_ values: [T], previous: [T]?, namespace: String, prefix: String) throws where T.ID == UUID {
         let old = try uniqueDictionary(previous ?? [], label: prefix)
         try requireUnique(values.map(\.id), label: prefix)
@@ -465,14 +379,10 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
     }
 
     func allTransactionIDs(bookID: UUID) throws -> [UUID] {
-        try transactionCatalog(bookID: bookID).ids
-    }
-
-    func transactionCatalog(bookID: UUID) throws -> LedgerTransactionCatalog {
         let header: Header = try read(bookID.uuidString, "header")
         guard header.book.id == bookID else { throw PersistenceIntegrityError.identifierMismatch("book") }
         try validateCatalog(header, namespace: bookID.uuidString)
-        return try LedgerTransactionCatalog(bookID: bookID, ids: header.transactionIDs)
+        return header.transactionIDs
     }
 
     func transactionPage(bookID: UUID, after: LedgerTransactionCursor?, limit: Int) throws -> LedgerTransactionPage {

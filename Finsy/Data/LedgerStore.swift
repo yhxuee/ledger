@@ -56,9 +56,17 @@ final class LedgerStore: ObservableObject {
         }
     }
 
+public enum LedgerAccessState: Sendable {
+    case normal
+    case readOnlyRecovery
+    case unavailable
+}
+
+    private(set) var accessState: LedgerAccessState = .unavailable
+
     @discardableResult
     func mutateState<R>(_ impact: StateMutationImpact = .financial, _ mutation: (inout LedgerState) throws -> R) rethrows -> R {
-        if persistenceRecoveryMode == .legacyJSONReadOnlyRecovery {
+        guard canMutateLedger else {
             var discarded = state
             let result = try mutation(&discarded)
             rejectRecoveryMutation()
@@ -72,19 +80,24 @@ final class LedgerStore: ObservableObject {
         return result
     }
 
-    var canMutateLedger: Bool { persistenceRecoveryMode != .legacyJSONReadOnlyRecovery }
+    var canMutateLedger: Bool { accessState == .normal }
 
     func rejectRecoveryMutation() {
         guard !canMutateLedger else { return }
         activeUndoOperation = nil
         undoTransactions = []
         undoMessage = nil
-        presentedError = String(localized: "This recovered snapshot is read-only. Export it before resetting or replacing local data.")
+        if accessState == .readOnlyRecovery {
+            presentedError = String(localized: "This recovered snapshot is read-only. Export it before resetting or replacing local data.")
+        } else {
+            presentedError = String(localized: "The ledger could not be loaded safely. Editing is disabled to protect existing data.")
+        }
     }
 
     func leaveRecoveryModeAfterReset() {
         persistenceRecoveryMode = nil
         persistenceBaseline = nil
+        accessState = .normal
     }
 
     /// Ledger selection is read-only navigation and remains available for exporting every book
@@ -122,8 +135,6 @@ final class LedgerStore: ObservableObject {
     @Published var requestedAnalyticsType: LedgerTransactionType? = nil
     @Published var requestedAnalyticsRange: AnalyticsRange? = nil
     @Published var requestedAnalyticsCustomRange: ClosedRange<Date>? = nil
-    @Published var hasMoreTransactions: Bool = false
-    @Published var isLoadingMoreTransactions: Bool = false
     var saveTask: Task<Void, Never>?
     var undoTransactions: [LedgerTransaction] = []
     var activeUndoOperation: LedgerUndoOperation?
@@ -142,6 +153,7 @@ final class LedgerStore: ObservableObject {
 
     init() {
         let startupStart = Date.now
+        accessState = .unavailable
         persistenceEnabled = false
         persistenceRecoveryMode = nil
         persistenceBaseline = nil
@@ -167,14 +179,20 @@ final class LedgerStore: ObservableObject {
                 LedgerDiagnostics.recordStartupPhase("materialize", duration: Date.now.timeIntervalSince(loadStart), books: library.books.count, transactions: totalTxs)
                 if result.source == .legacyJSONReadOnlyRecovery {
                     persistenceRecoveryMode = result.source
+                    accessState = .readOnlyRecovery
                     presentedError = String(
                         format: String(localized: "The current database could not be loaded. A legacy snapshot is open read-only so you can export it. Existing files were preserved. %@"),
                         result.sqliteFailureDescription ?? ""
                     )
+                } else {
+                    accessState = .normal
                 }
             } else if let legacy = try Self.loadLegacyState() {
                 state = legacy; books[0].state = legacy
+                accessState = .normal
                 LedgerDiagnostics.recordStartupPhase("legacy-materialize", duration: Date.now.timeIntervalSince(loadStart), books: 1, transactions: legacy.transactions.count)
+            } else {
+                accessState = .normal
             }
             persistenceEnabled = persistenceRecoveryMode == nil
             guard persistenceEnabled else {
@@ -190,7 +208,8 @@ final class LedgerStore: ObservableObject {
             LedgerDiagnostics.recordStartupPhase("ready", duration: totalStartupDuration, books: books.count, transactions: finalTxs)
         } catch {
             // Keep disk data untouched. The existing error presentation reports the failure.
-            presentedError = String(format: String(localized: "The ledger could not be loaded. Existing data has been preserved. %@"), error.localizedDescription)
+            accessState = .unavailable
+            presentedError = String(format: String(localized: "The ledger could not be loaded safely. Editing is disabled to protect existing data. %@"), error.localizedDescription)
             LedgerDiagnostics.failure(error, operation: "startup", logger: LedgerDiagnostics.persistence)
         }
     }
@@ -199,6 +218,7 @@ final class LedgerStore: ObservableObject {
         persistenceEnabled = false
         persistenceRecoveryMode = recoveryMode
         persistenceBaseline = nil
+        accessState = recoveryMode == .legacyJSONReadOnlyRecovery ? .readOnlyRecovery : .normal
         let book = LedgerBook(id: UUID(), name: "Test Ledger", state: initialState, createdAt: .now, updatedAt: .now)
         state = initialState
         books = [book]
@@ -320,13 +340,5 @@ final class LedgerStore: ObservableObject {
     func materializeFullState() -> LedgerState {
         // Under full-hydration baseline, in-memory state is always fully materialized.
         state
-    }
-
-    func loadNextTransactionPage(pageSize: Int = 250) {
-        hasMoreTransactions = false
-    }
-
-    func refreshHasMoreTransactions() {
-        hasMoreTransactions = false
     }
 }

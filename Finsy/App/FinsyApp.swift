@@ -20,11 +20,17 @@ struct FinsyApp: App {
                     if let book = notification.object as? LedgerBook { store.addOrMergeCloudBook(book) }
                     else if let error = notification.object as? Error { store.presentedError = error.localizedDescription }
                 }
-                .task(id: store.activeBookID) {
-                    await FinsyMaintenanceCoordinator.shared.performLaunchMaintenance(
+                .task {
+                    await FinsyMaintenanceCoordinator.shared.performAppLaunchMaintenance(
                         store: store,
                         preferences: preferences,
                         privacy: privacy
+                    )
+                }
+                .onChange(of: store.activeBookID) { _, _ in
+                    FinsyMaintenanceCoordinator.shared.performLedgerSwitchMaintenance(
+                        store: store,
+                        preferences: preferences
                     )
                 }
                 .onChange(of: scenePhase) { _, phase in

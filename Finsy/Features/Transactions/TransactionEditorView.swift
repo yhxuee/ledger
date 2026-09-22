@@ -50,6 +50,7 @@ struct TransactionEditorView: View {
     @FocusState private var noteFocused: Bool
     @State private var selectedCoupon: WalletCoupon?
     @State private var isCouponOptedOut = false
+    @State private var isHandingOff = false
 
     init(transaction: LedgerTransaction? = nil, isLinkedDraft: Bool = false, entryMode: TransactionEntryMode = .normal) {
         self.isLinkedDraft = isLinkedDraft
@@ -451,6 +452,9 @@ struct TransactionEditorView: View {
             TransactionNoteCamera(image: $noteImage, imageChanged: $noteImageChanged)
                 .ignoresSafeArea()
         }
+        .offset(y: isHandingOff ? -40 : 0)
+        .scaleEffect(isHandingOff ? 0.95 : 1.0)
+        .opacity(isHandingOff ? 0 : 1.0)
         .onDisappear {
             if entryMode == .turbo {
                 Task {
@@ -1220,7 +1224,7 @@ struct TransactionEditorView: View {
             original.couponSnapshot = selectedCouponSnapshot
             store.updateTransaction(original)
         } else {
-            let presentation: RecentTransactionPresentation = (entryMode == .turbo) ? .transient : .standard
+            let presentation: RecentTransactionPresentation = (entryMode == .turbo) ? .none : .standard
             guard await store.recordTransaction(type: type, accountID: accountID, destinationAccountID: destinationID, amount: amount, currency: currency, categoryID: categoryID, occurredAt: occurredAt, note: note, noteAttachmentID: savedAttachmentID, accountCurrency: sourceAccountCurrency, accountAmount: sourcePostingValue, destinationAccountCurrency: destinationAccountCurrency, destinationAmount: type == .transfer ? destinationPostingValue : nil, taxSnapshot: taxSnapshot, couponSnapshot: selectedCouponSnapshot, presentation: presentation) != nil else {
                 if noteImageChanged, let savedAttachmentID { try? await AttachmentStore.shared.delete(identifier: savedAttachmentID) }
                 store.presentedError = String(localized: "The transaction could not be saved.")
@@ -1250,6 +1254,12 @@ struct TransactionEditorView: View {
             taxChanged = false
             syncAmountFields()
             return
+        }
+        if original == nil && entryMode == .normal {
+            withAnimation(.easeOut(duration: 0.25)) {
+                isHandingOff = true
+            }
+            try? await Task.sleep(for: .milliseconds(250))
         }
         dismiss()
     }

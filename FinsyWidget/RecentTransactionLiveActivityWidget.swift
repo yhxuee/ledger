@@ -44,7 +44,7 @@ struct RecentTransactionLiveActivityWidget: Widget {
                                 Spacer()
                             }
                         } else {
-                            HStack(spacing: 12) {
+                            HStack {
                                 if context.state.isRefundable {
                                     Button(intent: RefundRecentTransactionIntent(transactionID: context.state.transactionID)) {
                                         Label(LocalizedStringKey("Refund"), systemImage: "arrow.counterclockwise")
@@ -53,13 +53,13 @@ struct RecentTransactionLiveActivityWidget: Widget {
                                     .tint(Color.orange)
                                 }
 
+                                Spacer()
+
                                 Button(intent: UndoRecentTransactionIntent(transactionID: context.state.transactionID)) {
                                     Label(LocalizedStringKey("Undo"), systemImage: "arrow.uturn.backward")
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .tint(Color.gray.opacity(0.35))
-
-                                Spacer()
                             }
                         }
                     }
@@ -146,7 +146,7 @@ struct RecentTransactionLiveActivityWidget: Widget {
                     Spacer()
                 }
             } else {
-                HStack(spacing: 12) {
+                HStack {
                     if context.state.isRefundable {
                         Button(intent: RefundRecentTransactionIntent(transactionID: context.state.transactionID)) {
                             Label(LocalizedStringKey("Refund"), systemImage: "arrow.counterclockwise")
@@ -155,13 +155,13 @@ struct RecentTransactionLiveActivityWidget: Widget {
                         .tint(Color.orange)
                     }
 
+                    Spacer()
+
                     Button(intent: UndoRecentTransactionIntent(transactionID: context.state.transactionID)) {
                         Label(LocalizedStringKey("Undo"), systemImage: "arrow.uturn.backward")
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(Color.gray.opacity(0.35))
-
-                    Spacer()
                 }
             }
         }
