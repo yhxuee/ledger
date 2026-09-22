@@ -27,13 +27,12 @@ struct FinsyApp: App {
                         privacy: privacy
                     )
                 }
-                .onChange(of: store.activeBookID) { _, _ in
-                    Task { @MainActor in
-                        await FinsyMaintenanceCoordinator.shared.performLedgerSwitchMaintenance(
-                            store: store,
-                            preferences: preferences
-                        )
-                    }
+                .onChange(of: store.activeBookID) { _, newBookID in
+                    FinsyMaintenanceCoordinator.shared.scheduleLedgerSwitchMaintenance(
+                        store: store,
+                        preferences: preferences,
+                        expectedBookID: newBookID
+                    )
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {

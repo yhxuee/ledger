@@ -31,15 +31,24 @@ final class FinsyNotificationScheduler: NSObject, UNUserNotificationCenterDelega
         return settings.authorizationStatus
     }
 
-    func reconcileAll(state: LedgerState, preferences: AppPreferences) async {
+    func reconcileGlobalReminders(preferences: AppPreferences) async {
         let status = await checkAuthorizationStatus()
         guard status == .authorized || status == .provisional else {
             return
         }
 
         await reconcileRecordingReminders(slots: preferences.recordingReminderSlots)
-        await reconcileCouponReminders(accounts: state.accounts)
         await reconcileStatementReminders(preferences: preferences)
+    }
+
+    func reconcileAll(state: LedgerState, preferences: AppPreferences) async {
+        let status = await checkAuthorizationStatus()
+        guard status == .authorized || status == .provisional else {
+            return
+        }
+
+        await reconcileGlobalReminders(preferences: preferences)
+        await reconcileCouponReminders(accounts: state.accounts)
     }
 
     func rescheduleRecordingReminders(slots: [RecordingReminderSlot]) {
@@ -85,7 +94,9 @@ final class FinsyNotificationScheduler: NSObject, UNUserNotificationCenterDelega
     }
 
     func reconcileCouponReminders(accounts: [LedgerAccount]) async {
+        guard !Task.isCancelled else { return }
         let pending = await center.pendingNotificationRequests()
+        guard !Task.isCancelled else { return }
         let existingCouponIDs = Set(pending.filter { $0.identifier.hasPrefix("coupon.") }.map(\.identifier))
 
         var activeCouponIdentifiers = Set<String>()
@@ -93,8 +104,10 @@ final class FinsyNotificationScheduler: NSObject, UNUserNotificationCenterDelega
         let now = Date()
 
         for account in accounts where account.type == .eWallet {
+            guard !Task.isCancelled else { return }
             guard let coupons = account.coupons else { continue }
             for coupon in coupons {
+                guard !Task.isCancelled else { return }
                 guard coupon.usedAt == nil, coupon.reminderEnabled else { continue }
                 guard coupon.expirationDate > now else { continue }
 
@@ -121,10 +134,12 @@ final class FinsyNotificationScheduler: NSObject, UNUserNotificationCenterDelega
                 let trigger = UNCalendarNotificationTrigger(dateMatching: targetComponents, repeats: false)
                 let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
 
+                guard !Task.isCancelled else { return }
                 try? await center.add(request)
             }
         }
 
+        guard !Task.isCancelled else { return }
         let toRemove = Array(existingCouponIDs.subtracting(activeCouponIdentifiers))
         if !toRemove.isEmpty {
             center.removePendingNotificationRequests(withIdentifiers: toRemove)

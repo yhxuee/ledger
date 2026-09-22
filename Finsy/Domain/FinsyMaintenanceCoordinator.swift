@@ -14,7 +14,7 @@ final class FinsyMaintenanceCoordinator {
 
     private init() {}
 
-    private var ledgerSwitchGeneration = 0
+    private var ledgerSwitchTask: Task<Void, Never>?
 
     /// Performs one-time app-launch maintenance operations (biometrics, observers, migrations,
     /// catalog/rates/quotes refresh, background tasks).
@@ -31,13 +31,13 @@ final class FinsyMaintenanceCoordinator {
         RecentTransactionActivityCoordinator.shared.registerObservers(store: store)
 
         // Perform initial book-specific reconciliation
-        await performLedgerSwitchMaintenance(store: store, preferences: preferences)
+        scheduleLedgerSwitchMaintenance(store: store, preferences: preferences, expectedBookID: store.activeBookID)
 
         _ = try? await store.refreshCurrencyCatalogIfNeeded()
         _ = try? await store.refreshExchangeRatesIfNeeded()
         await StockQuoteRefreshService.shared.refreshIfDue(store: store)
         MarketRefreshBackground.schedule(store: store)
-        await FinsyNotificationScheduler.shared.reconcileAll(state: store.state, preferences: preferences.value)
+        await FinsyNotificationScheduler.shared.reconcileGlobalReminders(preferences: preferences.value)
         lastMaintenanceDate = .now
     }
 
@@ -50,16 +50,46 @@ final class FinsyMaintenanceCoordinator {
         await performAppLaunchMaintenance(store: store, preferences: preferences, privacy: privacy)
     }
 
+    /// Schedules book-specific reconciliation when switching active ledgers.
+    /// Serializes execution so that in-flight tasks complete/cancel before a new reconciliation begins,
+    /// guaranteeing that the newest active ledger deterministically wins without race conditions.
+    func scheduleLedgerSwitchMaintenance(
+        store: LedgerStore,
+        preferences: AppPreferencesStore,
+        expectedBookID: UUID
+    ) {
+        let previousTask = ledgerSwitchTask
+        previousTask?.cancel()
+
+        let nextTask = Task { @MainActor in
+            if let previousTask {
+                _ = await previousTask.result
+            }
+
+            guard !Task.isCancelled,
+                  store.activeBookID == expectedBookID else {
+                return
+            }
+
+            await performLedgerSwitchMaintenance(
+                store: store,
+                preferences: preferences,
+                expectedBookID: expectedBookID
+            )
+        }
+
+        ledgerSwitchTask = nextTask
+    }
+
     /// Performs book-specific reconciliation when switching active ledgers.
     /// Reconciles recent actions, active purchases, recurring rules, installments, widget snapshots,
     /// and coupon reminder notifications.
     func performLedgerSwitchMaintenance(
         store: LedgerStore,
-        preferences: AppPreferencesStore
+        preferences: AppPreferencesStore,
+        expectedBookID: UUID
     ) async {
-        ledgerSwitchGeneration += 1
-        let generation = ledgerSwitchGeneration
-        let targetBookID = store.activeBookID
+        guard !Task.isCancelled, store.activeBookID == expectedBookID else { return }
 
         RecentTransactionActivityCoordinator.shared.reconcilePendingActions(store: store)
         store.reconcileSharedActivePurchases()
@@ -67,9 +97,11 @@ final class FinsyMaintenanceCoordinator {
         store.refreshDueInstallments()
         OverviewWidgetRelay.updateSnapshot(store: store, preferences: preferences.value)
 
+        guard !Task.isCancelled, store.activeBookID == expectedBookID else { return }
+
         await FinsyNotificationScheduler.shared.reconcileCouponReminders(accounts: store.state.accounts)
 
-        guard generation == ledgerSwitchGeneration, targetBookID == store.activeBookID else { return }
+        guard !Task.isCancelled, store.activeBookID == expectedBookID else { return }
     }
 
     /// Performs foreground-transition maintenance operations with in-flight deduplication.
@@ -78,9 +110,7 @@ final class FinsyMaintenanceCoordinator {
         preferences: AppPreferencesStore,
         privacy: PrivacyController
     ) {
-        Task { @MainActor in
-            await performLedgerSwitchMaintenance(store: store, preferences: preferences)
-        }
+        scheduleLedgerSwitchMaintenance(store: store, preferences: preferences, expectedBookID: store.activeBookID)
 
         guard !isPerformingBackgroundMaintenance else { return }
         isPerformingBackgroundMaintenance = true
@@ -92,7 +122,7 @@ final class FinsyMaintenanceCoordinator {
             _ = try? await store.refreshExchangeRatesIfNeeded()
             await StockQuoteRefreshService.shared.refreshIfDue(store: store)
             MarketRefreshBackground.schedule(store: store)
-            await FinsyNotificationScheduler.shared.reconcileAll(state: store.state, preferences: preferences.value)
+            await FinsyNotificationScheduler.shared.reconcileGlobalReminders(preferences: preferences.value)
             self.lastMaintenanceDate = .now
         }
     }
