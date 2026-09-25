@@ -1,0 +1,8 @@
+.DS_Store
+*.swp
+*~
+.crash-analysis/
+xcuserdata/
+DerivedData/
+__pycache__/
+*.pyc

@@ -469,7 +469,7 @@ enum CloudRecordMapper {
 
         result["updatedAt"] = updatedAt as CKRecordValue
         result["version"] = version as CKRecordValue
-        if let parentName {
+        if let parentName, !parentName.isEmpty {
             result.parent = CKRecord.Reference(recordID: CKRecord.ID(recordName: parentName, zoneID: zoneID), action: .none)
         }
         return result

@@ -172,7 +172,7 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
     }
 
     private func zoneKey(_ zone: CKRecordZone.ID) -> String {
-        CloudRecordJournal.key(CKRecord.ID(recordName: "", zoneID: zone))
+        CloudRecordJournal.zoneKey(zone)
     }
 
     func completeMigration(records: [CKRecord], book: LedgerBook, zoneID: CKRecordZone.ID) throws {
@@ -347,7 +347,7 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
             guard let data = try storage.database.data("delivery", key),
                   let zone = try NSKeyedUnarchiver.unarchivedObject(ofClass: CKRecordZone.ID.self, from: data) else { throw BackupError.invalidFormat }
             let version = try storage.database.data("delivery-version", key)
-            let prefix = [zone.ownerName, zone.zoneName].map { "\($0.utf8.count):\($0)" }.joined()
+            let prefix = CloudRecordJournal.zonePrefix(zone)
             let deletionKeys = try storage.database.keys("remote-deletions", prefix: prefix)
             let deletions = try deletionKeys.map { key -> CKRecord.ID in
                 guard let data = try storage.database.data("remote-deletions", key),

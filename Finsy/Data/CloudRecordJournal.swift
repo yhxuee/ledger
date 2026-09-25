@@ -19,6 +19,16 @@ final class CloudRecordJournal {
         [id.zoneID.ownerName, id.zoneID.zoneName, id.recordName].map { "\($0.utf8.count):\($0)" }.joined()
     }
 
+    static func zoneKey(_ zone: CKRecordZone.ID) -> String {
+        // Match key's length-delimited format without creating a CKRecord.ID
+        // since CloudKit throws an Objective-C exception for an empty recordName.
+        [zone.ownerName, zone.zoneName, ""].map { "\($0.utf8.count):\($0)" }.joined()
+    }
+
+    static func zonePrefix(_ zone: CKRecordZone.ID) -> String {
+        [zone.ownerName, zone.zoneName].map { "\($0.utf8.count):\($0)" }.joined()
+    }
+
     func record(_ id: CKRecord.ID) throws -> CKRecord? { try record(key: Self.key(id)) }
     func record(key: String) throws -> CKRecord? {
         guard let data = try database.data("records", key) else { return nil }
@@ -61,11 +71,13 @@ final class CloudRecordJournal {
         }
     }
     func knownLocalIDs(in zone: CKRecordZone.ID) throws -> [CKRecord.ID] {
-        let prefix = [zone.ownerName, zone.zoneName].map { "\($0.utf8.count):\($0)" }.joined()
-        return try database.keys("fingerprints", prefix: prefix).map { key in
+        let prefix = Self.zonePrefix(zone)
+        return try database.keys("fingerprints", prefix: prefix).compactMap { key in
             let suffix = key.dropFirst(prefix.count)
-            guard let separator = suffix.firstIndex(of: ":") else { throw BackupError.invalidFormat }
-            return CKRecord.ID(recordName: String(suffix[suffix.index(after: separator)...]), zoneID: zone)
+            guard let separator = suffix.firstIndex(of: ":") else { return nil }
+            let recordName = String(suffix[suffix.index(after: separator)...])
+            guard !recordName.isEmpty else { return nil }
+            return CKRecord.ID(recordName: recordName, zoneID: zone)
         }
     }
     func acknowledge(_ id: CKRecord.ID) throws { try database.remove("outbox", Self.key(id)) }
