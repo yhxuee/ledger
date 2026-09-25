@@ -149,7 +149,8 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         for field in ["payload", "ciphertextV1", "keyFingerprint", "encryptionVersion", "updatedAt", "version", "receipt", "noteAttachment"] {
             target[field] = source[field]
         }
-        target.parent = source.parent
+        // Keep a fetched record's existing sharing metadata unchanged. New
+        // zone-shared records have no parent chain.
     }
 
     func cache(records: [CKRecord]) throws {

@@ -264,7 +264,6 @@ enum CloudRecordMapper {
                     zoneID: zone,
                     updatedAt: session.updatedAt ?? $0.completedAt ?? session.createdAt,
                     version: 1,
-                    parentName: sessionRecord.recordID.recordName,
                     ledgerID: book.id,
                     key: key
                 )
@@ -366,12 +365,22 @@ enum CloudRecordMapper {
             guard let value: PurchaseItem = try decode(record, ledgerID: bookID) else { continue }
             guard itemRecordByID.updateValue(record, forKey: value.id) == nil else { throw BackupError.duplicateID("purchase item") }
         }
+        let itemsByID = Dictionary(uniqueKeysWithValues: allItems.map { ($0.id, $0) })
         let itemsByParent = Dictionary(grouping: allItems, by: { itemRecordByID[$0.id]?.parent?.recordID.recordName ?? "" })
         let sessions = try headers.map { header in
-            let allowedIDs = header.itemIDs.map { Set($0) }
-            let items = (itemsByParent["purchase-\(header.id.uuidString)"] ?? []).filter { item in
-                guard let record = itemRecordByID[item.id], let parent = record.parent else { return false }
-                return parent.recordID.recordName == "purchase-\(header.id.uuidString)" && (allowedIDs?.contains(item.id) ?? true)
+            let sessionName = "purchase-\(header.id.uuidString)"
+            // Zone-wide shares do not use CloudKit parent chains. Current headers
+            // carry item IDs; retain parent-based decoding for older saved records.
+            let items: [PurchaseItem]
+            if let itemIDs = header.itemIDs {
+                items = itemIDs.compactMap { id in
+                    guard let item = itemsByID[id] else { return nil }
+                    if let parent = itemRecordByID[id]?.parent,
+                       parent.recordID.recordName != sessionName { return nil }
+                    return item
+                }
+            } else {
+                items = itemsByParent[sessionName] ?? []
             }
             var receiptIdentifier = header.receiptAttachmentID
             if let attachmentFolder,
@@ -449,7 +458,6 @@ enum CloudRecordMapper {
         zoneID: CKRecordZone.ID,
         updatedAt: Date,
         version: Int,
-        parentName: String? = nil,
         ledgerID: UUID,
         key: SymmetricKey?
     ) throws -> CKRecord {
@@ -473,9 +481,6 @@ enum CloudRecordMapper {
 
         result["updatedAt"] = updatedAt as CKRecordValue
         result["version"] = version as CKRecordValue
-        if let parentName, !parentName.isEmpty {
-            result.parent = CKRecord.Reference(recordID: CKRecord.ID(recordName: parentName, zoneID: zoneID), action: .none)
-        }
         return result
     }
 

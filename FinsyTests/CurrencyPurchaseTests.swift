@@ -104,6 +104,7 @@ final class CurrencyPurchaseTests: XCTestCase {
         XCTAssertEqual(decoded.purchaseSessions?.first?.plannedAmount, 100)
         let book = LedgerBook(id: session.ledgerBookID, name: "Test", state: state, createdAt: .now, updatedAt: .now)
         let records = try CloudRecordMapper.records(for: book)
+        XCTAssertTrue(records.allSatisfy { $0.parent == nil })
         let cloud = try CloudRecordMapper.decodeBook(from: records, participant: false)
         XCTAssertEqual(cloud.state.purchaseSessions?.first?.currency, .USDC)
         XCTAssertEqual(cloud.state.purchaseSessions?.first?.accountID, session.accountID)
