@@ -59,6 +59,11 @@ for endpoint, sample in SAMPLES.items():
         for name, digest in manifest.items():
             assert hashlib.sha1(bundle.read(name)).hexdigest() == digest
         assert json.loads(bundle.read("pass.json"))["passTypeIdentifier"] == sample["passTypeIdentifier"]
+        style = json.loads(bundle.read("pass.json"))
+        if endpoint == "account":
+            assert "generic" in style and "strip.png" not in bundle.namelist()
+        else:
+            assert "coupon" in style and "strip.png" in bundle.namelist()
         with tempfile.TemporaryDirectory() as temp:
             manifest_path = Path(temp) / "manifest.json"
             signature_path = Path(temp) / "signature"

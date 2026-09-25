@@ -3,6 +3,9 @@
 The Python service listens on `127.0.0.1:8765`. Caddy provides public HTTPS for
 `finsy.yhxue.com`. It accepts the iOS snapshot JSON at `/account`,
 `/purchase-receipt`, and `/tax-receipt` and returns a signed `.pkpass`.
+Receipt and tax passes use Apple's coupon layout with a transparent serrated
+strip image. Wallet controls the outer card shape, so the teeth appear in the
+strip artwork rather than changing the system card outline.
 
 The service requires these files in `/etc/finsy-wallet`, readable only by the
 `finsy-wallet` service account:

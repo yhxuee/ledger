@@ -79,17 +79,17 @@ struct PurchaseSummaryView: View {
                                         Text(generatingPass ? String(localized: "Adding to Apple Wallet...") : String(localized: "Add to Apple Wallet"))
                                             .font(.subheadline.weight(.semibold))
                                         if generatingPass {
-                                            Spacer()
                                             ProgressView()
                                                 .controlSize(.small)
                                         }
                                     }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 4)
+                                    .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .tint(isWalletActionEnabled ? Color.primary : Color.secondary.opacity(0.3))
+                                .controlSize(.regular)
+                                .tint(primaryActionColor)
                                 .disabled(!isWalletActionEnabled)
+                                .frame(maxWidth: .infinity)
 
                                 if let message = walletStatusMessage {
                                     Text(message)

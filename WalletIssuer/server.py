@@ -117,6 +117,9 @@ def make_pass(kind: str, expected_id: str, payload: dict) -> dict:
                 for item in locations
             ]
     elif kind == "receipt":
+        body["backgroundColor"] = "rgb(235, 235, 235)"
+        body["foregroundColor"] = "rgb(25, 25, 25)"
+        body["labelColor"] = "rgb(85, 85, 85)"
         store = short(payload.get("storeName"))
         total = short(payload.get("formattedTotal"))
         tax = short(payload.get("formattedTax"))
@@ -131,7 +134,7 @@ def make_pass(kind: str, expected_id: str, payload: dict) -> dict:
         if not back:
             back.append(field("itemsSummary", "ITEMS", short(payload.get("itemsSummary", ""), 300)))
         body["description"] = "Finsy purchase receipt"
-        body["generic"] = {
+        body["coupon"] = {
             "headerFields": [field("store", "STORE", store)],
             "primaryFields": [field("total", "TOTAL", total)],
             "secondaryFields": [field("tax", "TAX", tax), field("itemCount", "ITEMS", str(count))],
@@ -139,11 +142,14 @@ def make_pass(kind: str, expected_id: str, payload: dict) -> dict:
             "backFields": back,
         }
     else:
+        body["backgroundColor"] = "rgb(235, 235, 235)"
+        body["foregroundColor"] = "rgb(25, 25, 25)"
+        body["labelColor"] = "rgb(85, 85, 85)"
         month = short(payload.get("monthName"))
         tax = short(payload.get("formattedExpenseTax"))
         expense = short(payload.get("formattedTaxableExpense"))
         body["description"] = "Finsy monthly expense tax summary"
-        body["generic"] = {
+        body["coupon"] = {
             "headerFields": [field("month", "MONTH", month)],
             "primaryFields": [field("tax", "EXPENSE TAX", tax)],
             "secondaryFields": [field("expense", "TAXABLE EXPENSE", expense)],
@@ -159,6 +165,9 @@ def signed_pass(kind: str, body: dict) -> bytes:
             "icon.png": (ROOT / "assets" / "icon.png").read_bytes(),
             "icon@2x.png": (ROOT / "assets" / "icon@2x.png").read_bytes(),
         }
+        if kind in ("receipt", "tax"):
+            for name in ("strip.png", "strip@2x.png", "strip@3x.png"):
+                files[name] = (ROOT / "assets" / name).read_bytes()
         manifest = {name: hashlib.sha1(contents).hexdigest() for name, contents in files.items()}
         files["manifest.json"] = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
         (folder / "manifest.json").write_bytes(files["manifest.json"])

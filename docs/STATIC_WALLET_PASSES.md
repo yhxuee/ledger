@@ -28,12 +28,12 @@ Finsy integrates static Apple Wallet passes using native `PassKit` (`PKPassLibra
   - Calls `PKPassLibrary.replacePass(with:)` directly in place without creating duplicate cards.
 
 ### 2. Purchase Receipt Pass
-- **Style**: Coupon / Event ticket style receipt pass.
+- **Style**: Coupon pass with a serrated paper strip image.
 - **Trigger**: Generated upon completion of a Purchase Session from `PurchaseSummaryView`.
 - **Content**: Store/merchant name, items summary (e.g. top items), total amount spent, currency, finalization timestamp.
 
 ### 3. Monthly Expense Tax Statement Pass
-- **Style**: Store card / coupon style tax summary pass.
+- **Style**: Coupon pass with a serrated paper strip image.
 - **Trigger**: Generated from `TaxAnalyticsPage`.
 - **Content**:
   - Monthly taxable expenses and total tax paid.

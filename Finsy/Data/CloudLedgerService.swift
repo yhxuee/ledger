@@ -76,15 +76,47 @@ actor CloudLedgerService {
         _ = try await database.save(CKRecordZone(zoneID: zoneID))
         let records = try CloudRecordMapper.records(for: book, zoneID: zoneID, attachmentFolder: LocalLedgerRepository.storageFolder.appending(path: "Attachments"))
         defer { CloudRecordMapper.removeTemporaryAssets(records) }
-        var serverRecords: [CKRecord] = []
-        for batch in records.chunked(into: 180) {
-            let response = try await database.modifyRecords(saving: batch, deleting: [], savePolicy: .ifServerRecordUnchanged, atomically: true)
-            serverRecords += try response.saveResults.values.map { try $0.get() }
+        for batch in records.chunked(into: 100) {
+            let fetched = try await database.records(for: batch.map(\.recordID))
+            var missing: [CKRecord] = []
+            var known: [CKRecord] = []
+            for record in batch {
+                guard let result = fetched[record.recordID] else { throw CloudLedgerError.incompleteShareUpload }
+                switch result {
+                case .success(let existing):
+                    known.append(existing)
+                case .failure(let error):
+                    guard (error as? CKError)?.code == .unknownItem else { throw error }
+                    missing.append(record)
+                }
+            }
+            if !missing.isEmpty {
+                // A previous share attempt or sync may already have saved some records.
+                // Keep those records and their change tags; create only the absent ones.
+                let response = try await database.modifyRecords(
+                    saving: missing, deleting: [], savePolicy: .ifServerRecordUnchanged, atomically: false
+                )
+                var firstFailure: Error?
+                for record in missing {
+                    guard let result = response.saveResults[record.recordID] else {
+                        throw CloudLedgerError.incompleteShareUpload
+                    }
+                    switch result {
+                    case .success(let saved): known.append(saved)
+                    case .failure(let error):
+                        LedgerDiagnostics.failure(error, operation: "share-record-save", logger: LedgerDiagnostics.cloud)
+                        if firstFailure == nil { firstFailure = error }
+                    }
+                }
+                try await ownerSync.cache(records: known)
+                if let firstFailure { throw firstFailure }
+            } else {
+                try await ownerSync.cache(records: known)
+            }
         }
         let share = CKShare(recordZoneID: zoneID)
         share[CKShare.SystemFieldKey.title] = book.name as CKRecordValue
         _ = try await database.save(share)
-        try await ownerSync.cache(records: serverRecords)
         return share
     }
 
@@ -286,12 +318,13 @@ actor CloudLedgerService {
 }
 
 enum CloudLedgerError: LocalizedError {
-    case missingZone, shareUnavailable, migrationInProgress, pendingChanges, missingPendingRecord
+    case missingZone, shareUnavailable, migrationInProgress, pendingChanges, missingPendingRecord, incompleteShareUpload
     var errorDescription: String? {
         switch self {
         case .migrationInProgress: "Encryption migration is still in progress."
         case .pendingChanges: "Some ledger changes have not reached iCloud yet."
         case .missingPendingRecord: "A pending iCloud record could not be loaded from local storage."
+        case .incompleteShareUpload: "CloudKit did not return the result for every ledger record. Please retry sharing."
         case .missingZone: "This shared ledger is missing its CloudKit zone metadata."
         case .shareUnavailable: "The CloudKit sharing record is unavailable."
         }

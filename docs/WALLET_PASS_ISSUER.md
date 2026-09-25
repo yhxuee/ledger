@@ -148,7 +148,7 @@ The client serializes `PurchaseReceiptPassSnapshot` to JSON. Outbound requests f
 The signing server must map the snapshot payload into `pass.json` fields using stable keys (never localized display strings as keys):
 
 ### Pass Structure
-- **Pass Style**: `storeCard` (or `generic`)
+- **Pass Style**: `coupon` for purchase receipts and monthly expense tax statements. A transparent `strip.png` with triangular top and bottom edges gives the paper-ticket appearance within Wallet's fixed card outline. The account pass remains `generic`.
 
 ### Header Fields
 - `key`: `"store"`
