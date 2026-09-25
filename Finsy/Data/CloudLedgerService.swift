@@ -131,7 +131,7 @@ actor CloudLedgerService {
         try await configureCallbacksIfNeeded()
         try await container.accept(metadata)
         let zoneID = metadata.share.recordID.zoneID
-        let records = try await fetchAllRecords(database: container.sharedCloudDatabase, zoneID: zoneID)
+        let records = try await fetchZoneSnapshot(database: container.sharedCloudDatabase, zoneID: zoneID)
         let book = try CloudRecordMapper.decodeBook(from: records, participant: true, attachmentFolder: AttachmentStore.folderURL)
         try await participantSync.cache(records: records)
         return book
@@ -163,7 +163,7 @@ actor CloudLedgerService {
         guard let zoneName = book.cloudZoneName else { throw CloudLedgerError.missingZone }
         let zone = CKRecordZone.ID(zoneName: zoneName, ownerName: book.cloudZoneOwnerName ?? CKCurrentUserDefaultName)
         let participant = book.effectiveStorageKind == .cloudParticipant
-        let records = try await fetchAllRecords(database: participant ? container.sharedCloudDatabase : container.privateCloudDatabase, zoneID: zone)
+        let records = try await fetchZoneSnapshot(database: participant ? container.sharedCloudDatabase : container.privateCloudDatabase, zoneID: zone)
         let decoded = try CloudRecordMapper.decodeBook(from: records, participant: participant, attachmentFolder: AttachmentStore.folderURL)
         guard decoded.effectiveEncryptionState != .authorizationRequired else {
             throw LedgerCryptoError.authorizationRequired(ledgerID: book.id, fingerprint: book.keyFingerprint)
@@ -184,7 +184,7 @@ actor CloudLedgerService {
         try await (book.effectiveStorageKind == .cloudOwner ? ownerSync : participantSync).flush()
 
         // Explicit refresh/export may request a complete snapshot after the outbox is acknowledged.
-        let records = try await fetchAllRecords(database: database, zoneID: zoneID)
+        let records = try await fetchZoneSnapshot(database: database, zoneID: zoneID)
         let decoded = try CloudRecordMapper.decodeBook(
             from: records,
             participant: (book.effectiveStorageKind == .cloudParticipant),
@@ -208,12 +208,14 @@ actor CloudLedgerService {
         let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: book.cloudZoneOwnerName ?? CKCurrentUserDefaultName)
         try await ownerSync.beginMigration(zoneID: zoneID)
         do {
-            let remoteRecords = try await fetchAllRecords(database: container.privateCloudDatabase, zoneID: zoneID)
+            let remoteRecords = try await fetchZoneSnapshot(database: container.privateCloudDatabase, zoneID: zoneID)
+            LedgerDiagnostics.security.info("Beginning encryption migration for ledger=\(book.id) remoteRecords=\(remoteRecords.count)")
             let remote = try CloudRecordMapper.decodeBook(from: remoteRecords, participant: false, attachmentFolder: AttachmentStore.folderURL)
             var encrypted = try CloudBookMerge.merge(local: book, remote: remote)
+            let expectedFingerprint = LedgerKeyStore.fingerprint(for: key, ledgerID: book.id)
             encrypted.isEncrypted = true
             encrypted.encryptionState = .enabled
-            encrypted.keyFingerprint = LedgerKeyStore.fingerprint(for: key, ledgerID: book.id)
+            encrypted.keyFingerprint = expectedFingerprint
             encrypted.encryptionVersion = LedgerCryptoService.currentEncryptionVersion
             let generated = try CloudRecordMapper.records(for: encrypted, zoneID: zoneID, attachmentFolder: AttachmentStore.folderURL)
             defer { CloudRecordMapper.removeTemporaryAssets(generated) }
@@ -248,8 +250,15 @@ actor CloudLedgerService {
                 LedgerDiagnostics.security.info("Encryption migration acknowledged records=\(saved.count) total=\(updates.count)")
             }
             try validateStoredKey()
-            try await ownerSync.completeMigration(records: saved, book: encrypted, zoneID: zoneID)
-            LedgerDiagnostics.security.info("Encryption migration completed records=\(saved.count)")
+
+            // Fetch a fresh complete zone snapshot again to verify actual server state.
+            LedgerDiagnostics.security.info("Fetching fresh post-migration zone snapshot for ledger=\(book.id)")
+            let verifiedSnapshot = try await fetchZoneSnapshot(database: container.privateCloudDatabase, zoneID: zoneID)
+            try verifyEncryptedZoneSnapshot(verifiedSnapshot, expectedFingerprint: expectedFingerprint)
+            LedgerDiagnostics.security.info("Post-migration server verification succeeded for ledger=\(book.id) verifiedRecords=\(verifiedSnapshot.count)")
+
+            try await ownerSync.completeMigration(records: verifiedSnapshot, book: encrypted, zoneID: zoneID)
+            LedgerDiagnostics.security.info("Encryption migration completed records=\(verifiedSnapshot.count)")
             return encrypted
         } catch {
             try? await ownerSync.resume()
@@ -283,42 +292,109 @@ actor CloudLedgerService {
         _ = try await database.save(record)
     }
 
-    private func fetchAllRecords(database: CKDatabase, zoneID: CKRecordZone.ID) async throws -> [CKRecord] {
-        var output: [CKRecord] = []
-        for type in [
-            CloudRecordType.book,
-            CloudRecordType.account,
-            CloudRecordType.transaction,
-            CloudRecordType.category,
-            CloudRecordType.settings,
-            CloudRecordType.budget,
-            CloudRecordType.recurring,
-            CloudRecordType.purchaseSession,
-            CloudRecordType.purchaseItem,
-            CloudRecordType.enrollmentRequest,
-            CloudRecordType.keyEnvelope
-        ] {
-            var cursor: CKQueryOperation.Cursor?
-            repeat {
-                let results: [(CKRecord.ID, Result<CKRecord, Error>)]
-                if let existingCursor = cursor {
-                    let page = try await database.records(continuingMatchFrom: existingCursor)
-                    results = page.matchResults
-                    cursor = page.queryCursor
-                } else {
-                    let page = try await database.records(matching: CKQuery(recordType: type, predicate: NSPredicate(value: true)), inZoneWith: zoneID)
-                    results = page.matchResults
-                    cursor = page.queryCursor
-                }
-                output += try results.map { try $0.1.get() }
-            } while cursor != nil
+    private static let financialRecordTypes: Set<String> = [
+        CloudRecordType.book,
+        CloudRecordType.account,
+        CloudRecordType.transaction,
+        CloudRecordType.category,
+        CloudRecordType.settings,
+        CloudRecordType.budget,
+        CloudRecordType.recurring,
+        CloudRecordType.purchaseSession,
+        CloudRecordType.purchaseItem
+    ]
+
+    private func fetchZoneSnapshot(database: CKDatabase, zoneID: CKRecordZone.ID) async throws -> [CKRecord] {
+        var recordsByID: [CKRecord.ID: CKRecord] = [:]
+        var changeToken: CKServerChangeToken? = nil
+        var moreComing = true
+
+        while moreComing {
+            try Task.checkCancellation()
+            let page = try await database.recordZoneChanges(
+                inZoneWith: zoneID,
+                since: changeToken,
+                desiredKeys: nil,
+                resultsLimit: nil
+            )
+            for (_, result) in page.modificationResultsByID {
+                try Task.checkCancellation()
+                let modification = try result.get()
+                recordsByID[modification.record.recordID] = modification.record
+            }
+            for deletion in page.deletions {
+                recordsByID.removeValue(forKey: deletion.recordID)
+            }
+            changeToken = page.changeToken
+            moreComing = page.moreComing
         }
-        return output
+
+        LedgerDiagnostics.cloud.info("Fetched zone snapshot records=\(recordsByID.count) zone=\(zoneID.zoneName)")
+        return Array(recordsByID.values)
+    }
+
+    private func verifyEncryptedZoneSnapshot(
+        _ records: [CKRecord],
+        expectedFingerprint: String
+    ) throws {
+        let expectedFingerprintLower = expectedFingerprint.lowercased()
+        let protocolRecordTypes: Set<String> = [
+            CloudRecordType.enrollmentRequest,
+            CloudRecordType.keyEnvelope,
+            "cloudkit.zoneshare"
+        ]
+
+        var financialRecordCount = 0
+
+        for record in records {
+            // Reject any leftover record containing the legacy plaintext payload field,
+            // even if it is an old/unreferenced record.
+            if record["payload"] != nil {
+                throw CloudLedgerError.migrationVerificationFailed(
+                    "Plaintext payload detected in record \(record.recordID.recordName) (type: \(record.recordType))"
+                )
+            }
+
+            // Protocol and system records have distinct security semantics and are excluded
+            // from financial payload encryption requirements.
+            if protocolRecordTypes.contains(record.recordType) || record is CKShare {
+                continue
+            }
+
+            // Financial records must be encrypted with ciphertext, matching fingerprint, and current version.
+            if Self.financialRecordTypes.contains(record.recordType) {
+                financialRecordCount += 1
+
+                guard let ciphertext = record["ciphertextV1"] as? Data, !ciphertext.isEmpty else {
+                    throw CloudLedgerError.migrationVerificationFailed(
+                        "Missing ciphertextV1 in financial record \(record.recordID.recordName)"
+                    )
+                }
+
+                guard let fingerprint = record["keyFingerprint"] as? String,
+                      fingerprint.lowercased() == expectedFingerprintLower else {
+                    throw CloudLedgerError.migrationVerificationFailed(
+                        "Fingerprint mismatch in financial record \(record.recordID.recordName) (expected \(expectedFingerprintLower), found \(record["keyFingerprint"] as? String ?? "nil"))"
+                    )
+                }
+
+                guard let version = record["encryptionVersion"] as? Int,
+                      version == LedgerCryptoService.currentEncryptionVersion else {
+                    throw CloudLedgerError.migrationVerificationFailed(
+                        "Invalid encryptionVersion in financial record \(record.recordID.recordName)"
+                    )
+                }
+            }
+        }
+
+        guard financialRecordCount > 0 else {
+            throw CloudLedgerError.migrationVerificationFailed("No financial records found in migrated zone snapshot")
+        }
     }
 }
 
 enum CloudLedgerError: LocalizedError {
-    case missingZone, shareUnavailable, migrationInProgress, pendingChanges, missingPendingRecord, incompleteShareUpload
+    case missingZone, shareUnavailable, migrationInProgress, pendingChanges, missingPendingRecord, incompleteShareUpload, migrationVerificationFailed(String)
     var errorDescription: String? {
         switch self {
         case .migrationInProgress: "Encryption migration is still in progress."
@@ -327,6 +403,7 @@ enum CloudLedgerError: LocalizedError {
         case .incompleteShareUpload: "CloudKit did not return the result for every ledger record. Please retry sharing."
         case .missingZone: "This shared ledger is missing its CloudKit zone metadata."
         case .shareUnavailable: "The CloudKit sharing record is unavailable."
+        case .migrationVerificationFailed(let reason): "Encryption migration verification failed: \(reason)."
         }
     }
 }
