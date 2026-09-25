@@ -349,29 +349,28 @@ actor CloudLedgerService {
 
         while moreComing {
             try Task.checkCancellation()
-            let page: (modificationResultsByID: [CKRecord.ID: Result<CKRecordZoneChanges.Modification, Error>], deletions: [CKRecordZoneChanges.Deletion], changeToken: CKServerChangeToken, moreComing: Bool)
             do {
-                page = try await database.recordZoneChanges(
+                let page = try await database.recordZoneChanges(
                     inZoneWith: zoneID,
                     since: changeToken,
                     desiredKeys: nil,
                     resultsLimit: nil
                 )
+                for (_, result) in page.modificationResultsByID {
+                    try Task.checkCancellation()
+                    let modification = try result.get()
+                    recordsByID[modification.record.recordID] = modification.record
+                }
+                for deletion in page.deletions {
+                    recordsByID.removeValue(forKey: deletion.recordID)
+                }
+                changeToken = page.changeToken
+                moreComing = page.moreComing
             } catch let error as CKError where error.code == .zoneNotFound {
                 // Zone does not exist on server yet. Ensure it is created and return empty snapshot.
                 try await ensureZoneExists(database: database, zoneID: zoneID)
                 return []
             }
-            for (_, result) in page.modificationResultsByID {
-                try Task.checkCancellation()
-                let modification = try result.get()
-                recordsByID[modification.record.recordID] = modification.record
-            }
-            for deletion in page.deletions {
-                recordsByID.removeValue(forKey: deletion.recordID)
-            }
-            changeToken = page.changeToken
-            moreComing = page.moreComing
         }
 
         LedgerDiagnostics.cloud.info("Fetched zone snapshot records=\(recordsByID.count) zone=\(zoneID.zoneName)")
@@ -386,6 +385,7 @@ actor CloudLedgerService {
         let protocolRecordTypes: Set<String> = [
             CloudRecordType.enrollmentRequest,
             CloudRecordType.keyEnvelope,
+            "cloudkit.share",
             "cloudkit.zoneshare"
         ]
 
@@ -396,7 +396,6 @@ actor CloudLedgerService {
             // from financial payload encryption requirements.
             let isProtocolOrSystem = protocolRecordTypes.contains(record.recordType)
                 || record is CKShare
-                || record.recordType == CKRecordTypeShare
                 || record.recordType.hasPrefix("cloudkit.")
                 || record.recordID.recordName == CKRecordNameZoneWideShare
 
