@@ -54,6 +54,24 @@ echo "== App Group identifier consistency =="
 declared="$(grep -rho "$APP_GROUP" Finsy FinsyShared 2>/dev/null | head -n 1 || true)"
 if [[ -n "${declared:-}" ]]; then ok "identifier used in code: $declared"; else bad "App Group identifier not found in app sources"; fi
 
+echo "== App Store icon opacity =="
+ICON="Finsy/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png"
+if [[ -f "$ICON" ]]; then
+  if command -v od >/dev/null 2>&1; then
+    color_type="$(od -An -j 25 -N 1 -tu1 "$ICON" | tr -d ' ')"
+  else
+    py="$(command -v python3 || command -v python)"
+    color_type="$("$py" -c "f=open('$ICON','rb'); f.seek(25); print(f.read(1)[0])")"
+  fi
+  if [[ "$color_type" -eq 2 ]]; then
+    ok "App Store large icon is 24-bit RGB with no alpha channel (color_type=2)"
+  else
+    bad "App Store large icon has color_type=$color_type (must be 2, no alpha allowed for App Store Connect)"
+  fi
+else
+  bad "App Store large icon not found at $ICON"
+fi
+
 echo
 if [[ "$failures" -gt 0 ]]; then
   echo "Source configuration audit found $failures problem(s)."
