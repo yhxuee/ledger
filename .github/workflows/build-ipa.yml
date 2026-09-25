@@ -87,7 +87,6 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
             CODE_SIGN_STYLE=Automatic \
-            'CODE_SIGN_IDENTITY=Apple Distribution' \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
       - name: Verify archived app and widget
         run: |
