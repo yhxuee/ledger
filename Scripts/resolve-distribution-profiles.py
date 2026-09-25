@@ -25,7 +25,7 @@ try:
     from cryptography import x509
 except ImportError:
     print("Installing required python packages: pyjwt, cryptography...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "pyjwt", "cryptography"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--break-system-packages", "-q", "pyjwt", "cryptography"])
     import jwt
     from cryptography import x509
 

@@ -78,8 +78,9 @@ jobs:
           IOS_APPSTORE_PROFILE_WIDGET: ${{ secrets.IOS_APPSTORE_PROFILE_WIDGET }}
         run: |
           set -euo pipefail
-          pip3 install -q pyjwt cryptography
-          python3 Scripts/resolve-distribution-profiles.py
+          python3 -m venv "$RUNNER_TEMP/signing_venv"
+          "$RUNNER_TEMP/signing_venv/bin/pip" install -q pyjwt cryptography
+          "$RUNNER_TEMP/signing_venv/bin/python" Scripts/resolve-distribution-profiles.py
       - name: Archive Finsy
         run: |
           set -euo pipefail
