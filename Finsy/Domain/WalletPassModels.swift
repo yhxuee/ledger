@@ -101,7 +101,8 @@ struct PurchaseReceiptPassSnapshot: Codable, Hashable, Sendable {
         finalizedAt: Date
     ) {
         self.passTypeIdentifier = passTypeIdentifier
-        self.serialNumber = "purchase-\(sessionID.uuidString)"
+        // A receipt stays as it was when added, even if the session is exported again.
+        self.serialNumber = "purchase-\(sessionID.uuidString)-\(UUID().uuidString)"
         self.sessionID = sessionID
         self.storeName = storeName
         self.totalAmount = totalAmount
@@ -159,7 +160,8 @@ struct TaxReceiptPassSnapshot: Codable, Hashable, Sendable {
         generatedAt: Date = .now
     ) {
         self.passTypeIdentifier = passTypeIdentifier
-        self.serialNumber = "tax-expense-\(year)-\(String(format: "%02d", month))"
+        // A later export of the same month must not replace an earlier snapshot.
+        self.serialNumber = "tax-expense-\(year)-\(String(format: "%02d", month))-\(UUID().uuidString)"
         self.year = year
         self.month = month
         self.monthName = monthName

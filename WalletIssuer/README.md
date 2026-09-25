@@ -6,6 +6,9 @@ The Python service listens on `127.0.0.1:8765`. Caddy provides public HTTPS for
 Receipt and tax passes use Apple's coupon layout with a transparent serrated
 strip image. Wallet controls the outer card shape, so the teeth appear in the
 strip artwork rather than changing the system card outline.
+Receipt and tax passes are one-time snapshots: their pass data omits
+`webServiceURL` and `authenticationToken`, and each export has a new serial
+number so a later export cannot replace an earlier pass in Wallet.
 
 The service requires these files in `/etc/finsy-wallet`, readable only by the
 `finsy-wallet` service account:
