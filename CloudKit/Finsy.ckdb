@@ -1,0 +1,192 @@
+// Schema for the record types written by CloudRecordMapper and CloudLedgerService.
+// Ledger data lives in private and shared databases. The creator-only grant
+// keeps the default owner write rule; no public read or create is granted.
+DEFINE SCHEMA
+
+    RECORD TYPE BudgetPlan (
+        "___createTime" TIMESTAMP,
+        "___createdBy" REFERENCE,
+        "___etag" STRING,
+        "___modTime" TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID" REFERENCE,
+        payload BYTES,
+        ciphertextV1 BYTES,
+        keyFingerprint STRING,
+        encryptionVersion INT64,
+        updatedAt TIMESTAMP,
+        version INT64,
+        GRANT WRITE TO "_creator"
+    );
+
+    RECORD TYPE DeviceEnrollmentRequest (
+        "___createTime" TIMESTAMP,
+        "___createdBy" REFERENCE,
+        "___etag" STRING,
+        "___modTime" TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID" REFERENCE,
+        requestID STRING,
+        ledgerID STRING,
+        publicKey BYTES,
+        expiresAt TIMESTAMP,
+        createdAt TIMESTAMP,
+        GRANT WRITE TO "_creator"
+    );
+
+    RECORD TYPE LedgerAccount (
+        "___createTime" TIMESTAMP,
+        "___createdBy" REFERENCE,
+        "___etag" STRING,
+        "___modTime" TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID" REFERENCE,
+        payload BYTES,
+        ciphertextV1 BYTES,
+        keyFingerprint STRING,
+        encryptionVersion INT64,
+        updatedAt TIMESTAMP,
+        version INT64,
+        GRANT WRITE TO "_creator"
+    );
+
+    RECORD TYPE LedgerBook (
+        "___createTime" TIMESTAMP,
+        "___createdBy" REFERENCE,
+        "___etag" STRING,
+        "___modTime" TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID" REFERENCE,
+        payload BYTES,
+        ciphertextV1 BYTES,
+        keyFingerprint STRING,
+        encryptionVersion INT64,
+        updatedAt TIMESTAMP,
+        version INT64,
+        GRANT WRITE TO "_creator"
+    );
+
+    RECORD TYPE LedgerCategory (
+        "___createTime" TIMESTAMP,
+        "___createdBy" REFERENCE,
+        "___etag" STRING,
+        "___modTime" TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID" REFERENCE,
+        payload BYTES,
+        ciphertextV1 BYTES,
+        keyFingerprint STRING,
+        encryptionVersion INT64,
+        updatedAt TIMESTAMP,
+        version INT64,
+        GRANT WRITE TO "_creator"
+    );
+
+    RECORD TYPE LedgerKeyEnvelope (
+        "___createTime" TIMESTAMP,
+        "___createdBy" REFERENCE,
+        "___etag" STRING,
+        "___modTime" TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID" REFERENCE,
+        requestID STRING,
+        ledgerID STRING,
+        keyFingerprint STRING,
+        encapsulatedKey BYTES,
+        ciphertext BYTES,
+        GRANT WRITE TO "_creator"
+    );
+
+    RECORD TYPE LedgerSettings (
+        "___createTime" TIMESTAMP,
+        "___createdBy" REFERENCE,
+        "___etag" STRING,
+        "___modTime" TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID" REFERENCE,
+        payload BYTES,
+        ciphertextV1 BYTES,
+        keyFingerprint STRING,
+        encryptionVersion INT64,
+        updatedAt TIMESTAMP,
+        version INT64,
+        GRANT WRITE TO "_creator"
+    );
+
+    RECORD TYPE LedgerTransaction (
+        "___createTime" TIMESTAMP,
+        "___createdBy" REFERENCE,
+        "___etag" STRING,
+        "___modTime" TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID" REFERENCE,
+        payload BYTES,
+        ciphertextV1 BYTES,
+        keyFingerprint STRING,
+        encryptionVersion INT64,
+        updatedAt TIMESTAMP,
+        version INT64,
+        noteAttachment ASSET,
+        GRANT WRITE TO "_creator"
+    );
+
+    RECORD TYPE PurchaseItem (
+        "___createTime" TIMESTAMP,
+        "___createdBy" REFERENCE,
+        "___etag" STRING,
+        "___modTime" TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID" REFERENCE,
+        payload BYTES,
+        ciphertextV1 BYTES,
+        keyFingerprint STRING,
+        encryptionVersion INT64,
+        updatedAt TIMESTAMP,
+        version INT64,
+        GRANT WRITE TO "_creator"
+    );
+
+    RECORD TYPE PurchaseSession (
+        "___createTime" TIMESTAMP,
+        "___createdBy" REFERENCE,
+        "___etag" STRING,
+        "___modTime" TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID" REFERENCE,
+        payload BYTES,
+        ciphertextV1 BYTES,
+        keyFingerprint STRING,
+        encryptionVersion INT64,
+        updatedAt TIMESTAMP,
+        version INT64,
+        receipt ASSET,
+        GRANT WRITE TO "_creator"
+    );
+
+    RECORD TYPE RecurringRule (
+        "___createTime" TIMESTAMP,
+        "___createdBy" REFERENCE,
+        "___etag" STRING,
+        "___modTime" TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID" REFERENCE,
+        payload BYTES,
+        ciphertextV1 BYTES,
+        keyFingerprint STRING,
+        encryptionVersion INT64,
+        updatedAt TIMESTAMP,
+        version INT64,
+        GRANT WRITE TO "_creator"
+    );
+
+    RECORD TYPE Users (
+        "___createTime" TIMESTAMP,
+        "___createdBy" REFERENCE,
+        "___etag" STRING,
+        "___modTime" TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID" REFERENCE,
+        roles LIST<INT64>,
+        GRANT WRITE TO "_creator",
+        GRANT READ TO "_world"
+    );
