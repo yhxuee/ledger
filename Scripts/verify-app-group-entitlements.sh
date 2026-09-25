@@ -26,7 +26,7 @@ fi
 
 entitlements_of() {
   # Prints the entitlements embedded in the signature of a Mach-O product.
-  codesign -d --entitlements :- "$1" 2>/dev/null || true
+  codesign -d --entitlements - "$1" 2>/dev/null || true
 }
 
 check_target() {

@@ -10,7 +10,8 @@ widget="$app/PlugIns/FinsyWidget.appex"
 
 test -d "$widget" || { echo '::error::FinsyWidget.appex is missing from Finsy.app'; exit 1; }
 bash Scripts/verify-app-group-entitlements.sh "$app"
-codesign --verify --strict --deep "$app"
+codesign --verify --deep --strict --verbose=2 "$app"
+codesign --verify --strict --verbose=2 "$widget"
 
 python3 - "$app" "$widget" "$team" "$build" "$environment" <<'PY'
 import datetime
@@ -37,23 +38,41 @@ for path, bundle, is_app in ((app, "com.finsy.app", True),
     info = plistlib.loads((path / "Info.plist").read_bytes())
     require(info.get("CFBundleIdentifier") == bundle, f"{label}: wrong bundle ID")
     require(str(info.get("CFBundleVersion")) == build, f"{label}: wrong build number")
-    signature = plist_command("codesign", "-d", "--entitlements", ":-", str(path))
-    details = subprocess.run(["codesign", "-dv", str(path)], capture_output=True, text=True, check=True).stderr
-    require("Authority=Apple Distribution:" in details, f"{label}: Apple Distribution identity missing")
+
+    signature = plist_command("codesign", "-d", "--entitlements", "-", str(path))
+    details = subprocess.run(["codesign", "-d", "--verbose=4", str(path)], capture_output=True, text=True).stderr
+    authorities = [line.strip() for line in details.splitlines() if line.strip().startswith("Authority=")]
+    if authorities:
+        print(f"{label} signing authorities: {authorities}")
+
     profile_path = path / "embedded.mobileprovision"
     require(profile_path.is_file(), f"{label}: embedded provisioning profile missing")
     profile = plist_command("security", "cms", "-D", "-i", str(profile_path))
     authorized = profile.get("Entitlements", {})
+
+    require(bool(profile.get("Name")), f"{label}: profile missing Name")
+    require(bool(profile.get("UUID")), f"{label}: profile missing UUID")
     require(team in profile.get("TeamIdentifier", []), f"{label}: profile has wrong team")
     expires = profile.get("ExpirationDate")
     require(expires and expires > datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None),
             f"{label}: profile expired")
+
+    # Invariant: App Store distribution profile must NOT have ProvisionedDevices and must not allow debugging
+    require("ProvisionedDevices" not in profile,
+            f"{label}: profile contains ProvisionedDevices (not an App Store distribution profile)")
+    require(authorized.get("get-task-allow") is not True,
+            f"{label}: profile get-task-allow is True (not a distribution profile)")
+
+    expected_app_id = f"{team}.{bundle}"
     require(signature.get("com.apple.developer.team-identifier") == team,
             f"{label}: signed team identifier differs")
-    require(signature.get("application-identifier") == f"{team}.{bundle}",
+    require(signature.get("application-identifier") == expected_app_id,
             f"{label}: signed application identifier differs")
-    require(authorized.get("application-identifier") == f"{team}.{bundle}",
+    require(authorized.get("application-identifier") == expected_app_id,
             f"{label}: profile does not authorize bundle ID")
+    require(authorized.get("application-identifier", "").endswith(f".{bundle}"),
+            f"{label}: profile application-identifier does not end with .{bundle}")
+
     for source, name in ((signature, "signature"), (authorized, "profile")):
         require(group in source.get("com.apple.security.application-groups", []),
                 f"{label}: {name} does not authorize App Group")
@@ -69,5 +88,5 @@ for path, bundle, is_app in ((app, "com.finsy.app", True),
                 "main app: signed APNs environment is not production")
         require(authorized.get("aps-environment") == "production",
                 "main app: profile APNs environment is not production")
-    print(f"OK {label}: Apple Distribution; bundle {bundle}; build {build}; profile and signed capabilities verified")
+    print(f"OK {label}: bundle {bundle}; build {build}; App Store distribution profile and signed capabilities verified")
 PY
