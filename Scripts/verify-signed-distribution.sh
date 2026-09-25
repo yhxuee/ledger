@@ -15,22 +15,53 @@ codesign --verify --strict --verbose=2 "$widget"
 
 python3 - "$app" "$widget" "$team" "$build" "$environment" <<'PY'
 import datetime
+import os
 import pathlib
 import plistlib
 import subprocess
 import sys
+import time
 
 app, widget = map(pathlib.Path, sys.argv[1:3])
 team, build, environment = sys.argv[3:]
 group = "group.com.finsy.app"
 cloud = "iCloud.com.finsy.app"
+runner_temp = pathlib.Path(os.environ.get("RUNNER_TEMP", "/tmp"))
 
 def require(ok, message):
     if not ok:
         raise SystemExit(f"::error::{message}")
 
-def plist_command(*args):
-    return plistlib.loads(subprocess.check_output(args))
+def extract_signed_entitlements(path: pathlib.Path) -> dict:
+    temp_plist = runner_temp / f"ent_{int(time.time() * 1000)}.plist"
+    try:
+        subprocess.run(["codesign", "-d", "--entitlements", str(temp_plist), str(path)],
+                       capture_output=True, check=True)
+        if temp_plist.is_file() and temp_plist.stat().st_size > 0:
+            return plistlib.loads(temp_plist.read_bytes())
+    except Exception:
+        pass
+    finally:
+        if temp_plist.exists():
+            temp_plist.unlink()
+
+    out = subprocess.run(["codesign", "-d", "--entitlements", "-", str(path)],
+                         capture_output=True).stdout
+    idx = out.find(b"<?xml")
+    if idx == -1:
+        idx = out.find(b"<plist")
+    if idx != -1:
+        return plistlib.loads(out[idx:])
+    return {}
+
+def decode_profile(profile_path: pathlib.Path) -> dict:
+    out = subprocess.check_output(["security", "cms", "-D", "-i", str(profile_path)])
+    idx = out.find(b"<?xml")
+    if idx == -1:
+        idx = out.find(b"<plist")
+    if idx != -1:
+        return plistlib.loads(out[idx:])
+    return plistlib.loads(out)
 
 for path, bundle, is_app in ((app, "com.finsy.app", True),
                              (widget, "com.finsy.app.Widget", False)):
@@ -39,7 +70,7 @@ for path, bundle, is_app in ((app, "com.finsy.app", True),
     require(info.get("CFBundleIdentifier") == bundle, f"{label}: wrong bundle ID")
     require(str(info.get("CFBundleVersion")) == build, f"{label}: wrong build number")
 
-    signature = plist_command("codesign", "-d", "--entitlements", "-", str(path))
+    signature = extract_signed_entitlements(path)
     details = subprocess.run(["codesign", "-d", "--verbose=4", str(path)], capture_output=True, text=True).stderr
     authorities = [line.strip() for line in details.splitlines() if line.strip().startswith("Authority=")]
     if authorities:
@@ -47,7 +78,7 @@ for path, bundle, is_app in ((app, "com.finsy.app", True),
 
     profile_path = path / "embedded.mobileprovision"
     require(profile_path.is_file(), f"{label}: embedded provisioning profile missing")
-    profile = plist_command("security", "cms", "-D", "-i", str(profile_path))
+    profile = decode_profile(profile_path)
     authorized = profile.get("Entitlements", {})
 
     require(bool(profile.get("Name")), f"{label}: profile missing Name")
