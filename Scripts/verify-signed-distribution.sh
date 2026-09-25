@@ -33,25 +33,26 @@ def require(ok, message):
         raise SystemExit(f"::error::{message}")
 
 def extract_signed_entitlements(path: pathlib.Path) -> dict:
-    temp_plist = runner_temp / f"ent_{int(time.time() * 1000)}.plist"
-    try:
-        subprocess.run(["codesign", "-d", "--entitlements", str(temp_plist), str(path)],
-                       capture_output=True, check=True)
-        if temp_plist.is_file() and temp_plist.stat().st_size > 0:
-            return plistlib.loads(temp_plist.read_bytes())
-    except Exception:
-        pass
-    finally:
-        if temp_plist.exists():
-            temp_plist.unlink()
-
-    out = subprocess.run(["codesign", "-d", "--entitlements", "-", str(path)],
-                         capture_output=True).stdout
-    idx = out.find(b"<?xml")
-    if idx == -1:
-        idx = out.find(b"<plist")
-    if idx != -1:
-        return plistlib.loads(out[idx:])
+    for cmd in (
+        ["codesign", "-d", "--entitlements", "--xml", "-", str(path)],
+        ["codesign", "-d", "--entitlements", ":-", str(path)],
+        ["codesign", "-d", "--entitlements", "-", str(path)],
+    ):
+        try:
+            res = subprocess.run(cmd, capture_output=True)
+            for out in (res.stdout, res.stderr):
+                idx = out.find(b"<?xml")
+                if idx == -1:
+                    idx = out.find(b"<plist")
+                if idx != -1:
+                    end_idx = out.find(b"</plist>")
+                    if end_idx != -1:
+                        data = out[idx:end_idx + 8]
+                    else:
+                        data = out[idx:]
+                    return plistlib.loads(data)
+        except Exception:
+            pass
     return {}
 
 def decode_profile(profile_path: pathlib.Path) -> dict:
@@ -60,6 +61,9 @@ def decode_profile(profile_path: pathlib.Path) -> dict:
     if idx == -1:
         idx = out.find(b"<plist")
     if idx != -1:
+        end_idx = out.find(b"</plist>")
+        if end_idx != -1:
+            return plistlib.loads(out[idx:end_idx + 8])
         return plistlib.loads(out[idx:])
     return plistlib.loads(out)
 
@@ -109,16 +113,31 @@ for path, bundle, is_app in ((app, "com.finsy.app", True),
     require(prof_app_id.endswith(f".{bundle}"),
             f"{label}: profile application-identifier does not end with .{bundle}")
 
-    for source, name in ((signature, "signature"), (authorized, "profile")):
-        require(group in source.get("com.apple.security.application-groups", []),
-                f"{label}: {name} does not authorize App Group")
-        if is_app:
-            require(cloud in source.get("com.apple.developer.icloud-container-identifiers", []),
-                    f"{label}: {name} does not authorize iCloud container")
-            services = source.get("com.apple.developer.icloud-services", [])
-            has_icloud = (services == "*") or ("*" in services) or ("CloudKit" in services and "CloudDocuments" in services)
-            require(has_icloud,
-                    f"{label}: {name} lacks CloudKit or iCloud Documents")
+    # App Group authorization
+    require(group in authorized.get("com.apple.security.application-groups", []),
+            f"{label}: profile does not authorize App Group")
+    if signature and "com.apple.security.application-groups" in signature:
+        require(group in signature.get("com.apple.security.application-groups", []),
+                f"{label}: signature does not authorize App Group")
+
+    # iCloud authorization (for main app)
+    if is_app:
+        require(cloud in authorized.get("com.apple.developer.icloud-container-identifiers", []),
+                f"{label}: profile does not authorize iCloud container")
+        services = authorized.get("com.apple.developer.icloud-services", [])
+        has_icloud = (services == "*") or ("*" in services) or ("CloudKit" in services and "CloudDocuments" in services)
+        require(has_icloud,
+                f"{label}: profile lacks CloudKit or iCloud Documents")
+
+        if signature and "com.apple.developer.icloud-container-identifiers" in signature:
+            require(cloud in signature.get("com.apple.developer.icloud-container-identifiers", []),
+                    f"{label}: signature does not authorize iCloud container")
+        if signature and "com.apple.developer.icloud-services" in signature:
+            sig_services = signature.get("com.apple.developer.icloud-services", [])
+            sig_has_icloud = (sig_services == "*") or ("*" in sig_services) or ("CloudKit" in sig_services and "CloudDocuments" in sig_services)
+            require(sig_has_icloud,
+                    f"{label}: signature lacks CloudKit or iCloud Documents")
+
     if is_app and environment == "production":
         if signature.get("aps-environment"):
             require(signature.get("aps-environment") == "production",
