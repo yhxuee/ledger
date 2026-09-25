@@ -26,6 +26,7 @@ jobs:
       ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
       ASC_KEY_P8: ${{ secrets.APPSTORE_CONNECT_KEY_P8 }}
+      WALLET_ISSUER_URL: ${{ secrets.FINSY_WALLET_PASS_ISSUER_URL }}
       BUILD_NUMBER: ${{ github.run_number }}
     steps:
       - name: Check signing configuration
@@ -46,6 +47,10 @@ jobs:
               exit 1
             fi
           done
+          if [[ ! "$WALLET_ISSUER_URL" =~ ^https://[^/]+ ]]; then
+            echo '::error::Missing or invalid FINSY_WALLET_PASS_ISSUER_URL (HTTPS base URL required).'
+            exit 1
+          fi
       - uses: actions/checkout@v4
       - name: Verify capability source configuration
         run: bash Scripts/verify-purchase-configuration.sh
@@ -95,6 +100,7 @@ jobs:
             'CODE_SIGN_IDENTITY=Apple Distribution' \
             APP_PROFILE_SPECIFIER="$APP_PROFILE_NAME" \
             WIDGET_PROFILE_SPECIFIER="$WIDGET_PROFILE_NAME" \
+            "FINSY_WALLET_PASS_ISSUER_URL=$WALLET_ISSUER_URL" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
       - name: Verify archived app and widget
         run: |

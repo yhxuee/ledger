@@ -21,7 +21,7 @@ struct PurchaseSummaryView: View {
     private var session: PurchaseSession? { store.purchaseSessions.first(where: { $0.id == sessionID }) }
 
     private var isPassLibraryAvailable: Bool {
-        WalletPassManager.shared.isPassLibraryAvailable
+        WalletPassManager.shared.canAddPasses
     }
 
     private var isIssuerConfigured: Bool {
@@ -194,7 +194,7 @@ struct PurchaseSummaryView: View {
 
     private func addReceiptToWallet() async {
         guard let session else { return }
-        guard WalletPassManager.shared.isPassLibraryAvailable else {
+        guard WalletPassManager.shared.canAddPasses else {
             passErrorMessage = WalletPassError.libraryUnavailable.localizedDescription
             return
         }

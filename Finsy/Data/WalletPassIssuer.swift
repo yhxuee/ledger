@@ -6,16 +6,21 @@ public struct WalletPassConfiguration: Sendable {
 
     public static var issuerURL: URL? {
         if let envString = ProcessInfo.processInfo.environment[issuerURLKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !envString.isEmpty,
-           let url = URL(string: envString) {
+           let url = validIssuerURL(envString) {
             return url
         }
         if let bundleString = Bundle.main.object(forInfoDictionaryKey: issuerURLKey) as? String,
-           let url = URL(string: bundleString.trimmingCharacters(in: .whitespacesAndNewlines)),
-           !bundleString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+           let url = validIssuerURL(bundleString.trimmingCharacters(in: .whitespacesAndNewlines)) {
             return url
         }
         return nil
+    }
+
+    private static func validIssuerURL(_ value: String) -> URL? {
+        guard let url = URL(string: value),
+              url.scheme?.lowercased() == "https",
+              url.host != nil else { return nil }
+        return url
     }
 }
 
@@ -31,7 +36,7 @@ final class NetworkWalletPassIssuer: WalletPassIssuer {
     private let session: URLSession
 
     var isConfigured: Bool {
-        signingEndpoint != nil
+        signingEndpoint?.scheme?.lowercased() == "https" && signingEndpoint?.host != nil
     }
 
     init(signingEndpoint: URL? = WalletPassConfiguration.issuerURL, session: URLSession = .shared) {

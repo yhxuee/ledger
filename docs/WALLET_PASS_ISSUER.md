@@ -18,6 +18,16 @@ Consequently, Finsy strictly enforces a **server-side signing boundary**.
 >
 > The client now sends the complete itemized payload including `items`, `taxAmount`, and `formattedTax`. **The external signing server must be upgraded according to the contract below before issued `.pkpass` files will visually display itemized lines and tax in Apple Wallet.**
 
+### Required setup before distribution
+
+1. In Apple Developer, register `pass.com.finsy.account`, `pass.com.finsy.receipt`, and `pass.com.finsy.tax` as Pass Type IDs. Create a separate Pass Type ID signing certificate and private key for each. The Apple Distribution app certificate does not sign Wallet passes.
+2. Enable the Wallet capability for the existing `com.finsy.app` App ID and select those three pass types. Regenerate its App Store distribution provisioning profile after changing the capability. The widget does not need Wallet access.
+3. Deploy an HTTPS signing service implementing `POST /account`, `POST /purchase-receipt`, and `POST /tax-receipt` according to this document. Keep the pass signing private keys and Apple WWDR certificate on the server. Each response must be a valid signed `.pkpass` with a pass type identifier matching its signing certificate.
+4. Set the GitHub Actions repository secret `FINSY_WALLET_PASS_ISSUER_URL` to the service base URL, with no trailing endpoint suffix. The signed workflow injects it into the app's Info.plist and verifies the archive. A local Xcode build can set the same build setting or use the environment variable for development.
+5. Install the signed build on a Wallet-capable iPhone and exercise both Settings and a completed purchase. Test the add prompt, installation, detection, and manual account pass replacement. TestFlight upload alone does not validate the pass signing service.
+
+The issuer receives account balances and purchase details over HTTPS. Restrict access to the issuer and retain no payloads unless that is explicitly intended; a public endpoint without abuse controls can be used to generate passes at your expense.
+
 ---
 
 ## 2. The `WalletPassIssuer` Client Architecture

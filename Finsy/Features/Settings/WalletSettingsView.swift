@@ -204,7 +204,7 @@ struct WalletSettingsView: View {
     }
 
     private func addPassToWallet() async {
-        guard walletManager.isPassLibraryAvailable else {
+        guard walletManager.canAddPasses else {
             errorMessage = WalletPassError.libraryUnavailable.localizedDescription
             return
         }

@@ -21,6 +21,7 @@ import plistlib
 import subprocess
 import sys
 import time
+from urllib.parse import urlparse
 
 app, widget = map(pathlib.Path, sys.argv[1:3])
 team, build, environment = sys.argv[3:]
@@ -73,6 +74,11 @@ for path, bundle, is_app in ((app, "com.finsy.app", True),
     info = plistlib.loads((path / "Info.plist").read_bytes())
     require(info.get("CFBundleIdentifier") == bundle, f"{label}: wrong bundle ID")
     require(str(info.get("CFBundleVersion")) == build, f"{label}: wrong build number")
+    if is_app:
+        issuer_url = info.get("FINSY_WALLET_PASS_ISSUER_URL", "")
+        parsed_issuer = urlparse(issuer_url)
+        require(parsed_issuer.scheme == "https" and bool(parsed_issuer.hostname),
+                "main app: Wallet pass issuer URL is missing or invalid")
 
     signature = extract_signed_entitlements(path)
     details = subprocess.run(["codesign", "-d", "--verbose=4", str(path)], capture_output=True, text=True).stderr
@@ -122,6 +128,13 @@ for path, bundle, is_app in ((app, "com.finsy.app", True),
 
     # iCloud authorization (for main app)
     if is_app:
+        pass_types = {f"{team}.pass.com.finsy.{kind}" for kind in ("account", "receipt", "tax")}
+        signed_pass_types = set(signature.get("com.apple.developer.pass-type-identifiers", []))
+        profile_pass_types = set(authorized.get("com.apple.developer.pass-type-identifiers", []))
+        require(pass_types <= signed_pass_types,
+                "main app: signed Wallet pass type entitlements are missing")
+        require(pass_types <= profile_pass_types or f"{team}.*" in profile_pass_types,
+                "main app: distribution profile does not authorize Wallet pass types")
         require(cloud in authorized.get("com.apple.developer.icloud-container-identifiers", []),
                 f"{label}: profile does not authorize iCloud container")
         services = authorized.get("com.apple.developer.icloud-services", [])

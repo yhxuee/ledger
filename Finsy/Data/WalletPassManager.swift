@@ -20,6 +20,10 @@ final class WalletPassManager: ObservableObject {
         PKPassLibrary.isPassLibraryAvailable()
     }
 
+    var canAddPasses: Bool {
+        PKAddPassesViewController.canAddPasses()
+    }
+
     var isIssuerConfigured: Bool {
         issuer.isConfigured
     }
