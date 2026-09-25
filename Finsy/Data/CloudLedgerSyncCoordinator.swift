@@ -216,7 +216,10 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
             case .fetchedDatabaseChanges(let changes):
                 for deletion in changes.deletions {
                     let zone = deletion.zoneID
-                    let rootID = CKRecord.ID(recordName: "book-" + String(zone.zoneName.dropFirst("LedgerBook-".count)), zoneID: zone)
+                    guard zone.zoneName.hasPrefix("LedgerBook-") else { continue }
+                    let bookUUIDString = String(zone.zoneName.dropFirst("LedgerBook-".count))
+                    guard !bookUUIDString.isEmpty else { continue }
+                    let rootID = CKRecord.ID(recordName: "book-\(bookUUIDString)", zoneID: zone)
                     let pending = try storage.pendingIDs().filter { $0.zoneID == zone }
                     let deleting = try storage.deletionIDs().filter { $0.zoneID == zone }
                     try storage.database.transaction {

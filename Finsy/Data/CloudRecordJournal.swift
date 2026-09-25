@@ -91,7 +91,7 @@ final class CloudRecordJournal {
 
     func records(in zone: CKRecordZone.ID) throws -> [CKRecord] {
         // Primary-key prefix bounds the lookup to this zone without retaining records in RAM.
-        let prefix = [zone.ownerName, zone.zoneName].map { "\($0.utf8.count):\($0)" }.joined()
+        let prefix = Self.zonePrefix(zone)
         return try database.keys("records", prefix: prefix).compactMap { key in
             guard try database.data("deletions", key) == nil else { return nil }
             return try record(key: key)
@@ -121,7 +121,7 @@ final class CloudRecordJournal {
     }
 
     func removeZone(_ zone: CKRecordZone.ID) throws {
-        let prefix = [zone.ownerName, zone.zoneName].map { "\($0.utf8.count):\($0)" }.joined()
+        let prefix = Self.zonePrefix(zone)
         for namespace in ["records", "asset-files", "outbox", "deletions", "fingerprints", "blocked", "remote-deletions", "encryption-policy"] {
             for key in try database.keys(namespace, prefix: prefix) { try database.remove(namespace, key) }
         }
