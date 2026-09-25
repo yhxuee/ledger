@@ -603,7 +603,7 @@ enum CSVTransactionImporter {
                     throw CSVImportError.lineError(line: line, message: "unknown category \"\(map["category"] ?? "")\"")
                 }
 
-                if matchedCategory.id.isSystemLinked {
+                if matchedCategory.isSystemLinked {
                     if txType == .income {
                         txCategoryID = .otherIncome
                         remappedLinkedCategoryCount += 1
