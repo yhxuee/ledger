@@ -58,7 +58,7 @@ struct EncryptionSecurityView: View {
         } message: {
             Text(statusMessage ?? "")
         }
-        .alert("End-to-End Encryption Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+        .alert(activeBook.effectiveEncryptionState == .migrationFailed ? "Encryption Migration Failed" : "End-to-End Encryption Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK") { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
@@ -91,26 +91,51 @@ struct EncryptionSecurityView: View {
             Divider()
 
             if activeBook.effectiveEncryptionState == .migrationFailed {
-                LabeledContent {
-                    VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("Status")
+                        Spacer()
                         Text("Migration Failed")
                             .foregroundStyle(.red)
-                        if let error = errorMessage ?? store.lastSyncError {
-                            Text(error)
+                            .fontWeight(.semibold)
+                    }
+
+                    if let error = errorMessage ?? store.lastSyncError, !error.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Diagnostics")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.trailing)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.red)
+
+                            Text(error)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(12)
+                        .background(Color.red.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.red.opacity(0.2), lineWidth: 1)
+                        )
+                    }
+
+                    Button {
+                        Task { await enableE2EE() }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text("Retry Migration")
+                                .fontWeight(.semibold)
+                            Spacer()
                         }
                     }
-                } label: {
-                    Text("Status")
+                    .buttonStyle(.borderedProminent)
+                    .tint(.blue)
+                    .disabled(working)
+                    .padding(.top, 4)
                 }
-
-                Button("Retry Migration") {
-                    Task { await enableE2EE() }
-                }
-                .font(.subheadline)
-                .disabled(working)
             } else {
                 LabeledContent("Status", value: statusText)
             }

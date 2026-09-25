@@ -208,86 +208,230 @@ actor CloudLedgerService {
         let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: book.cloudZoneOwnerName ?? CKCurrentUserDefaultName)
         try await ensureZoneExists(database: container.privateCloudDatabase, zoneID: zoneID)
         try await ownerSync.beginMigration(zoneID: zoneID)
+
+        let maxMigrationAttempts = 3
+        var currentBook = book
+
         do {
-            let remoteRecords = try await fetchZoneSnapshot(database: container.privateCloudDatabase, zoneID: zoneID)
-            LedgerDiagnostics.security.info("Beginning encryption migration for ledger=\(book.id) remoteRecords=\(remoteRecords.count)")
-            let remote: LedgerBook? = {
-                guard remoteRecords.contains(where: { $0.recordType == CloudRecordType.book }),
-                      remoteRecords.contains(where: { $0.recordType == CloudRecordType.settings }) else {
-                    return nil
-                }
-                return try? CloudRecordMapper.decodeBook(from: remoteRecords, participant: false, attachmentFolder: AttachmentStore.folderURL)
-            }()
-            var encrypted = try remote.map { try CloudBookMerge.merge(local: book, remote: $0) } ?? book
-            let expectedFingerprint = LedgerKeyStore.fingerprint(for: key, ledgerID: book.id)
-            encrypted.isEncrypted = true
-            encrypted.encryptionState = .enabled
-            encrypted.keyFingerprint = expectedFingerprint
-            encrypted.encryptionVersion = LedgerCryptoService.currentEncryptionVersion
-            let generated = try CloudRecordMapper.records(for: encrypted, zoneID: zoneID, attachmentFolder: AttachmentStore.folderURL)
-            defer { CloudRecordMapper.removeTemporaryAssets(generated) }
-            guard Set(remoteRecords.map(\.recordID)).count == remoteRecords.count else {
-                throw BackupError.invalidValue("duplicate CloudKit record ID")
-            }
-            let originals = Dictionary(remoteRecords.map { ($0.recordID, $0) }, uniquingKeysWith: { first, _ in first })
-            var updates = generated.map { value -> CKRecord in
-                let target = originals[value.recordID] ?? value
-                CloudLedgerSyncCoordinator.copyUserFields(from: value, to: target)
-                return target
-            }
-            let generatedIDs = Set(generated.map(\.recordID))
-            var toDelete: [CKRecord.ID] = []
-            // Old, unreferenced purchase items still contain financial payloads and must
-            // not be left in plaintext merely because they no longer appear in a header.
-            for record in remoteRecords where !generatedIDs.contains(record.recordID) {
-                if let payload = record["payload"] as? Data {
-                    let (ciphertext, fingerprint) = try LedgerCryptoService.encryptRecord(payload, ledgerID: book.id, recordType: record.recordType, recordID: record.recordID.recordName, key: key)
-                    record["ciphertextV1"] = ciphertext as CKRecordValue
-                    record["keyFingerprint"] = fingerprint as CKRecordValue
-                    record["encryptionVersion"] = LedgerCryptoService.currentEncryptionVersion as CKRecordValue
-                    record["payload"] = nil
-                    updates.append(record)
-                } else if let fp = record["keyFingerprint"] as? String, fp.lowercased() != expectedFingerprint.lowercased() {
-                    // Dead unreferenced record encrypted with an obsolete/incompatible key.
-                    toDelete.append(record.recordID)
-                }
-            }
-            var saved: [CKRecord] = []
-            var pendingDeletions = toDelete
-            for batch in updates.chunked(into: 100) {
+            for attempt in 1...maxMigrationAttempts {
+                try Task.checkCancellation()
                 try validateStoredKey()
-                let batchDeletions = pendingDeletions
-                pendingDeletions = []
-                let response = try await container.privateCloudDatabase.modifyRecords(
-                    saving: batch,
-                    deleting: batchDeletions,
-                    savePolicy: .ifServerRecordUnchanged,
-                    atomically: true
-                )
-                // One atomic record replacement removes plaintext and publishes ciphertext
-                // and encrypted assets together. Every per-record failure aborts completion.
-                saved += try response.saveResults.values.map { try $0.get() }
-                LedgerDiagnostics.security.info("Encryption migration acknowledged records=\(saved.count) total=\(updates.count)")
-            }
-            if !pendingDeletions.isEmpty {
-                _ = try await container.privateCloudDatabase.modifyRecords(
-                    saving: [],
-                    deleting: pendingDeletions,
-                    savePolicy: .ifServerRecordUnchanged,
-                    atomically: true
-                )
-            }
-            try validateStoredKey()
 
-            // Fetch a fresh complete zone snapshot again to verify actual server state.
-            LedgerDiagnostics.security.info("Fetching fresh post-migration zone snapshot for ledger=\(book.id)")
-            let verifiedSnapshot = try await fetchZoneSnapshot(database: container.privateCloudDatabase, zoneID: zoneID)
-            try verifyEncryptedZoneSnapshot(verifiedSnapshot, expectedFingerprint: expectedFingerprint)
-            LedgerDiagnostics.security.info("Post-migration server verification succeeded for ledger=\(book.id) verifiedRecords=\(verifiedSnapshot.count)")
+                LedgerDiagnostics.security.info(
+                    "Encryption migration attempt=\(attempt)/\(maxMigrationAttempts) for ledger=\(book.id)"
+                )
 
-            try await ownerSync.completeMigration(records: verifiedSnapshot, book: encrypted, zoneID: zoneID)
-            LedgerDiagnostics.security.info("Encryption migration completed records=\(verifiedSnapshot.count)")
-            return encrypted
+                // 1. Fetch fresh complete zone snapshot
+                let remoteRecords = try await fetchZoneSnapshot(database: container.privateCloudDatabase, zoneID: zoneID)
+                LedgerDiagnostics.security.info(
+                    "Fetched zone snapshot for attempt=\(attempt) remoteRecords=\(remoteRecords.count)"
+                )
+
+                // 2. Decode remote book if complete, merge with current local book
+                let remote: LedgerBook? = {
+                    guard remoteRecords.contains(where: { $0.recordType == CloudRecordType.book }),
+                          remoteRecords.contains(where: { $0.recordType == CloudRecordType.settings }) else {
+                        return nil
+                    }
+                    return try? CloudRecordMapper.decodeBook(from: remoteRecords, participant: false, attachmentFolder: AttachmentStore.folderURL)
+                }()
+                var encrypted = try remote.map { try CloudBookMerge.merge(local: currentBook, remote: $0) } ?? currentBook
+                let expectedFingerprint = LedgerKeyStore.fingerprint(for: key, ledgerID: book.id)
+                encrypted.isEncrypted = true
+                encrypted.encryptionState = .enabled
+                encrypted.keyFingerprint = expectedFingerprint
+                encrypted.encryptionVersion = LedgerCryptoService.currentEncryptionVersion
+
+                // 3. Generate encrypted records and temporary assets
+                let generated = try CloudRecordMapper.records(for: encrypted, zoneID: zoneID, attachmentFolder: AttachmentStore.folderURL)
+
+                // Attempt block ensuring temporary assets are cleaned up when this attempt finishes
+                let attemptResult: Result<LedgerBook, Error> = await {
+                    defer { CloudRecordMapper.removeTemporaryAssets(generated) }
+                    do {
+                        guard Set(remoteRecords.map(\.recordID)).count == remoteRecords.count else {
+                            throw BackupError.invalidValue("duplicate CloudKit record ID")
+                        }
+                        let originals = Dictionary(remoteRecords.map { ($0.recordID, $0) }, uniquingKeysWith: { first, _ in first })
+                        var updates = generated.map { value -> CKRecord in
+                            let target = originals[value.recordID] ?? value
+                            CloudLedgerSyncCoordinator.copyUserFields(from: value, to: target)
+                            return target
+                        }
+                        let generatedIDs = Set(generated.map(\.recordID))
+                        var toDelete: [CKRecord.ID] = []
+
+                        // Old, unreferenced purchase items still contain financial payloads and must
+                        // not be left in plaintext merely because they no longer appear in a header.
+                        for record in remoteRecords where !generatedIDs.contains(record.recordID) {
+                            if let payload = record["payload"] as? Data {
+                                let (ciphertext, fingerprint) = try LedgerCryptoService.encryptRecord(
+                                    payload,
+                                    ledgerID: book.id,
+                                    recordType: record.recordType,
+                                    recordID: record.recordID.recordName,
+                                    key: key
+                                )
+                                record["ciphertextV1"] = ciphertext as CKRecordValue
+                                record["keyFingerprint"] = fingerprint as CKRecordValue
+                                record["encryptionVersion"] = LedgerCryptoService.currentEncryptionVersion as CKRecordValue
+                                record["payload"] = nil
+                                updates.append(record)
+                            } else if let fp = record["keyFingerprint"] as? String, fp.lowercased() != expectedFingerprint.lowercased() {
+                                // Dead unreferenced record encrypted with an obsolete/incompatible key.
+                                toDelete.append(record.recordID)
+                            }
+                        }
+
+                        LedgerDiagnostics.security.info(
+                            "Encryption migration attempt=\(attempt) records=\(updates.count) deletions=\(toDelete.count)"
+                        )
+
+                        let batchRecordsByID = Dictionary(
+                            (updates + remoteRecords).map { ($0.recordID, $0) },
+                            uniquingKeysWith: { first, _ in first }
+                        )
+
+                        var saved: [CKRecord] = []
+                        var pendingDeletions = toDelete
+                        var batchIndex = 0
+
+                        for batch in updates.chunked(into: 100) {
+                            batchIndex += 1
+                            try validateStoredKey()
+                            let batchDeletions = pendingDeletions
+                            pendingDeletions = []
+
+                            LedgerDiagnostics.security.info(
+                                "Migration batch=\(batchIndex) saves=\(batch.count) deletes=\(batchDeletions.count)"
+                            )
+
+                            do {
+                                let response = try await container.privateCloudDatabase.modifyRecords(
+                                    saving: batch,
+                                    deleting: batchDeletions,
+                                    savePolicy: .ifServerRecordUnchanged,
+                                    atomically: true
+                                )
+
+                                var hasFailure = false
+                                for res in response.saveResults.values {
+                                    if case .failure = res { hasFailure = true; break }
+                                }
+                                if !hasFailure {
+                                    for res in response.deleteResults.values {
+                                        if case .failure = res { hasFailure = true; break }
+                                    }
+                                }
+
+                                if hasFailure {
+                                    throw rootMigrationFailure(
+                                        operationError: nil,
+                                        saveResults: response.saveResults,
+                                        deleteResults: response.deleteResults,
+                                        recordsByID: batchRecordsByID,
+                                        zoneID: zoneID
+                                    )
+                                }
+
+                                saved += try response.saveResults.values.map { try $0.get() }
+                                LedgerDiagnostics.security.info(
+                                    "Encryption migration acknowledged records=\(saved.count) total=\(updates.count)"
+                                )
+                            } catch {
+                                if let migrationFailure = error as? CloudMigrationRecordFailure {
+                                    throw migrationFailure
+                                }
+                                throw rootMigrationFailure(
+                                    operationError: error,
+                                    saveResults: [:],
+                                    deleteResults: [:],
+                                    recordsByID: batchRecordsByID,
+                                    zoneID: zoneID
+                                )
+                            }
+                        }
+
+                        if !pendingDeletions.isEmpty {
+                            do {
+                                let response = try await container.privateCloudDatabase.modifyRecords(
+                                    saving: [],
+                                    deleting: pendingDeletions,
+                                    savePolicy: .ifServerRecordUnchanged,
+                                    atomically: true
+                                )
+                                var hasFailure = false
+                                for res in response.deleteResults.values {
+                                    if case .failure = res { hasFailure = true; break }
+                                }
+                                if hasFailure {
+                                    throw rootMigrationFailure(
+                                        operationError: nil,
+                                        saveResults: [:],
+                                        deleteResults: response.deleteResults,
+                                        recordsByID: batchRecordsByID,
+                                        zoneID: zoneID
+                                    )
+                                }
+                            } catch {
+                                if let migrationFailure = error as? CloudMigrationRecordFailure {
+                                    throw migrationFailure
+                                }
+                                throw rootMigrationFailure(
+                                    operationError: error,
+                                    saveResults: [:],
+                                    deleteResults: [:],
+                                    recordsByID: batchRecordsByID,
+                                    zoneID: zoneID
+                                )
+                            }
+                        }
+
+                        try validateStoredKey()
+
+                        // Fetch a fresh complete zone snapshot again to verify actual server state.
+                        LedgerDiagnostics.security.info("Fetching fresh post-migration zone snapshot for ledger=\(book.id)")
+                        let verifiedSnapshot = try await fetchZoneSnapshot(database: container.privateCloudDatabase, zoneID: zoneID)
+                        try verifyEncryptedZoneSnapshot(verifiedSnapshot, expectedFingerprint: expectedFingerprint)
+                        LedgerDiagnostics.security.info(
+                            "Post-migration server verification succeeded for ledger=\(book.id) verifiedRecords=\(verifiedSnapshot.count)"
+                        )
+
+                        try await ownerSync.completeMigration(records: verifiedSnapshot, book: encrypted, zoneID: zoneID)
+                        LedgerDiagnostics.security.info("Encryption migration completed records=\(verifiedSnapshot.count)")
+                        return .success(encrypted)
+                    } catch {
+                        return .failure(error)
+                    }
+                }()
+
+                switch attemptResult {
+                case .success(let finalEncrypted):
+                    return finalEncrypted
+                case .failure(let error):
+                    if attempt < maxMigrationAttempts,
+                       let recordFailure = error as? CloudMigrationRecordFailure,
+                       recordFailure.isRetriableConflictOrAsset {
+                        LedgerDiagnostics.security.info(
+                            "Retrying migration attempt=\(attempt) after retriable error: \(recordFailure.localizedDescription)"
+                        )
+                        if let retryAfter = recordFailure.retryAfterSeconds, retryAfter > 0 {
+                            let delayNanos = UInt64(min(retryAfter, 5.0) * 1_000_000_000)
+                            try? await Task.sleep(nanoseconds: delayNanos)
+                        }
+                        currentBook = book
+                        continue
+                    }
+                    throw error
+                }
+            }
+
+            throw CloudMigrationRecordFailure(
+                recordName: "CloudKit Migration",
+                recordType: nil,
+                code: .serverRecordChanged,
+                reason: "Migration exceeded maximum retry attempts (\(maxMigrationAttempts)) due to persistent conflicts."
+            )
         } catch {
             try? await ownerSync.resume()
             LedgerDiagnostics.failure(error, operation: "encryption-migration", logger: LedgerDiagnostics.security)
@@ -332,13 +476,216 @@ actor CloudLedgerService {
         CloudRecordType.purchaseItem
     ]
 
+    private func rootMigrationFailure(
+        operationError: Error?,
+        saveResults: [CKRecord.ID: Result<CKRecord, Error>],
+        deleteResults: [CKRecord.ID: Result<Void, Error>],
+        recordsByID: [CKRecord.ID: CKRecord],
+        zoneID: CKRecordZone.ID
+    ) -> CloudMigrationRecordFailure {
+        struct ItemFailureCandidate {
+            let recordID: CKRecord.ID
+            let recordName: String
+            let recordType: String?
+            let code: CKError.Code
+            let reason: String
+            let retryAfterSeconds: Double?
+        }
+
+        func parseCKErrorInfo(_ error: Error) -> (code: CKError.Code, retryAfter: Double?) {
+            if let ckError = error as? CKError {
+                return (ckError.code, ckError.retryAfterSeconds)
+            }
+            let nsError = error as NSError
+            if nsError.domain == CKErrorDomain {
+                let code = CKError.Code(rawValue: nsError.code) ?? .internalError
+                let retry = (nsError.userInfo[CKErrorRetryAfterKey] as? NSNumber)?.doubleValue
+                return (code, retry)
+            }
+            return (.internalError, nil)
+        }
+
+        func inferRecordType(for recordID: CKRecord.ID) -> String? {
+            if let record = recordsByID[recordID] {
+                return record.recordType
+            }
+            let name = recordID.recordName
+            if name.hasPrefix("transaction-") { return CloudRecordType.transaction }
+            if name.hasPrefix("account-") { return CloudRecordType.account }
+            if name.hasPrefix("category-") { return CloudRecordType.category }
+            if name.hasPrefix("recurring-") { return CloudRecordType.recurring }
+            if name.hasPrefix("purchase-item-") { return CloudRecordType.purchaseItem }
+            if name.hasPrefix("purchase-") { return CloudRecordType.purchaseSession }
+            if name.hasPrefix("book-") { return CloudRecordType.book }
+            if name == "settings" { return CloudRecordType.settings }
+            if name == "budget" { return CloudRecordType.budget }
+            if name.hasPrefix("enroll-") { return CloudRecordType.enrollmentRequest }
+            if name.hasPrefix("envelope-") { return CloudRecordType.keyEnvelope }
+            return nil
+        }
+
+        func humanFriendlyReason(for code: CKError.Code, underlyingError: Error) -> String {
+            switch code {
+            case .serverRecordChanged:
+                return "The record was modified on the server before this migration batch was saved."
+            case .assetFileNotFound:
+                return "The temporary encrypted attachment file could not be found."
+            case .assetFileModified:
+                return "The temporary encrypted attachment file was modified during upload."
+            case .networkUnavailable:
+                return "The network is unavailable. Please check your internet connection."
+            case .networkFailure:
+                return "A network failure occurred while communicating with iCloud."
+            case .serviceUnavailable:
+                return "iCloud services are temporarily unavailable. Please try again later."
+            case .requestRateLimited:
+                return "iCloud requests are being rate-limited. Please wait a moment and retry."
+            case .zoneBusy:
+                return "The iCloud record zone is currently busy. Please retry shortly."
+            case .notAuthenticated:
+                return "You are not signed in to iCloud. Please check your Apple Account settings."
+            case .quotaExceeded:
+                return "Your iCloud storage quota has been exceeded."
+            case .permissionFailure:
+                return "Finsy does not have permission to write to this iCloud container."
+            case .invalidArguments:
+                let msg = underlyingError.localizedDescription
+                return msg.isEmpty ? "CloudKit rejected the record with invalid arguments." : msg
+            case .batchRequestFailed:
+                return "CloudKit rejected the atomic batch."
+            default:
+                let desc = underlyingError.localizedDescription
+                return desc.isEmpty ? "CloudKit operation failed with code \(code.rawValue)." : desc
+            }
+        }
+
+        var candidates: [ItemFailureCandidate] = []
+
+        func recordCandidate(id: CKRecord.ID, error: Error) {
+            let (code, retry) = parseCKErrorInfo(error)
+            let type = inferRecordType(for: id)
+            let reason = humanFriendlyReason(for: code, underlyingError: error)
+            candidates.append(ItemFailureCandidate(
+                recordID: id,
+                recordName: id.recordName,
+                recordType: type,
+                code: code,
+                reason: reason,
+                retryAfterSeconds: retry
+            ))
+        }
+
+        // 1. Inspect saveResults
+        for (id, result) in saveResults {
+            if case .failure(let error) = result {
+                recordCandidate(id: id, error: error)
+            }
+        }
+
+        // 2. Inspect deleteResults
+        for (id, result) in deleteResults {
+            if case .failure(let error) = result {
+                recordCandidate(id: id, error: error)
+            }
+        }
+
+        // 3. Inspect operationError for partial failure dictionary
+        if let operationError {
+            let nsError = operationError as NSError
+            if let partialErrors = nsError.userInfo[CKPartialErrorsByItemIDKey] as? [AnyHashable: Error] {
+                for (key, itemError) in partialErrors {
+                    if let recordID = key as? CKRecord.ID {
+                        recordCandidate(id: recordID, error: itemError)
+                    } else if let recordName = key as? String {
+                        let recordID = CKRecord.ID(recordName: recordName, zoneID: zoneID)
+                        recordCandidate(id: recordID, error: itemError)
+                    }
+                }
+            }
+        }
+
+        let failure: CloudMigrationRecordFailure
+
+        // Priority 1: Any item failure whose code is NOT .batchRequestFailed and NOT .partialFailure
+        let nonBatchCandidates = candidates.filter { $0.code != .batchRequestFailed && $0.code != .partialFailure }
+
+        if let chosen = nonBatchCandidates.first(where: { $0.code == .serverRecordChanged || $0.code == .assetFileNotFound || $0.code == .assetFileModified })
+            ?? nonBatchCandidates.first(where: { $0.code == .invalidArguments })
+            ?? nonBatchCandidates.first(where: { $0.code == .quotaExceeded || $0.code == .permissionFailure || $0.code == .notAuthenticated })
+            ?? nonBatchCandidates.first {
+            failure = CloudMigrationRecordFailure(
+                recordName: chosen.recordName,
+                recordType: chosen.recordType,
+                code: chosen.code,
+                reason: chosen.reason,
+                retryAfterSeconds: chosen.retryAfterSeconds
+            )
+        } else if let operationError {
+            // Priority 2: Inspect operation-level error if it is not partialFailure or batchRequestFailed
+            let (opCode, opRetry) = parseCKErrorInfo(operationError)
+            if opCode != .partialFailure && opCode != .batchRequestFailed {
+                failure = CloudMigrationRecordFailure(
+                    recordName: "iCloud Sync",
+                    recordType: nil,
+                    code: opCode,
+                    reason: humanFriendlyReason(for: opCode, underlyingError: operationError),
+                    retryAfterSeconds: opRetry
+                )
+            } else if let first = candidates.first {
+                failure = CloudMigrationRecordFailure(
+                    recordName: first.recordName,
+                    recordType: first.recordType,
+                    code: .batchRequestFailed,
+                    reason: "All records in the atomic batch were rejected by CloudKit.",
+                    retryAfterSeconds: first.retryAfterSeconds
+                )
+            } else {
+                failure = CloudMigrationRecordFailure(
+                    recordName: "CloudKit Batch (\(recordsByID.count) records)",
+                    recordType: nil,
+                    code: opCode,
+                    reason: humanFriendlyReason(for: opCode, underlyingError: operationError),
+                    retryAfterSeconds: opRetry
+                )
+            }
+        } else if let first = candidates.first {
+            failure = CloudMigrationRecordFailure(
+                recordName: first.recordName,
+                recordType: first.recordType,
+                code: .batchRequestFailed,
+                reason: "All records in the atomic batch were rejected by CloudKit.",
+                retryAfterSeconds: first.retryAfterSeconds
+            )
+        } else {
+            failure = CloudMigrationRecordFailure(
+                recordName: "CloudKit Batch (\(recordsByID.count) records)",
+                recordType: nil,
+                code: .batchRequestFailed,
+                reason: "CloudKit rejected the atomic batch.",
+                retryAfterSeconds: nil
+            )
+        }
+
+        LedgerDiagnostics.security.error(
+            """
+            Migration root failure:
+            type=\(failure.recordType ?? "unknown")
+            record=\(failure.recordName)
+            code=\(CloudMigrationRecordFailure.codeName(for: failure.code))
+            retryAfter=\(failure.retryAfterSeconds.map { "\($0)s" } ?? "nil")
+            """
+        )
+
+        return failure
+    }
+
     private func ensureZoneExists(database: CKDatabase, zoneID: CKRecordZone.ID) async throws {
         do {
             _ = try await database.save(CKRecordZone(zoneID: zoneID))
         } catch let error as CKError where error.code == .serverRecordChanged {
-            // Zone already exists
-        } catch {
-            LedgerDiagnostics.cloud.info("ensureZoneExists notice: \(error.localizedDescription)")
+            // Zone already exists on server
+        } catch let nsError as NSError where nsError.domain == CKErrorDomain && nsError.code == CKError.Code.serverRecordChanged.rawValue {
+            // Zone already exists on server (bridged NSError)
         }
     }
 
@@ -368,6 +715,9 @@ actor CloudLedgerService {
                 moreComing = page.moreComing
             } catch let error as CKError where error.code == .zoneNotFound {
                 // Zone does not exist on server yet. Ensure it is created and return empty snapshot.
+                try await ensureZoneExists(database: database, zoneID: zoneID)
+                return []
+            } catch let nsError as NSError where nsError.domain == CKErrorDomain && nsError.code == CKError.Code.zoneNotFound.rawValue {
                 try await ensureZoneExists(database: database, zoneID: zoneID)
                 return []
             }
@@ -439,6 +789,98 @@ actor CloudLedgerService {
 
         guard financialRecordCount > 0 else {
             throw CloudLedgerError.migrationVerificationFailed("No financial records found in migrated zone snapshot")
+        }
+    }
+}
+
+public struct CloudMigrationRecordFailure: LocalizedError, Sendable {
+    public let recordName: String
+    public let recordType: String?
+    public let code: CKError.Code
+    public let reason: String
+    public let retryAfterSeconds: Double?
+
+    public init(
+        recordName: String,
+        recordType: String?,
+        code: CKError.Code,
+        reason: String,
+        retryAfterSeconds: Double? = nil
+    ) {
+        self.recordName = recordName
+        self.recordType = recordType
+        self.code = code
+        self.reason = reason
+        self.retryAfterSeconds = retryAfterSeconds
+    }
+
+    public var isServerRecordChanged: Bool {
+        code == .serverRecordChanged
+    }
+
+    public var isAssetError: Bool {
+        code == .assetFileNotFound || code == .assetFileModified
+    }
+
+    public var isRetriableConflictOrAsset: Bool {
+        isServerRecordChanged || isAssetError
+    }
+
+    public var errorDescription: String? {
+        var lines: [String] = []
+        lines.append("Record:")
+        if let recordType, !recordType.isEmpty {
+            lines.append(recordType)
+        }
+        lines.append(recordName)
+        lines.append("")
+        lines.append("CloudKit:")
+        lines.append("CKError.\(Self.codeName(for: code))")
+        lines.append("")
+        lines.append("Reason:")
+        lines.append(reason)
+        return lines.joined(separator: "\n")
+    }
+
+    public static func codeName(for code: CKError.Code) -> String {
+        switch code {
+        case .internalError: return "internalError"
+        case .partialFailure: return "partialFailure"
+        case .networkUnavailable: return "networkUnavailable"
+        case .networkFailure: return "networkFailure"
+        case .badContainer: return "badContainer"
+        case .serviceUnavailable: return "serviceUnavailable"
+        case .requestRateLimited: return "requestRateLimited"
+        case .missingEntitlement: return "missingEntitlement"
+        case .notAuthenticated: return "notAuthenticated"
+        case .permissionFailure: return "permissionFailure"
+        case .unknownItem: return "unknownItem"
+        case .invalidArguments: return "invalidArguments"
+        case .resultsTruncated: return "resultsTruncated"
+        case .serverRecordChanged: return "serverRecordChanged"
+        case .serverRejectedRequest: return "serverRejectedRequest"
+        case .assetFileNotFound: return "assetFileNotFound"
+        case .assetFileModified: return "assetFileModified"
+        case .incompatibleVersion: return "incompatibleVersion"
+        case .constraintViolation: return "constraintViolation"
+        case .operationCancelled: return "operationCancelled"
+        case .changeTokenExpired: return "changeTokenExpired"
+        case .batchRequestFailed: return "batchRequestFailed"
+        case .zoneBusy: return "zoneBusy"
+        case .badDatabase: return "badDatabase"
+        case .quotaExceeded: return "quotaExceeded"
+        case .zoneNotFound: return "zoneNotFound"
+        case .limitExceeded: return "limitExceeded"
+        case .userDeletedZone: return "userDeletedZone"
+        case .tooManyParticipants: return "tooManyParticipants"
+        case .alreadyShared: return "alreadyShared"
+        case .referenceViolation: return "referenceViolation"
+        case .managedAccountRestricted: return "managedAccountRestricted"
+        case .participantMayNeedVerification: return "participantMayNeedVerification"
+        case .serverResponseLost: return "serverResponseLost"
+        case .assetNotAvailable: return "assetNotAvailable"
+        case .accountTemporarilyUnavailable: return "accountTemporarilyUnavailable"
+        @unknown default: return "code(\(code.rawValue))"
         }
     }
 }
