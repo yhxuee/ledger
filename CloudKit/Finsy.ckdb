@@ -1,6 +1,7 @@
 // Schema for the record types written by CloudRecordMapper and CloudLedgerService.
-// Ledger data lives in private and shared databases. The creator-only grant
-// keeps the default owner write rule; no public read or create is granted.
+// Ledger data lives in private and shared databases. Application record types
+// grant only creator write access. CloudKit's system share type retains its
+// default roles; each CKShare's publicPermission controls link access.
 DEFINE SCHEMA
 
     RECORD TYPE BudgetPlan (
@@ -188,5 +189,20 @@ DEFINE SCHEMA
         "___recordID" REFERENCE,
         roles LIST<INT64>,
         GRANT WRITE TO "_creator",
+        GRANT READ TO "_world"
+    );
+
+    RECORD TYPE "cloudkit.share" (
+        "___createTime" TIMESTAMP,
+        "___createdBy" REFERENCE,
+        "___etag" STRING,
+        "___modTime" TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID" REFERENCE,
+        "cloudkit.thumbnailImageData" BYTES,
+        "cloudkit.title" STRING,
+        "cloudkit.type" STRING,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
         GRANT READ TO "_world"
     );
