@@ -1,0 +1,6 @@
+finsy.yhxue.com {
+    request_body {
+        max_size 64KB
+    }
+    reverse_proxy 127.0.0.1:8765
+}

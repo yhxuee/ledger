@@ -65,6 +65,7 @@ final class NetworkWalletPassIssuer: WalletPassIssuer {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/vnd.apple.pkpass", forHTTPHeaderField: "Accept")
+        request.setValue("Finsy/2.0 CFNetwork", forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONEncoder().encode(payload)
 
         let (data, response) = try await session.data(for: request)

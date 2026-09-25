@@ -1,0 +1,22 @@
+[Unit]
+Description=Finsy Wallet pass issuer
+After=network.target
+
+[Service]
+Type=simple
+User=finsy-wallet
+Group=finsy-wallet
+WorkingDirectory=/opt/finsy-wallet
+Environment=FINSY_TEAM_ID=7L693U7JN9
+Environment=FINSY_CERT_DIR=/etc/finsy-wallet
+ExecStart=/usr/bin/python3 /opt/finsy-wallet/server.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

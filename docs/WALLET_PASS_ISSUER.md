@@ -14,7 +14,7 @@ Consequently, Finsy strictly enforces a **server-side signing boundary**.
 
 ### External Signing Server Notice
 > [!IMPORTANT]
-> The codebase in this repository (`yhxuee/ledger`) is strictly the client iOS application. It does **not** contain the server-side signing service or Apple Developer private signing keys. Pass signing is performed externally by a service configured via the `FINSY_WALLET_PASS_ISSUER_URL` environment variable or `Info.plist` key.
+> This repository includes a small server-side signing service in `WalletIssuer/`. Pass signing private keys remain on the deployed server, outside Git. The iOS app reaches the service through `FINSY_WALLET_PASS_ISSUER_URL`.
 >
 > The client now sends the complete itemized payload including `items`, `taxAmount`, and `formattedTax`. **The external signing server must be upgraded according to the contract below before issued `.pkpass` files will visually display itemized lines and tax in Apple Wallet.**
 
