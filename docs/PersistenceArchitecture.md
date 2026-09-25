@@ -32,8 +32,8 @@
    Full validation remains mandatory at import, backup, and complete-snapshot boundaries.
 10. CloudKit generation, conflict merging, encryption migration, backup/export, calculations,
     recurring processing, undo, and ledger switching operate on fully materialized state.
-11. Unsigned builds retain the `FINSY_UNSIGNED_BUILD` runtime gate and never initialize
-    `CKContainer`. Signed builds retain the entitlement-backed path.
+11. Signed distribution builds use the normal CloudKit path. CI verifies the signed app and
+    widget entitlements and their embedded provisioning profiles before publishing an IPA.
 12. Startup does not save unless recurring processing creates a real mutation.
 
 ## Direct answers to the persistence audit
@@ -94,8 +94,7 @@ materialize any linked records their operation needs.
 | R. Cloud sync with paged UI | Cloud snapshots use complete state, independently of query pages. |
 | S. Cloud deletion/conflict | Entity merge uses complete IDs and rejects duplicate remote IDs. |
 | T. Encryption migration | Generates records from a complete merged book. |
-| U. Unsigned/iLoader | CloudKit is unavailable without constructing `CKContainer`. |
-| V. Signed/entitled | Normal CloudKit path; still requires physical two-device verification. |
+| U. Signed/entitled | Normal CloudKit path; still requires physical two-device verification. |
 
 ## Scalability boundary
 

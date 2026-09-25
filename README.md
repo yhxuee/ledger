@@ -42,7 +42,7 @@ Transactions and accounts keep soft-deletion behavior. Deleting a refund restore
 Source and project target changes are included, but these account-bound steps must be completed in Xcode/Developer Portal:
 
 1. Select a development team for both `Finsy` and `FinsyWidget`.
-2. Register `com.finsy.app` and `com.finsy.app.Widget` (or change both identifiers consistently).
+2. Register `com.finsy.app` and `com.finsy.app.Widget`.
 3. Create/enable `iCloud.com.finsy.app` with CloudKit and iCloud Documents, then select it on the app target.
 4. Create/enable App Group `group.com.finsy.app` for both targets.
 5. Enable Push Notifications and Background Modes > Remote notifications on the app target.
@@ -62,11 +62,11 @@ Source and project target changes are included, but these account-bound steps mu
 - The bundled holiday calendar covers 2026, including early-close session checks. Sources: [NYSE](https://www.nyse.com/trade/hours-calendars), [HKEX](https://www.hkex.com.hk/-/media/HKEX-Market/Services/Circulars-and-Notices/Participant-and-Members-Circulars/SEHK/2025/ce_SEHK_CT_075_2025.pdf), [SSE](https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml). Future years require positive market-open evidence until annual calendars are added; unconfirmed after-hours days are skipped. A closed status during a normal session suppresses quotes, including later slots until an open status is observed.
 - Launch, foreground and BGAppRefreshTask use the same catch-up path. Missing slots from the current market day are coalesced into one quote fetch per symbol. Background requests specify the next slot as an earliest start, never a guaranteed execution time. Frankfurter remains an independent once-per-successful-calendar-day pipeline with an in-flight guard.
 
-For this change, Swift syntax parsing, plist validation and whitespace checks are available on Windows. The unsigned Release build requires macOS/Xcode; no XCTest was run. The existing `.github/workflows/build-ipa.yml` builds unsigned Release with tests disabled by default.
+GitHub Actions archives with Apple Distribution signing and automatic provisioning, verifies the app and widget signatures, entitlements, and profiles, then exports a signed IPA. The optional XCTest job is disabled by default.
 
 `FinsyTests` covers balance semantics, soft deletion, native backup round-trip, native v1 migration, legacy Web conversion, flexible currencies, refund idempotency and deletion, both budget modes, multi-currency budgets, dynamic loan interest, deleted default-account mappings, PurchaseSession finalization/grouping, and CloudKit record mapping without network access.
 
-This checkout is authored from Windows, where SwiftUI, ActivityKit, EventKit and CloudKit SDK compilation is unavailable. Run the included Xcode test target or the existing macOS GitHub Actions workflow before signing a release archive.
+To install on iPhone, run **Build Finsy** in GitHub Actions with **Upload TestFlight** enabled, wait for App Store Connect processing, then install through TestFlight. A normal push to `main` only creates a signed IPA artifact. Windows cannot perform the Xcode archive or physical-device checks.
 
 ## Persistence diagnostics
 

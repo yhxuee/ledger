@@ -30,7 +30,7 @@ enum PurchaseSharedContainerState: Equatable, Sendable {
         switch self {
         case .available: nil
         case .containerUnavailable, .writeFailed, .readFailed:
-            String(localized: "Lock Screen item controls require a signed build with App Group access.")
+            String(localized: "Lock Screen item controls are unavailable because App Group access is not available.")
         }
     }
 }
@@ -208,7 +208,7 @@ enum PurchaseSharedStateError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .appGroupUnavailable:
-            "Lock Screen item controls require a signed build with App Group access."
+            "Lock Screen item controls are unavailable because App Group access is not available."
         case .notFound:
             "The active purchase item was not found."
         }

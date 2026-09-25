@@ -70,7 +70,7 @@ actor PurchaseLiveActivityController: PurchaseActivityStarting {
             // Concise, stable notice only: a failed bridge is never a fatal Purchase error and
             // must not repeat raw container errors. Details go to the Debug log instead.
             warnings.append(PurchaseSharedContainerState.containerUnavailable.warning
-                ?? String(localized: "Lock Screen item controls require a signed build with App Group access."))
+                ?? String(localized: "Lock Screen item controls are unavailable because App Group access is not available."))
             #if DEBUG
             PurchaseActivityDiagnostics.logBridgeFailure(error)
             #endif

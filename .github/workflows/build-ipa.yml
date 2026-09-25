@@ -1,291 +1,174 @@
-name: Build Unsigned IPA
+name: Build Finsy
 
 on:
   workflow_dispatch:
     inputs:
-      run_signed:
-        description: Build signed IPA
-        required: false
+      upload_testflight:
+        description: Upload signed build to TestFlight
         type: boolean
         default: false
       run_tests:
         description: Run XCTest suite
-        required: false
         type: boolean
         default: false
-
   push:
-    branches:
-      - main
-      - master
+    branches: [main]
 
 jobs:
-  build:
-    name: Build Unsigned IPA
+  signed-ipa:
+    name: Archive and export signed IPA
     runs-on: macos-latest
-
+    env:
+      SIGNING_CERTIFICATE_P12: ${{ secrets.IOS_SIGNING_CERTIFICATE_P12 }}
+      SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.IOS_SIGNING_CERTIFICATE_PASSWORD }}
+      KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+      DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+      ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.APPSTORE_CONNECT_KEY_P8 }}
+      BUILD_NUMBER: ${{ github.run_number }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Build .app without signing
-        # The IPA is re-signed later (iLoader), so only the signing *identity* is disabled here.
-        # CODE_SIGN_ENTITLEMENTS is intentionally NOT cleared: the project keeps pointing at the
-        # main app and widget entitlement files so the App Group stays attachable to both products.
+      - name: Check signing configuration
         run: |
           set -euo pipefail
-
-          xcodebuild clean build \
+          for entry in \
+            IOS_SIGNING_CERTIFICATE_P12:SIGNING_CERTIFICATE_P12 \
+            IOS_SIGNING_CERTIFICATE_PASSWORD:SIGNING_CERTIFICATE_PASSWORD \
+            IOS_KEYCHAIN_PASSWORD:KEYCHAIN_PASSWORD \
+            APPLE_DEVELOPMENT_TEAM:DEVELOPMENT_TEAM \
+            APPSTORE_CONNECT_KEY_ID:ASC_KEY_ID \
+            APPSTORE_CONNECT_ISSUER_ID:ASC_ISSUER_ID \
+            APPSTORE_CONNECT_KEY_P8:ASC_KEY_P8; do
+            name="${entry%%:*}"
+            variable="${entry#*:}"
+            if [[ -z "${!variable}" ]]; then
+              echo "::error::Missing required GitHub secret: $name"
+              exit 1
+            fi
+          done
+      - uses: actions/checkout@v4
+      - name: Verify capability source configuration
+        run: bash Scripts/verify-purchase-configuration.sh
+      - name: Import signing identity and API key
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/finsy-signing.keychain-db"
+          certificate="$RUNNER_TEMP/finsy-signing.p12"
+          key="$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          printf '%s' "$SIGNING_CERTIFICATE_P12" | base64 --decode > "$certificate"
+          security import "$certificate" -k "$keychain" -P "$SIGNING_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          security default-keychain -d user -s "$keychain"
+          security find-identity -v -p codesigning "$keychain" | grep -q 'Apple Distribution:' || {
+            echo '::error::No Apple Distribution signing identity was imported.'
+            exit 1
+          }
+          echo 'Apple Distribution identity detected.'
+          mkdir -p "$(dirname "$key")"
+          printf '%s' "$ASC_KEY_P8" > "$key"
+          chmod 600 "$key"
+          rm -f "$certificate"
+      - name: Archive Finsy
+        run: |
+          set -euo pipefail
+          xcodebuild clean archive \
             -project Finsy.xcodeproj \
             -scheme Finsy \
             -configuration Release \
-            -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -derivedDataPath ./build_output \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            'OTHER_SWIFT_FLAGS=$(inherited) -DFINSY_UNSIGNED_BUILD'
-
-      - name: Verify build products
+            -archivePath "$RUNNER_TEMP/Finsy.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            CODE_SIGN_STYLE=Automatic \
+            'CODE_SIGN_IDENTITY=Apple Distribution' \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
+      - name: Verify archived app and widget
+        run: |
+          bash Scripts/verify-signed-distribution.sh \
+            "$RUNNER_TEMP/Finsy.xcarchive/Products/Applications/Finsy.app" \
+            "$DEVELOPMENT_TEAM" "$BUILD_NUMBER"
+      - name: Export signed IPA
         run: |
           set -euo pipefail
-
-          APP_PATH="$(find ./build_output/Build/Products/Release-iphoneos \
-            -maxdepth 1 \
-            -name 'Finsy.app' \
-            -print \
-            -quit)"
-
-          if [ -z "$APP_PATH" ]; then
-            echo "::error::Finsy.app was not produced."
-            exit 1
-          fi
-
-          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
-
-          WIDGET_PATH="$APP_PATH/PlugIns/FinsyWidget.appex"
-
-          if [ ! -d "$WIDGET_PATH" ]; then
-            echo "::error::FinsyWidget.appex is not embedded in Finsy.app."
-            exit 1
-          fi
-
-          echo "Finsy.app found at: $APP_PATH"
-          echo "FinsyWidget.appex is embedded."
-          echo "Unsigned runtime mode: CloudKit is disabled until a properly entitled signed build is used."
-
-          # Bundle identity: iLoader re-signs both products, so their identifiers and build
-          # numbers must be the ones the provisioning profiles will be created for.
-          APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist")"
-          WIDGET_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$WIDGET_PATH/Info.plist")"
-
-          if [ "$APP_ID" != "com.finsy.app" ]; then
-            echo "::error::Unexpected app bundle identifier: $APP_ID"
-            exit 1
-          fi
-
-          if [ "$WIDGET_ID" != "com.finsy.app.Widget" ]; then
-            echo "::error::Unexpected widget bundle identifier: $WIDGET_ID"
-            exit 1
-          fi
-
-          APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")"
-          WIDGET_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$WIDGET_PATH/Info.plist")"
-
-          if [ "$APP_BUILD" != "$WIDGET_BUILD" ]; then
-            echo "::error::App (build $APP_BUILD) and widget (build $WIDGET_BUILD) build numbers differ; embedding requires them to match."
-            exit 1
-          fi
-
-          echo "Bundle identity: $APP_ID (build $APP_BUILD) + $WIDGET_ID (build $WIDGET_BUILD)"
-
-          # Entitlement sources and their target wiring must survive the unsigned build so the
-          # re-signing step can attach the same App Group to the app and the extension.
-          APP_GROUP="group.com.finsy.app"
-          PBX="Finsy.xcodeproj/project.pbxproj"
-
-          for entitlements in "Finsy/Finsy.entitlements" "FinsyWidget/FinsyWidget.entitlements"; do
-            if [ ! -f "$entitlements" ]; then
-              echo "::error::Missing entitlement file: $entitlements"
-              exit 1
-            fi
-
-            if ! grep -q "com.apple.security.application-groups" "$entitlements" || ! grep -q "$APP_GROUP" "$entitlements"; then
-              echo "::error::$entitlements does not declare $APP_GROUP"
-              exit 1
-            fi
-
-            echo "$entitlements declares $APP_GROUP"
-          done
-
-          for reference in \
-            "CODE_SIGN_ENTITLEMENTS = Finsy/Finsy.entitlements" \
-            "CODE_SIGN_ENTITLEMENTS = FinsyWidget/FinsyWidget.entitlements"; do
-            if ! grep -qF "$reference" "$PBX"; then
-              echo "::error::project.pbxproj no longer references: $reference"
-              exit 1
-            fi
-
-            echo "project.pbxproj references: $reference"
-          done
-
-      - name: Package unsigned IPA
+          python3 - <<'PY'
+          import os
+          import plistlib
+          from pathlib import Path
+          options = {
+              'method': 'app-store-connect',
+              'signingStyle': 'automatic',
+              'teamID': os.environ['DEVELOPMENT_TEAM'],
+              'destination': 'export',
+              'manageAppVersionAndBuildNumber': False,
+          }
+          (Path(os.environ['RUNNER_TEMP']) / 'ExportOptions.plist').write_bytes(plistlib.dumps(options))
+          PY
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Finsy.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          test -s "$RUNNER_TEMP/export/Finsy.ipa"
+      - name: Verify exported signature and profiles
         run: |
           set -euo pipefail
-
-          rm -rf Payload Finsy-unsigned.ipa
-          mkdir -p Payload
-
-          cp -R "$APP_PATH" Payload/Finsy.app
-
-          zip -qry Finsy-unsigned.ipa Payload
-
-          test -f Finsy-unsigned.ipa
-
-      - name: Upload unsigned IPA
+          mkdir -p "$RUNNER_TEMP/ipa-inspection"
+          ditto -x -k "$RUNNER_TEMP/export/Finsy.ipa" "$RUNNER_TEMP/ipa-inspection"
+          bash Scripts/verify-signed-distribution.sh \
+            "$RUNNER_TEMP/ipa-inspection/Payload/Finsy.app" \
+            "$DEVELOPMENT_TEAM" "$BUILD_NUMBER" production
+      - name: Upload signed IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Finsy-Unsigned-IPA
-          path: Finsy-unsigned.ipa
+          name: Finsy-Signed-IPA-${{ github.run_number }}
+          path: ${{ runner.temp }}/export/Finsy.ipa
           if-no-files-found: error
+      - name: Upload to TestFlight
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_testflight == true }}
+        run: |
+          set -euo pipefail
+          /usr/libexec/PlistBuddy -c 'Set :destination upload' "$RUNNER_TEMP/ExportOptions.plist"
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Finsy.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/testflight-upload" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+      - name: Remove temporary signing material
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/finsy-signing.p12" "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          security delete-keychain "$RUNNER_TEMP/finsy-signing.keychain-db" 2>/dev/null || true
 
-  # Optional XCTest job. Manual workflow_dispatch only, and only when run_tests is enabled.
-  # It is fully independent of `build`: a red test job can never block or delete the
-  # successfully produced Finsy-Unsigned-IPA artifact.
   tests:
     name: Run XCTest
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_tests == true }}
     runs-on: macos-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Find iOS Simulator
+      - uses: actions/checkout@v4
+      - name: Find iPhone simulator
         run: |
           set -euo pipefail
-
-          DEVICE_ID="$(
-            xcrun simctl list devices available -j |
-            python3 -c '
-          import json, sys
-          data = json.load(sys.stdin)
-
-          for runtime, devices in data["devices"].items():
-              if "iOS" not in runtime:
-                  continue
-              for device in devices:
-                  if "iPhone" in device["name"]:
-                      print(device["udid"])
-                      raise SystemExit(0)
-
-          raise SystemExit("No available iPhone simulator found")
-          '
-          )"
-
+          DEVICE_ID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(device["udid"] for runtime, devices in d["devices"].items() if "iOS" in runtime for device in devices if "iPhone" in device["name"]))')"
           echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
-
       - name: Run Finsy tests
         run: |
-          set -euo pipefail
-
           xcodebuild test \
             -project Finsy.xcodeproj \
             -scheme Finsy \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -only-testing:FinsyTests \
             -parallel-testing-enabled NO \
-            -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Finsy-Test-Results
-          path: TestResults.xcresult
-          if-no-files-found: ignore
-
-  # Produces a signed IPA with App Group and CloudKit entitlements, then verifies the binaries.
-  # Skipped (with a warning) until the signing secrets are configured.
-  signed-ipa:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_signed == true }}
-    name: Build Signed IPA (optional)
-    runs-on: macos-latest
-    env:
-      SIGNING_CERTIFICATE_P12: ${{ secrets.IOS_SIGNING_CERTIFICATE_P12 }}
-      SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.IOS_SIGNING_CERTIFICATE_PASSWORD }}
-      KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
-      ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
-      ASC_KEY_P8: ${{ secrets.APPSTORE_CONNECT_KEY_P8 }}
-      DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
-
-    steps:
-      - name: Explain missing signing configuration
-        if: env.SIGNING_CERTIFICATE_P12 == ''
-        run: |
-          echo "::warning::Signed build skipped. Add repository secrets to enable entitlement verification:"
-          echo "  IOS_SIGNING_CERTIFICATE_P12, IOS_SIGNING_CERTIFICATE_PASSWORD, IOS_KEYCHAIN_PASSWORD,"
-          echo "  APPLE_DEVELOPMENT_TEAM, APPSTORE_CONNECT_KEY_ID, APPSTORE_CONNECT_ISSUER_ID, APPSTORE_CONNECT_KEY_P8"
-          echo "Also enable App Groups (group.com.finsy.app) for BOTH bundle IDs in the Apple Developer portal:"
-          echo "  com.finsy.app and com.finsy.app.Widget"
-          echo "Enable iCloud/CloudKit container iCloud.com.finsy.app for com.finsy.app."
-
-      - name: Checkout repository
-        if: env.SIGNING_CERTIFICATE_P12 != ''
-        uses: actions/checkout@v4
-
-      - name: Verify Purchase Mode source configuration
-        if: env.SIGNING_CERTIFICATE_P12 != ''
-        run: bash Scripts/verify-purchase-configuration.sh
-
-      - name: Import signing identity
-        if: env.SIGNING_CERTIFICATE_P12 != ''
-        run: |
-          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security set-keychain-settings -lut 3600 "$KEYCHAIN"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          echo "$SIGNING_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
-          security import "$RUNNER_TEMP/signing.p12" -k "$KEYCHAIN" -P "$SIGNING_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security list-keychains -d user -s "$KEYCHAIN"
-          mkdir -p "$RUNNER_TEMP/private_keys"
-          echo "$ASC_KEY_P8" > "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8"
-
-      - name: Build signed app with App Group and CloudKit entitlements
-        if: env.SIGNING_CERTIFICATE_P12 != ''
-        run: |
-          xcodebuild clean build \
-            -scheme "Finsy" \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath ./build_signed \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-            CODE_SIGN_STYLE=Automatic
-
-      - name: Verify signed App Group and CloudKit entitlements
-        if: env.SIGNING_CERTIFICATE_P12 != ''
-        run: |
-          APP="$(find ./build_signed/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n 1)"
-          bash Scripts/verify-app-group-entitlements.sh "$APP"
-
-      - name: Package signed IPA
-        if: env.SIGNING_CERTIFICATE_P12 != ''
-        run: |
-          mkdir -p Payload
-          cp -r ./build_signed/Build/Products/Release-iphoneos/*.app Payload/
-          zip -r Finsy-signed.ipa Payload
-
-      - name: Upload signed IPA artifact
-        if: env.SIGNING_CERTIFICATE_P12 != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: Finsy-Signed-IPA
-          path: Finsy-signed.ipa

@@ -50,7 +50,7 @@ Start now durably saves the active session, attempts the shared snapshot, then e
 
 Expanded Island: circular item-count progress at left, completed amount at right, next three incomplete items with interactive checks below. All widget and Lock Screen amounts use session currency with symbol formatting (`$48.20`), never `USDT 48.20`. Compact: cart/check plus completion percentage. Minimal: circular gauge. Lock Screen: title, progress/count, completed/planned amounts. Completed sessions keep a deep link to the summary. The in-app screen uses the same item-count metric; monetary progress is independently calculated.
 
-A previously installed unsigned/re-signed IPA may lack the required App Group authorization. CI deliberately builds unsigned and clears entitlements for the IPA; the checked-in entitlement files alone do not provision a device. This is a concrete configuration risk, not a confirmed diagnosis of a particular phone's request error. Use the new error details to identify that phone's failure.
+The signed CI archive and exported IPA are checked for App Group authorization in both the app and widget. Runtime bridge errors remain visible through the existing nonfatal warning and diagnostics.
 
 ## Monetary display rules
 
@@ -67,9 +67,9 @@ Currencies without a distinct symbol keep their code as a separated fallback (`C
 `LedgerStore.setPurchaseItem` no longer reconciles the App Group bridge before a tap and no longer runs FX/account validation on a checkbox write. The stored `PurchaseSession` is validated, mutated and persisted first; only then does `publish(session:requestActivity:)` mirror the snapshot and refresh the Live Activity. A failing bridge cannot roll back a completion, return nil, change the session status, dismiss the screen or raise a modal error.
 
 ### Nonfatal bridge warnings
-`LedgerStore.purchaseSyncWarning` is a separate, deduplicated channel rendered inline by `PurchaseStatusNotice`. App Group / ActivityKit infrastructure problems go there; `presentedError` stays reserved for real operation errors (invalid account/session, local persistence failure). The App Group notice is a single concise line — "Lock Screen item controls require a signed build with App Group access." — shown at most once per purchase: repeats are dropped, a dismissal keeps it dismissed, and a recovered bridge clears it. Raw container errors are only written to the Debug log.
+`LedgerStore.purchaseSyncWarning` is a separate, deduplicated channel rendered inline by `PurchaseStatusNotice`. App Group / ActivityKit infrastructure problems go there; `presentedError` stays reserved for real operation errors (invalid account/session, local persistence failure). The App Group notice says "Lock Screen item controls are unavailable because App Group access is not available." It is shown at most once per purchase: repeats are dropped, a dismissal keeps it dismissed, and a recovered bridge clears it. Raw container errors are only written to the Debug log.
 
-An unsigned build (`CODE_SIGNING_ALLOWED=NO`, `CODE_SIGN_ENTITLEMENTS=""`) cannot provide `group.com.finsy.app`, so Purchase Mode runs locally, the Live Activity still displays, and Lock Screen / Dynamic Island item controls are read-only. That is the intended graceful fallback, not a failure. A signed build must carry `com.apple.security.application-groups` → `group.com.finsy.app` in **both** `Finsy.app` and `FinsyWidget.appex`, which `Scripts/verify-app-group-entitlements.sh` checks on the built products.
+A signed build carries `com.apple.security.application-groups` with `group.com.finsy.app` in both `Finsy.app` and `FinsyWidget.appex`. If App Group access fails at runtime, Purchase Mode remains locally usable and Lock Screen controls become read-only. `Scripts/verify-signed-distribution.sh` checks the signed products and profiles.
 
 ### Controlled reconciliation
 `reconcileSharedActivePurchases()` runs when the app becomes active, when `ActivePurchaseView` appears (and every 3 seconds while it stays visible), and once before Purchase Summary. It reports whether it changed anything and persists immediately. Adoption requires the same account/currency identity and a *strictly* newer subsecond `updatedAt` (`PurchaseRules.shouldAdoptSharedSnapshot`), so an older or equal snapshot can never overwrite newer local work.
@@ -87,17 +87,7 @@ An unsigned build (`CODE_SIGNING_ALLOWED=NO`, `CODE_SIGN_ENTITLEMENTS=""`) canno
 Shared widget-safe `PurchaseActivityPalette` (coral `#F05E4F`, teal `#62B28F`, blue `#36A7C9`, charcoal `#14181C`). `PurchaseProgressRing` accepts explicit `tint`/`trackColor`/`iconColor`/`iconSize`/`lineWidth` and no longer adds outer padding. The Dynamic Island leading ring is 46×46 with a 13pt glyph (previously 58×58 plus 5pt padding), compact leading uses a 14pt colored glyph, compact trailing is a colored percentage, minimal is a tinted circular gauge, and the island uses `keylineTint` (coral while shopping, teal when complete). The Lock Screen uses a charcoal surface, coral/teal accents, white primary text and muted secondary text.
 
 ### App Group runtime entitlement
-`Scripts/verify-purchase-configuration.sh` audits the repository configuration (entitlement files, project wiring, bundle IDs, capability markers). `Scripts/verify-app-group-entitlements.sh` inspects `codesign -d --entitlements` for both the app and the embedded `.appex` of a built product. CI runs the source audit in the optional signed job and additionally builds and verifies a signed IPA when the signing secrets are configured.
-
-The default CI artifact stays **unsigned**: only the signing identity is disabled (`CODE_SIGN_IDENTITY=""`, `CODE_SIGNING_REQUIRED=NO`, `CODE_SIGNING_ALLOWED=NO`). `CODE_SIGN_ENTITLEMENTS` is deliberately **not** cleared, so `Finsy/Finsy.entitlements` and `FinsyWidget/FinsyWidget.entitlements` stay attached to their targets and remain available to a later re-signing step. Because the artifact carries no signature, **no App Group runtime access is validated by CI** — that is expected and must not be reported as a runtime result.
-
-The unsigned IPA is re-signed outside CI (iLoader) with an Apple ID. For interactive Lock Screen / Dynamic Island item control to work, that re-signing must:
-1. create/reuse the App ID `com.finsy.app` **and** `com.finsy.app.Widget`;
-2. enable **App Groups** on both App IDs and assign both to `group.com.finsy.app`;
-3. re-sign the main app **and** the embedded `Finsy.app/PlugIns/FinsyWidget.appex` with profiles that include that group (an app-only re-sign leaves the extension without container access);
-4. keep both products' `CFBundleVersion` equal (build 10).
-
-If the re-signed build does not receive the App Group entitlement, Purchase Mode keeps working locally with the existing read-only Lock Screen fallback ("Lock Screen item controls require a signed build with App Group access."); no local directory, `UserDefaults.standard`, or Documents/tmp storage is used as a substitute for the App Group container.
+`Scripts/verify-purchase-configuration.sh` audits the repository configuration (entitlement files, project wiring, bundle IDs, capability markers). `Scripts/verify-app-group-entitlements.sh` inspects `codesign -d --entitlements` for both the app and the embedded `.appex` of a built product. CI runs the source audit, archives and exports with Apple Distribution signing, and verifies the actual app and widget signatures and provisioning profiles. TestFlight upload is a separate manual option.
 
 ## Project configuration audited
 
@@ -106,7 +96,7 @@ If the re-signed build does not receive the App Group entitlement, Purchase Mode
 - Both targets compile `FinsyShared` and use `group.com.finsy.app`.
 - Both deployment targets remain iOS 17. NSSupportsLiveActivities remains true. App/extension versions match (build 10).
 - No new target, permission key or entitlement is needed for this revision. Existing CloudKit/iCloud Documents configuration is preserved.
-- The unsigned CI build verifies, after building: `Finsy.app` exists, `PlugIns/FinsyWidget.appex` is embedded, both bundle identifiers are `com.finsy.app` / `com.finsy.app.Widget`, both `CFBundleVersion` values match, both entitlement files still declare `group.com.finsy.app`, and `project.pbxproj` still references both via `CODE_SIGN_ENTITLEMENTS`.
+- The signed CI archive verifies, after building: `Finsy.app` exists, `PlugIns/FinsyWidget.appex` is embedded, both bundle identifiers are `com.finsy.app` / `com.finsy.app.Widget`, both `CFBundleVersion` values match, both entitlement files still declare `group.com.finsy.app`, and `project.pbxproj` still references both via `CODE_SIGN_ENTITLEMENTS`.
 
 ## Verification and device checklist
 
@@ -117,11 +107,11 @@ Simulator rendering tests cover purchase editing, active purchase and Accounts a
 Required before device acceptance:
 
 1. Select the same Developer team for app and widget; register both bundle IDs and enable the same App Group on both profiles.
-2. Re-sign the app AND embedded extension with profiles that preserve App Group entitlements. Do not assume a generic IPA re-sign preserves them.
+2. Check that the signed app and extension profiles authorize the App Group. The CI verification script checks both.
 3. Install, allow Live Activities in iOS Settings, start a valid list while foregrounded, and check the explicit result. A "started but shared storage unavailable" result means the activity is visible while the App Group snapshot is not being written.
 4. On compatible hardware inspect compact/minimal/expanded Island and Lock Screen; check/uncheck in app, check next-three controls, lock/unlock, terminate/relaunch, and return via deep link.
 5. Verify shared ledgers with two iCloud users, including changed purchase payment metadata and removal of draft items.
-6. Confirm the runtime bridge on the device: the build 10 Debug log line `[Purchase] start … appGroupURL=… bridge=…` and the ActivityKit diagnostic report (CI test attachment `LiveActivity-Environment-Diagnostic`) must show `containerURL available: true` and `bridge state: available`. If they show `containerUnavailable`, the installed signature lacks the App Group entitlement: re-sign with profiles for both bundle IDs and run `Scripts/verify-app-group-entitlements.sh` on the built `.app`.
+6. Confirm the runtime bridge on the device: the build 10 Debug log line `[Purchase] start … appGroupURL=… bridge=…` and the ActivityKit diagnostic report (CI test attachment `LiveActivity-Environment-Diagnostic`) must show `containerURL available: true` and `bridge state: available`. If they show `containerUnavailable`, inspect the installed App Group configuration and run `Scripts/verify-signed-distribution.sh` on the exported `.app`.
 7. With the App Group unavailable, verify that Purchase Mode is still fully usable in the app (start, check, uncheck, summary, finalize into Ledger), that the Lock Screen/Island rows are read-only, and that the inline notice explains why. An ordinary item tap must not show a modal alert or dismiss the screen.
 
 Physical-device/Dynamic Island validation has not been performed from this Windows environment. CI/simulator results are reported separately in the delivery response.
