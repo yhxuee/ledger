@@ -61,7 +61,8 @@ for path, bundle, is_app in ((app, "com.finsy.app", True),
             require(cloud in source.get("com.apple.developer.icloud-container-identifiers", []),
                     f"{label}: {name} does not authorize iCloud container")
             services = source.get("com.apple.developer.icloud-services", [])
-            require("CloudKit" in services and "CloudDocuments" in services,
+            has_icloud = (services == "*") or ("*" in services) or ("CloudKit" in services and "CloudDocuments" in services)
+            require(has_icloud,
                     f"{label}: {name} lacks CloudKit or iCloud Documents")
     if is_app and environment == "production":
         require(signature.get("aps-environment") == "production",

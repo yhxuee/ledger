@@ -156,7 +156,8 @@ def verify_and_install_profile(data: bytes, bundle_id: str, is_app: bool, expect
         if "iCloud.com.finsy.app" not in icloud_ids:
             raise ValueError(f"Main app profile does not authorize iCloud.com.finsy.app (found {icloud_ids}).")
         services = entitlements.get("com.apple.developer.icloud-services", [])
-        if "CloudKit" not in services or "CloudDocuments" not in services:
+        has_icloud = (services == "*") or ("*" in services) or ("CloudKit" in services and "CloudDocuments" in services)
+        if not has_icloud:
             raise ValueError(f"Main app profile lacks CloudKit/CloudDocuments (found {services}).")
 
     # 5. Certificate inclusion verification
@@ -234,10 +235,11 @@ def resolve_profiles_via_asc(token: str) -> dict[str, tuple[str, str]]:
 
         if not matched_profiles:
             try:
-                b_prof_resp = asc_request(token, "GET", f"/bundleIds/{bundle_resource_id}/profiles?filter[profileType]=IOS_APP_STORE&limit=100")
+                b_prof_resp = asc_request(token, "GET", f"/bundleIds/{bundle_resource_id}/profiles?limit=100")
                 matched_profiles = [
                     p for p in b_prof_resp.get("data", [])
-                    if p.get("attributes", {}).get("profileState") == "ACTIVE"
+                    if p.get("attributes", {}).get("profileType") == "IOS_APP_STORE"
+                    and p.get("attributes", {}).get("profileState") == "ACTIVE"
                 ]
             except Exception as e:
                 print(f"Could not query bundleId profiles: {e}")
