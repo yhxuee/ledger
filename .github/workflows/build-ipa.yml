@@ -72,6 +72,14 @@ jobs:
           printf '%s' "$ASC_KEY_P8" > "$key"
           chmod 600 "$key"
           rm -f "$certificate"
+      - name: Resolve App Store distribution provisioning profiles
+        env:
+          IOS_APPSTORE_PROFILE_APP: ${{ secrets.IOS_APPSTORE_PROFILE_APP }}
+          IOS_APPSTORE_PROFILE_WIDGET: ${{ secrets.IOS_APPSTORE_PROFILE_WIDGET }}
+        run: |
+          set -euo pipefail
+          pip3 install -q pyjwt cryptography
+          python3 Scripts/resolve-distribution-profiles.py
       - name: Archive Finsy
         run: |
           set -euo pipefail
@@ -81,12 +89,11 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/Finsy.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_STYLE=Manual \
+            'CODE_SIGN_IDENTITY=Apple Distribution' \
+            APP_PROFILE_SPECIFIER="$APP_PROFILE_NAME" \
+            WIDGET_PROFILE_SPECIFIER="$WIDGET_PROFILE_NAME" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
       - name: Verify archived app and widget
         run: |
@@ -102,21 +109,21 @@ jobs:
           from pathlib import Path
           options = {
               'method': 'app-store-connect',
-              'signingStyle': 'automatic',
+              'signingStyle': 'manual',
               'teamID': os.environ['DEVELOPMENT_TEAM'],
               'destination': 'export',
               'manageAppVersionAndBuildNumber': False,
+              'provisioningProfiles': {
+                  'com.finsy.app': os.environ['APP_PROFILE_NAME'],
+                  'com.finsy.app.Widget': os.environ['WIDGET_PROFILE_NAME'],
+              },
           }
           (Path(os.environ['RUNNER_TEMP']) / 'ExportOptions.plist').write_bytes(plistlib.dumps(options))
           PY
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/Finsy.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -exportPath "$RUNNER_TEMP/export" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+            -exportPath "$RUNNER_TEMP/export"
           test -s "$RUNNER_TEMP/export/Finsy.ipa"
       - name: Verify exported signature and profiles
         run: |
@@ -141,7 +148,6 @@ jobs:
             -archivePath "$RUNNER_TEMP/Finsy.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
             -exportPath "$RUNNER_TEMP/testflight-upload" \
-            -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
