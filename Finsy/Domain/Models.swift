@@ -894,38 +894,11 @@ struct LedgerBackupEnvelope: Codable, Hashable, Sendable {
     var data: LedgerState
 }
 
-enum ImportSourceKind: String, Codable, Sendable {
-    case fullBackup
-    case csvFlat
-}
-
-struct CreatedAccountSummary: Identifiable, Sendable {
-    var id: UUID
-    var name: String
-    var type: AccountType
-    var currency: CurrencyCode
-    var isTypeDefaulted: Bool
-}
-
-struct CSVImportReport: Sendable {
-    var parsedRowCount: Int = 0
-    var importedTransactionCount: Int = 0
-    var createdAccountCount: Int = 0
-    var duplicateTransactionCount: Int = 0
-    var skippedRowCount: Int = 0
-    var remappedLinkedCategoryCount: Int = 0
-    var rejectedRowCount: Int = 0
-    var createdAccounts: [CreatedAccountSummary] = []
-    var warnings: [String] = []
-}
-
 struct ImportPreview: Identifiable, Sendable {
     let id = UUID()
     var sourceName: String
     var envelope: LedgerBackupEnvelope
     var warnings: [String]
-    var sourceKind: ImportSourceKind = .fullBackup
-    var csvReport: CSVImportReport? = nil
 }
 
 enum AnalyticsRange: String, CaseIterable, Identifiable, Sendable {

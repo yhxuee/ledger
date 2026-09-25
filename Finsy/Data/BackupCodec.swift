@@ -70,8 +70,7 @@ enum BackupCodec {
     static func decode(_ data: Data, sourceName: String, existingState: LedgerState? = nil) throws -> ImportPreview {
         // 1. Check for CSV format
         if sourceName.lowercased().hasSuffix(".csv") || (String(data: data, encoding: .utf8)?.contains("account_amount") == true) {
-            if let text = String(data: data, encoding: .utf8) {
-                let baseState = existingState ?? SeedData.makeProductionEmpty()
+            if let text = String(data: data, encoding: .utf8), let baseState = existingState {
                 return try CSVTransactionImporter.convertToImportPreview(csvText: text, sourceName: sourceName, existingState: baseState)
             }
         }
