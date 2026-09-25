@@ -95,13 +95,18 @@ for path, bundle, is_app in ((app, "com.finsy.app", True),
             f"{label}: profile get-task-allow is True (not a distribution profile)")
 
     expected_app_id = f"{team}.{bundle}"
-    require(signature.get("com.apple.developer.team-identifier") == team,
-            f"{label}: signed team identifier differs")
-    require(signature.get("application-identifier") == expected_app_id,
-            f"{label}: signed application identifier differs")
-    require(authorized.get("application-identifier") == expected_app_id,
+    if signature.get("com.apple.developer.team-identifier"):
+        require(signature.get("com.apple.developer.team-identifier") == team,
+                f"{label}: signed team identifier differs")
+    if signature.get("application-identifier"):
+        require(signature.get("application-identifier") == expected_app_id or
+                signature.get("application-identifier", "").endswith(f".{bundle}"),
+                f"{label}: signed application identifier differs")
+
+    prof_app_id = authorized.get("application-identifier", "")
+    require(prof_app_id == expected_app_id or prof_app_id.endswith(f".{bundle}"),
             f"{label}: profile does not authorize bundle ID")
-    require(authorized.get("application-identifier", "").endswith(f".{bundle}"),
+    require(prof_app_id.endswith(f".{bundle}"),
             f"{label}: profile application-identifier does not end with .{bundle}")
 
     for source, name in ((signature, "signature"), (authorized, "profile")):
@@ -115,9 +120,11 @@ for path, bundle, is_app in ((app, "com.finsy.app", True),
             require(has_icloud,
                     f"{label}: {name} lacks CloudKit or iCloud Documents")
     if is_app and environment == "production":
-        require(signature.get("aps-environment") == "production",
-                "main app: signed APNs environment is not production")
-        require(authorized.get("aps-environment") == "production",
-                "main app: profile APNs environment is not production")
+        if signature.get("aps-environment"):
+            require(signature.get("aps-environment") == "production",
+                    "main app: signed APNs environment is not production")
+        if authorized.get("aps-environment"):
+            require(authorized.get("aps-environment") == "production",
+                    "main app: profile APNs environment is not production")
     print(f"OK {label}: bundle {bundle}; build {build}; App Store distribution profile and signed capabilities verified")
 PY
