@@ -9,6 +9,7 @@ struct EncryptionSecurityView: View {
     @State private var confirmingDisableE2EE = false
     @State private var working = false
     @State private var statusMessage: String?
+    @State private var errorMessage: String?
 
     private var activeBook: LedgerBook { store.activeBook }
     private var ledgerID: UUID { activeBook.id }
@@ -57,6 +58,11 @@ struct EncryptionSecurityView: View {
         } message: {
             Text(statusMessage ?? "")
         }
+        .alert("End-to-End Encryption Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("OK") { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
     }
 
     private var encryptionSection: some View {
@@ -86,11 +92,25 @@ struct EncryptionSecurityView: View {
 
             if activeBook.effectiveEncryptionState == .migrationFailed {
                 LabeledContent {
-                    Text("Migration Failed")
-                        .foregroundStyle(.red)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("Migration Failed")
+                            .foregroundStyle(.red)
+                        if let error = errorMessage ?? store.lastSyncError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
                 } label: {
                     Text("Status")
                 }
+
+                Button("Retry Migration") {
+                    Task { await enableE2EE() }
+                }
+                .font(.subheadline)
+                .disabled(working)
             } else {
                 LabeledContent("Status", value: statusText)
             }
@@ -182,9 +202,13 @@ struct EncryptionSecurityView: View {
         defer { working = false }
         do {
             try await store.enableEncryption(bookID: targetBookID)
+            errorMessage = nil
             statusMessage = "End-to-End Encryption enabled for this ledger."
         } catch {
-            store.presentedError = error.localizedDescription
+            let desc = error.localizedDescription
+            errorMessage = desc
+            store.presentedError = desc
+            store.lastSyncError = desc
         }
     }
 

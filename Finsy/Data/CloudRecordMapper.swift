@@ -284,7 +284,11 @@ enum CloudRecordMapper {
         let inferredID: UUID? = {
             if zoneName.hasPrefix("LedgerBook-") {
                 let idStr = String(zoneName.dropFirst("LedgerBook-".count))
-                return UUID(uuidString: idStr)
+                if let uuid = UUID(uuidString: idStr) { return uuid }
+            }
+            if metadataRecord.recordID.recordName.hasPrefix("book-") {
+                let idStr = String(metadataRecord.recordID.recordName.dropFirst("book-".count))
+                if let uuid = UUID(uuidString: idStr) { return uuid }
             }
             return nil
         }()

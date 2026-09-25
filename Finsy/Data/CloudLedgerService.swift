@@ -206,12 +206,19 @@ actor CloudLedgerService {
         guard book.effectiveStorageKind == .cloudOwner, let zoneName = book.cloudZoneName else { return book }
         try await configureCallbacksIfNeeded()
         let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: book.cloudZoneOwnerName ?? CKCurrentUserDefaultName)
+        try await ensureZoneExists(database: container.privateCloudDatabase, zoneID: zoneID)
         try await ownerSync.beginMigration(zoneID: zoneID)
         do {
             let remoteRecords = try await fetchZoneSnapshot(database: container.privateCloudDatabase, zoneID: zoneID)
             LedgerDiagnostics.security.info("Beginning encryption migration for ledger=\(book.id) remoteRecords=\(remoteRecords.count)")
-            let remote = try CloudRecordMapper.decodeBook(from: remoteRecords, participant: false, attachmentFolder: AttachmentStore.folderURL)
-            var encrypted = try CloudBookMerge.merge(local: book, remote: remote)
+            let remote: LedgerBook? = {
+                guard remoteRecords.contains(where: { $0.recordType == CloudRecordType.book }),
+                      remoteRecords.contains(where: { $0.recordType == CloudRecordType.settings }) else {
+                    return nil
+                }
+                return try? CloudRecordMapper.decodeBook(from: remoteRecords, participant: false, attachmentFolder: AttachmentStore.folderURL)
+            }()
+            var encrypted = try remote.map { try CloudBookMerge.merge(local: book, remote: $0) } ?? book
             let expectedFingerprint = LedgerKeyStore.fingerprint(for: key, ledgerID: book.id)
             encrypted.isEncrypted = true
             encrypted.encryptionState = .enabled
@@ -229,25 +236,46 @@ actor CloudLedgerService {
                 return target
             }
             let generatedIDs = Set(generated.map(\.recordID))
+            var toDelete: [CKRecord.ID] = []
             // Old, unreferenced purchase items still contain financial payloads and must
             // not be left in plaintext merely because they no longer appear in a header.
             for record in remoteRecords where !generatedIDs.contains(record.recordID) {
-                guard let payload = record["payload"] as? Data else { continue }
-                let (ciphertext, fingerprint) = try LedgerCryptoService.encryptRecord(payload, ledgerID: book.id, recordType: record.recordType, recordID: record.recordID.recordName, key: key)
-                record["ciphertextV1"] = ciphertext as CKRecordValue
-                record["keyFingerprint"] = fingerprint as CKRecordValue
-                record["encryptionVersion"] = LedgerCryptoService.currentEncryptionVersion as CKRecordValue
-                record["payload"] = nil
-                updates.append(record)
+                if let payload = record["payload"] as? Data {
+                    let (ciphertext, fingerprint) = try LedgerCryptoService.encryptRecord(payload, ledgerID: book.id, recordType: record.recordType, recordID: record.recordID.recordName, key: key)
+                    record["ciphertextV1"] = ciphertext as CKRecordValue
+                    record["keyFingerprint"] = fingerprint as CKRecordValue
+                    record["encryptionVersion"] = LedgerCryptoService.currentEncryptionVersion as CKRecordValue
+                    record["payload"] = nil
+                    updates.append(record)
+                } else if let fp = record["keyFingerprint"] as? String, fp.lowercased() != expectedFingerprint.lowercased() {
+                    // Dead unreferenced record encrypted with an obsolete/incompatible key.
+                    toDelete.append(record.recordID)
+                }
             }
             var saved: [CKRecord] = []
+            var pendingDeletions = toDelete
             for batch in updates.chunked(into: 100) {
                 try validateStoredKey()
-                let response = try await container.privateCloudDatabase.modifyRecords(saving: batch, deleting: [], savePolicy: .ifServerRecordUnchanged, atomically: true)
+                let batchDeletions = pendingDeletions
+                pendingDeletions = []
+                let response = try await container.privateCloudDatabase.modifyRecords(
+                    saving: batch,
+                    deleting: batchDeletions,
+                    savePolicy: .ifServerRecordUnchanged,
+                    atomically: true
+                )
                 // One atomic record replacement removes plaintext and publishes ciphertext
                 // and encrypted assets together. Every per-record failure aborts completion.
                 saved += try response.saveResults.values.map { try $0.get() }
                 LedgerDiagnostics.security.info("Encryption migration acknowledged records=\(saved.count) total=\(updates.count)")
+            }
+            if !pendingDeletions.isEmpty {
+                _ = try await container.privateCloudDatabase.modifyRecords(
+                    saving: [],
+                    deleting: pendingDeletions,
+                    savePolicy: .ifServerRecordUnchanged,
+                    atomically: true
+                )
             }
             try validateStoredKey()
 
@@ -304,6 +332,16 @@ actor CloudLedgerService {
         CloudRecordType.purchaseItem
     ]
 
+    private func ensureZoneExists(database: CKDatabase, zoneID: CKRecordZone.ID) async throws {
+        do {
+            _ = try await database.save(CKRecordZone(zoneID: zoneID))
+        } catch let error as CKError where error.code == .serverRecordChanged {
+            // Zone already exists
+        } catch {
+            LedgerDiagnostics.cloud.info("ensureZoneExists notice: \(error.localizedDescription)")
+        }
+    }
+
     private func fetchZoneSnapshot(database: CKDatabase, zoneID: CKRecordZone.ID) async throws -> [CKRecord] {
         var recordsByID: [CKRecord.ID: CKRecord] = [:]
         var changeToken: CKServerChangeToken? = nil
@@ -311,12 +349,19 @@ actor CloudLedgerService {
 
         while moreComing {
             try Task.checkCancellation()
-            let page = try await database.recordZoneChanges(
-                inZoneWith: zoneID,
-                since: changeToken,
-                desiredKeys: nil,
-                resultsLimit: nil
-            )
+            let page: (modificationResultsByID: [CKRecord.ID: Result<CKRecordZoneChanges.Modification, Error>], deletions: [CKRecordZoneChanges.Deletion], changeToken: CKServerChangeToken, moreComing: Bool)
+            do {
+                page = try await database.recordZoneChanges(
+                    inZoneWith: zoneID,
+                    since: changeToken,
+                    desiredKeys: nil,
+                    resultsLimit: nil
+                )
+            } catch let error as CKError where error.code == .zoneNotFound {
+                // Zone does not exist on server yet. Ensure it is created and return empty snapshot.
+                try await ensureZoneExists(database: database, zoneID: zoneID)
+                return []
+            }
             for (_, result) in page.modificationResultsByID {
                 try Task.checkCancellation()
                 let modification = try result.get()
@@ -347,18 +392,24 @@ actor CloudLedgerService {
         var financialRecordCount = 0
 
         for record in records {
+            // Protocol and system records have distinct security semantics and are excluded
+            // from financial payload encryption requirements.
+            let isProtocolOrSystem = protocolRecordTypes.contains(record.recordType)
+                || record is CKShare
+                || record.recordType == CKRecordTypeShare
+                || record.recordType.hasPrefix("cloudkit.")
+                || record.recordID.recordName == CKRecordNameZoneWideShare
+
+            if isProtocolOrSystem {
+                continue
+            }
+
             // Reject any leftover record containing the legacy plaintext payload field,
             // even if it is an old/unreferenced record.
             if record["payload"] != nil {
                 throw CloudLedgerError.migrationVerificationFailed(
                     "Plaintext payload detected in record \(record.recordID.recordName) (type: \(record.recordType))"
                 )
-            }
-
-            // Protocol and system records have distinct security semantics and are excluded
-            // from financial payload encryption requirements.
-            if protocolRecordTypes.contains(record.recordType) || record is CKShare {
-                continue
             }
 
             // Financial records must be encrypted with ciphertext, matching fingerprint, and current version.
