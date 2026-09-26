@@ -21,7 +21,9 @@ actor CloudLedgerService {
             try await configureCallbacksIfNeeded()
             try await ownerSync.recoverIfNeeded()
             try await participantSync.recoverIfNeeded()
-            if await MainActor.run(body: { AppPreferencesStore.shared.value.iCloudSyncEnabled }) {
+            if await MainActor.run(body: {
+                AppPreferencesStore.shared.value.iCloudSyncEnabled || !LedgerStore.shared.sharedLedgerIDs.isEmpty
+            }) {
                 try await ownerSync.fetchChanges()
             }
             try await participantSync.fetchChanges()
@@ -49,7 +51,10 @@ actor CloudLedgerService {
     }
 
     func updateICloudPreference() async throws {
-        let enabled = await MainActor.run { AppPreferencesStore.shared.value.iCloudSyncEnabled && LedgerStore.shared.iCloudSyncReady }
+        let enabled = await MainActor.run {
+            (AppPreferencesStore.shared.value.iCloudSyncEnabled && LedgerStore.shared.iCloudSyncReady)
+                || !LedgerStore.shared.sharedLedgerIDs.isEmpty
+        }
         try await ownerSync.setAutomaticallySync(enabled)
     }
 
@@ -178,7 +183,10 @@ actor CloudLedgerService {
         guard book.effectiveStorageKind != .local, let zoneName = book.cloudZoneName, !LedgerDeviceAuthorization.isRevoked(book.id) else { return }
         if await MainActor.run(body: { AppPreferencesStore.shared.value.endToEndEncryptionEnabled }), book.isEncrypted != true { return }
         if book.effectiveStorageKind == .cloudOwner,
-           !(await MainActor.run { AppPreferencesStore.shared.value.iCloudSyncEnabled && LedgerStore.shared.iCloudSyncReady }) { return }
+           !(await MainActor.run {
+               (AppPreferencesStore.shared.value.iCloudSyncEnabled && LedgerStore.shared.iCloudSyncReady)
+                   || LedgerStore.shared.sharedLedgerIDs.contains(book.id.uuidString)
+           }) { return }
         try await configureCallbacksIfNeeded()
         let securityMatches = await MainActor.run {
             guard LedgerStore.shared.persistenceEnabled, let current = LedgerStore.shared.books.first(where: { $0.id == book.id }) else { return false }

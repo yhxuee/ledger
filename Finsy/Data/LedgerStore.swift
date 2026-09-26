@@ -162,6 +162,10 @@ public enum LedgerAccessState: Sendable {
     func markLedgerShared(_ id: UUID) {
         sharedLedgerIDs.insert(id.uuidString)
         UserDefaults.standard.set(Array(sharedLedgerIDs), forKey: "Finsy.sharedLedgerIDs")
+        Task {
+            do { try await CloudLedgerService.shared.updateICloudPreference() }
+            catch { self.lastSyncError = error.localizedDescription }
+        }
     }
 
     @Published var lastSyncError: String?

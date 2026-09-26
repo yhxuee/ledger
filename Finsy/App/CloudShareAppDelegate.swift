@@ -67,6 +67,9 @@ final class CloudShareSceneDelegate: NSObject, UIWindowSceneDelegate {
                 }
                 store.switchBook(to: book.id)
                 store.activeRoute = .ledger
+                if book.effectiveEncryptionState == .authorizationRequired {
+                    store.presentedError = "This shared ledger is encrypted. A device authorization request has been sent. Open Finsy on an authorized device to approve access, then return to this ledger."
+                }
                 try await store.persistDurableAsync()
             } catch {
                 LedgerDiagnostics.failure(error, operation: "share-accept", logger: LedgerDiagnostics.cloud)
