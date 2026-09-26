@@ -87,7 +87,9 @@ struct LedgerIndex: Sendable {
         }
 
         self.activeTransactions = activeTransactions
-        self.sortedActiveTransactions = activeTransactions.sorted { $0.occurredAt > $1.occurredAt }
+        self.sortedActiveTransactions = activeTransactions.sorted {
+            $0.occurredAt == $1.occurredAt ? $0.id.uuidString > $1.id.uuidString : $0.occurredAt > $1.occurredAt
+        }
         self.activeAccounts = activeAccounts
         self.accountsByID = accountsByID
         self.categoriesByID = categoriesByID

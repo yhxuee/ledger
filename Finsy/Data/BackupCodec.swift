@@ -28,6 +28,11 @@ enum BackupCodec {
         ledgerID: UUID,
         key: SymmetricKey?
     ) throws -> Data {
+        // Preserve the .fsy schema and date format while avoiding formatting work
+        // and whitespace amplification for large Base64 payloads.
+        let compactEncoder = JSONEncoder()
+        compactEncoder.dateEncodingStrategy = .iso8601
+        compactEncoder.outputFormatting = [.withoutEscapingSlashes]
         let manifest = FsyInnerManifest(
             ledgerID: ledgerID,
             snapshotCreatedAt: .now,
@@ -37,7 +42,7 @@ enum BackupCodec {
             transactionCount: envelope.metadata.transactionCount
         )
         let innerPayload = FsyInnerBackupPayload(manifest: manifest, envelope: envelope)
-        let innerData = try encoder().encode(innerPayload)
+        let innerData = try compactEncoder.encode(innerPayload)
 
         let container: FsyBackupContainer
         if let key {
@@ -64,7 +69,7 @@ enum BackupCodec {
                 payload: innerData
             )
         }
-        return try encoder().encode(container)
+        return try compactEncoder.encode(container)
     }
 
     static func decode(_ data: Data, sourceName: String, existingState: LedgerState? = nil) throws -> ImportPreview {

@@ -127,47 +127,10 @@ actor CloudLedgerService {
         let zoneID = book.cloudZoneName.map { CKRecordZone.ID(zoneName: $0, ownerName: CKCurrentUserDefaultName) } ?? CloudRecordMapper.zoneID(for: book.id)
         let shareID = CKRecord.ID(recordName: CKRecordNameZoneWideShare, zoneID: zoneID)
         if let record = try? await database.record(for: shareID), let existing = record as? CKShare { return existing }
-        _ = try await database.save(CKRecordZone(zoneID: zoneID))
-        let records = try CloudRecordMapper.records(for: book, zoneID: zoneID, attachmentFolder: LocalLedgerRepository.storageFolder.appending(path: "Attachments"))
-        defer { CloudRecordMapper.removeTemporaryAssets(records) }
-        for batch in records.chunked(into: 100) {
-            let fetched = try await database.records(for: batch.map(\.recordID))
-            var missing: [CKRecord] = []
-            var known: [CKRecord] = []
-            for record in batch {
-                guard let result = fetched[record.recordID] else { throw CloudLedgerError.incompleteShareUpload }
-                switch result {
-                case .success(let existing):
-                    known.append(existing)
-                case .failure(let error):
-                    guard (error as? CKError)?.code == .unknownItem else { throw error }
-                    missing.append(record)
-                }
-            }
-            if !missing.isEmpty {
-                // A previous share attempt or sync may already have saved some records.
-                // Keep those records and their change tags; create only the absent ones.
-                let response = try await database.modifyRecords(
-                    saving: missing, deleting: [], savePolicy: .ifServerRecordUnchanged, atomically: false
-                )
-                var firstFailure: Error?
-                for record in missing {
-                    guard let result = response.saveResults[record.recordID] else {
-                        throw CloudLedgerError.incompleteShareUpload
-                    }
-                    switch result {
-                    case .success(let saved): known.append(saved)
-                    case .failure(let error):
-                        LedgerDiagnostics.failure(error, operation: "share-record-save", logger: LedgerDiagnostics.cloud)
-                        if firstFailure == nil { firstFailure = error }
-                    }
-                }
-                try await ownerSync.cache(records: known)
-                if let firstFailure { throw firstFailure }
-            } else {
-                try await ownerSync.cache(records: known)
-            }
-        }
+        // Reuse the durable outbox, change tags and SDK batching. A first share still
+        // uploads every missing record, without a separate lookup for each 100 records.
+        try await ownerSync.enqueue(book: book, zoneID: zoneID, ensureZone: true)
+        try await ownerSync.flush()
         let share = CKShare(recordZoneID: zoneID)
         share[CKShare.SystemFieldKey.title] = book.name as CKRecordValue
         _ = try await database.save(share)

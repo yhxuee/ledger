@@ -38,7 +38,8 @@ struct IncrementalLedgerRepository: Sendable {
 
     private final class VaultCacheEntry: @unchecked Sendable {
         let book: LedgerBook
-        init(_ book: LedgerBook) { self.book = book }
+        let fingerprint: String
+        init(_ book: LedgerBook, fingerprint: String) { self.book = book; self.fingerprint = fingerprint }
     }
     nonisolated(unsafe) private static let vaultCache: NSCache<NSString, VaultCacheEntry> = {
         let cache = NSCache<NSString, VaultCacheEntry>()
@@ -55,6 +56,18 @@ struct IncrementalLedgerRepository: Sendable {
 
     private func encryptedBook(id: UUID) throws -> LedgerBook? {
         guard let data = try database.data(id.uuidString, "encrypted-book") else { return nil }
+        let cacheID = (id.uuidString + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()) as NSString
+        // Authorization is checked before using a cached plaintext value.
+        if let cached = Self.vaultCache.object(forKey: cacheID), !LedgerDeviceAuthorization.isRevoked(id),
+           LedgerKeyStore.hasKey(for: id, expectedFingerprint: cached.fingerprint) {
+            let header: Header = try read(id.uuidString, "header")
+            var value = cached.book
+            if header.book.effectiveEncryptionState == .authorizationRequired {
+                value.encryptionState = .authorizationRequired
+                value.keyFingerprint = header.book.keyFingerprint
+            }
+            return value
+        }
         let sealed = try decoder.decode(EncryptedLocalBook.self, from: data)
         guard !LedgerDeviceAuthorization.isRevoked(id),
               let key = try LedgerKeyStore.loadKey(for: id, expectedFingerprint: sealed.fingerprint) else {
@@ -63,17 +76,6 @@ struct IncrementalLedgerRepository: Sendable {
             locked.state = SeedData.makeProductionEmpty()
             locked.encryptionState = .authorizationRequired
             return locked
-        }
-        let cacheID = (id.uuidString + SHA256.hash(data: sealed.ciphertext).map { String(format: "%02x", $0) }.joined()) as NSString
-        // Authorization is checked before using a cached plaintext value.
-        if let cached = Self.vaultCache.object(forKey: cacheID) {
-            let header: Header = try read(id.uuidString, "header")
-            var value = cached.book
-            if header.book.effectiveEncryptionState == .authorizationRequired {
-                value.encryptionState = .authorizationRequired
-                value.keyFingerprint = header.book.keyFingerprint
-            }
-            return value
         }
         let plain = try LedgerCryptoService.decryptRecord(sealed.ciphertext, ledgerID: id,
             recordType: "LocalLedger", recordID: "encrypted-book", key: key, version: sealed.version,
@@ -85,7 +87,7 @@ struct IncrementalLedgerRepository: Sendable {
             book.encryptionState = .authorizationRequired
             book.keyFingerprint = header.book.keyFingerprint
         }
-        Self.vaultCache.setObject(VaultCacheEntry(book), forKey: cacheID)
+        Self.vaultCache.setObject(VaultCacheEntry(book, fingerprint: sealed.fingerprint), forKey: cacheID)
         return book
     }
 
@@ -131,7 +133,8 @@ struct IncrementalLedgerRepository: Sendable {
 
     init(database: LedgerDiskDatabase) {
         self.database = database
-        encoder.outputFormatting = [.sortedKeys]
+        // Internal JSON is authenticated by AES-GCM; key sorting adds no integrity.
+        encoder.outputFormatting = []
     }
 
     func load() throws -> LedgerLibrary? {
@@ -280,7 +283,7 @@ struct IncrementalLedgerRepository: Sendable {
                 guard book != old || (book.isEncrypted == true && existingVault == nil) else { continue }
                 let namespace = book.id.uuidString
                 if book.isEncrypted == true {
-                    if try database.data(namespace, "encrypted-book") == nil { convertedPlaintext = true }
+                    if !LedgerDeviceAuthorization.isRevoked(book.id), try database.data(namespace, "encrypted-book") == nil { convertedPlaintext = true }
                     try saveEncryptedBook(book)
                     continue
                 }

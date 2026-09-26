@@ -89,6 +89,37 @@ struct EncryptedStorageVerification {
         try require(Set(page.transactions.map(\.id)).isDisjoint(with: next.transactions.map(\.id)), "Pagination repeated transactions")
         let balance = try repository.accountBalance(for: account, bookID: id, rates: state.settings.rates)
         try require(balance == LedgerCalculations.balance(for: account, in: state), "Encrypted account balance differs from production calculations")
+        let calendar = Calendar(identifier: .gregorian)
+        let listStart = calendar.date(byAdding: .month, value: -12, to: calendar.startOfDay(for: now))!
+        var boundary = state.transactions[0]
+        boundary.occurredAt = listStart
+        var outside = state.transactions[1]
+        outside.occurredAt = listStart.addingTimeInterval(-1)
+        let monthBoundary = LedgerListWindow.select([boundary, outside], now: now, calendar: calendar)
+        try require(monthBoundary.transactions.count == 1 && monthBoundary.transactions[0].id == boundary.id,
+            "12-month boundary is incorrect")
+        try require(monthBoundary.excludedByMonths == 1 && monthBoundary.excludedByCount == 0,
+            "Month limit reported the wrong reason")
+        var dense: [LedgerTransaction] = []
+        for index in 0..<3_601 {
+            var transaction = state.transactions[index]
+            transaction.occurredAt = now.addingTimeInterval(-Double(index))
+            dense.append(transaction)
+        }
+        let countBoundary = LedgerListWindow.select(dense, now: now, calendar: calendar)
+        try require(countBoundary.transactions.count == 3_600 && countBoundary.excludedByCount == 1 && countBoundary.excludedByMonths == 0,
+            "Transaction cap reported the wrong limit or exceeded 3600")
+        let combined = LedgerListWindow.select(dense + [outside], now: now, calendar: calendar)
+        try require(combined.excludedByMonths == 1 && combined.excludedByCount == 1, "Both limit reasons were not retained")
+        let exactly = LedgerListWindow.select(Array(dense.prefix(3_600)), now: now, calendar: calendar)
+        try require(exactly.excludedByCount == 0 && exactly.transactions.count == 3_600, "Exactly 3600 incorrectly triggers a limit")
+        let listStarted = Date.now
+        for _ in 0..<20 {
+            _ = LedgerListWindow.select(state.transactions, now: now, calendar: calendar)
+        }
+        let listMilliseconds = Date.now.timeIntervalSince(listStarted) * 1_000 / 20
+        print("BENCH: 12000-record list window mean milliseconds = \(listMilliseconds)")
+        print("PASS: rolling 12-month boundary, 3600 cap, combined limit reasons, exact-cap boundary; full ledger retained")
         let sealed = try database.data(id.uuidString, "encrypted-book")!
         var object = try JSONSerialization.jsonObject(with: sealed) as! [String: Any]
         var ciphertext = Data(base64Encoded: object["ciphertext"] as! String)!

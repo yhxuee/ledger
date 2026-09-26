@@ -80,6 +80,9 @@ enum CloudRecordMapper {
     static func records(for book: LedgerBook, zoneID: CKRecordZone.ID? = nil, attachmentFolder: URL? = nil, recordNames: Set<String>? = nil) throws -> [CKRecord] {
         let zone = zoneID ?? self.zoneID(for: book.id)
         let key = try encryptionKey(for: book)
+        let wireEncoder = JSONEncoder()
+        wireEncoder.dateEncodingStrategy = .iso8601
+        wireEncoder.outputFormatting = [.withoutEscapingSlashes]
         let isEncrypted = key != nil
 
         var records: [CKRecord] = []
@@ -98,7 +101,7 @@ enum CloudRecordMapper {
         )
 
         if recordNames?.contains("book-\(book.id.uuidString)") ?? true {
-            records.append(try record(
+            records.append(try record(encoder: wireEncoder,
                 type: CloudRecordType.book,
                 name: "book-\(book.id.uuidString)",
                 value: metadata,
@@ -110,7 +113,7 @@ enum CloudRecordMapper {
             ))
         }
         records += try book.state.accounts.filter { recordNames?.contains("account-\($0.id.uuidString)") ?? true }.map {
-            try record(
+            try record(encoder: wireEncoder,
                 type: CloudRecordType.account,
                 name: "account-\($0.id.uuidString)",
                 value: $0,
@@ -123,7 +126,7 @@ enum CloudRecordMapper {
         }
 
         for transaction in book.state.transactions where recordNames?.contains("transaction-\(transaction.id.uuidString)") ?? true {
-            let transactionRecord = try record(
+            let transactionRecord = try record(encoder: wireEncoder,
                 type: CloudRecordType.transaction,
                 name: "transaction-\(transaction.id.uuidString)",
                 value: transaction,
@@ -158,7 +161,7 @@ enum CloudRecordMapper {
         }
 
         records += try book.state.categories.filter { recordNames?.contains("category-\($0.id.rawValue)") ?? true }.map {
-            try record(
+            try record(encoder: wireEncoder,
                 type: CloudRecordType.category,
                 name: "category-\($0.id.rawValue)",
                 value: $0,
@@ -171,7 +174,7 @@ enum CloudRecordMapper {
         }
 
         if recordNames?.contains("settings") ?? true {
-            records.append(try record(
+            records.append(try record(encoder: wireEncoder,
                 type: CloudRecordType.settings,
                 name: "settings",
                 value: book.state.settings,
@@ -183,7 +186,7 @@ enum CloudRecordMapper {
             ))
         }
         if recordNames?.contains("budget") ?? true {
-            records.append(try record(
+            records.append(try record(encoder: wireEncoder,
                 type: CloudRecordType.budget,
                 name: "budget",
                 value: book.state.settings.budgetPlan,
@@ -195,7 +198,7 @@ enum CloudRecordMapper {
             ))
         }
         records += try (book.state.recurringRules ?? []).filter { recordNames?.contains("recurring-\($0.id.uuidString)") ?? true }.map {
-            try record(
+            try record(encoder: wireEncoder,
                 type: CloudRecordType.recurring,
                 name: "recurring-\($0.id.uuidString)",
                 value: $0,
@@ -223,7 +226,7 @@ enum CloudRecordMapper {
                 updatedAt: session.updatedAt,
                 itemIDs: session.items.map(\.id)
             )
-            let sessionRecord = try record(
+            let sessionRecord = try record(encoder: wireEncoder,
                 type: CloudRecordType.purchaseSession,
                 name: "purchase-\(session.id.uuidString)",
                 value: header,
@@ -257,7 +260,7 @@ enum CloudRecordMapper {
             records.append(sessionRecord)
 
             records += try session.items.map {
-                try record(
+                try record(encoder: wireEncoder,
                     type: CloudRecordType.purchaseItem,
                     name: "purchase-item-\($0.id.uuidString)",
                     value: $0,
@@ -295,11 +298,15 @@ enum CloudRecordMapper {
         let isRecordEncrypted = (metadataRecord["ciphertextV1"] as? Data != nil) || (metadataRecord["keyFingerprint"] as? String != nil)
         let recordFingerprint = metadataRecord["keyFingerprint"] as? String
 
+        let batchDecoder = BackupCodec.decoder()
+        let batchKey: SymmetricKey? = inferredID.flatMap { id in
+            LedgerDeviceAuthorization.isRevoked(id) ? nil : try? LedgerKeyStore.loadKey(for: id, expectedFingerprint: recordFingerprint)
+        }
         if isRecordEncrypted {
             guard let bookID = inferredID else {
                 throw CloudMappingError.missingBook
             }
-            let localKey = LedgerDeviceAuthorization.isRevoked(bookID) ? nil : try? LedgerKeyStore.loadKey(for: bookID)
+            let localKey = batchKey
             let localFp = localKey.map { LedgerKeyStore.fingerprint(for: $0, ledgerID: bookID) }
 
             // If key is missing or fingerprint mismatches, return a locked book in authorizationRequired state
@@ -323,15 +330,15 @@ enum CloudRecordMapper {
         }
 
         let metadata: CloudBookMetadata
-        if let decoded: CloudBookMetadata = try decode(metadataRecord, ledgerID: inferredID) {
+        if let decoded: CloudBookMetadata = try decode(metadataRecord, ledgerID: inferredID, authorizedKey: batchKey, decoder: batchDecoder) {
             metadata = decoded
         } else {
             throw CloudMappingError.missingBook
         }
 
         let bookID = metadata.id
-        let accounts: [LedgerAccount] = try decodeAll(CloudRecordType.account, records, ledgerID: bookID)
-        var transactions: [LedgerTransaction] = try decodeAll(CloudRecordType.transaction, records, ledgerID: bookID)
+        let accounts: [LedgerAccount] = try decodeAll(CloudRecordType.account, records, ledgerID: bookID, authorizedKey: batchKey, decoder: batchDecoder)
+        var transactions: [LedgerTransaction] = try decodeAll(CloudRecordType.transaction, records, ledgerID: bookID, authorizedKey: batchKey, decoder: batchDecoder)
         var attachmentWrites: [(record: CKRecord, source: URL, destination: URL, identifier: String, associatedID: String)] = []
 
         if let attachmentFolder {
@@ -347,23 +354,24 @@ enum CloudRecordMapper {
             }
         }
 
-        let categories: [LedgerCategory] = try decodeAll(CloudRecordType.category, records, ledgerID: bookID)
+        let categories: [LedgerCategory] = try decodeAll(CloudRecordType.category, records, ledgerID: bookID, authorizedKey: batchKey, decoder: batchDecoder)
         guard let settingsRecord = records.first(where: { $0.recordType == CloudRecordType.settings }),
-              var settings: LedgerSettings = try decode(settingsRecord, ledgerID: bookID) else {
+              var settings: LedgerSettings = try decode(settingsRecord, ledgerID: bookID, authorizedKey: batchKey, decoder: batchDecoder) else {
             throw CloudMappingError.missingSettings
         }
         if let budgetRecord = records.first(where: { $0.recordType == CloudRecordType.budget }),
-           let budget: BudgetPlan = try decode(budgetRecord, ledgerID: bookID) {
+           let budget: BudgetPlan = try decode(budgetRecord, ledgerID: bookID, authorizedKey: batchKey, decoder: batchDecoder) {
             settings.budgetPlan = budget
         }
 
-        let recurring: [RecurringRule] = try decodeAll(CloudRecordType.recurring, records, ledgerID: bookID)
-        let headers: [CloudPurchaseSessionHeader] = try decodeAll(CloudRecordType.purchaseSession, records, ledgerID: bookID)
-        let allItems: [PurchaseItem] = try decodeAll(CloudRecordType.purchaseItem, records, ledgerID: bookID)
+        let recurring: [RecurringRule] = try decodeAll(CloudRecordType.recurring, records, ledgerID: bookID, authorizedKey: batchKey, decoder: batchDecoder)
+        let headers: [CloudPurchaseSessionHeader] = try decodeAll(CloudRecordType.purchaseSession, records, ledgerID: bookID, authorizedKey: batchKey, decoder: batchDecoder)
+        var allItems: [PurchaseItem] = []
         var itemRecordByID: [UUID: CKRecord] = [:]
         for record in records where record.recordType == CloudRecordType.purchaseItem {
-            guard let value: PurchaseItem = try decode(record, ledgerID: bookID) else { continue }
+            guard let value: PurchaseItem = try decode(record, ledgerID: bookID, authorizedKey: batchKey, decoder: batchDecoder) else { continue }
             guard itemRecordByID.updateValue(record, forKey: value.id) == nil else { throw BackupError.duplicateID("purchase item") }
+            allItems.append(value)
         }
         let itemsByID = Dictionary(uniqueKeysWithValues: allItems.map { ($0.id, $0) })
         let itemsByParent = Dictionary(grouping: allItems, by: { itemRecordByID[$0.id]?.parent?.recordID.recordName ?? "" })
@@ -423,7 +431,7 @@ enum CloudRecordMapper {
         PurchaseRules.migrateDevelopmentSessions(in: &state)
         SchemaMigration.normalize(&state)
         try BackupCodec.validate(state)
-        let attachmentKey = attachmentWrites.contains { $0.record["ciphertextV1"] != nil } ? try LedgerKeyStore.loadKey(for: bookID) : nil
+        let attachmentKey = batchKey
         for write in attachmentWrites {
             var data = try Data(contentsOf: write.source)
             if write.record["ciphertextV1"] != nil {
@@ -455,6 +463,7 @@ enum CloudRecordMapper {
     }
 
     private static func record<T: Encodable>(
+        encoder: JSONEncoder,
         type: String,
         name: String,
         value: T,
@@ -465,7 +474,7 @@ enum CloudRecordMapper {
         key: SymmetricKey?
     ) throws -> CKRecord {
         let result = CKRecord(recordType: type, recordID: CKRecord.ID(recordName: name, zoneID: zoneID))
-        let encodedData = try BackupCodec.encoder().encode(value)
+        let encodedData = try encoder.encode(value)
 
         if let key {
             let (ciphertext, fp) = try LedgerCryptoService.encryptRecord(
@@ -487,12 +496,12 @@ enum CloudRecordMapper {
         return result
     }
 
-    static func decode<T: Decodable>(_ record: CKRecord, ledgerID: UUID? = nil) throws -> T? {
+    static func decode<T: Decodable>(_ record: CKRecord, ledgerID: UUID? = nil, authorizedKey: SymmetricKey? = nil, decoder: JSONDecoder = BackupCodec.decoder()) throws -> T? {
         if let ciphertext = record["ciphertextV1"] as? Data {
             guard let bookID = ledgerID else {
                 throw LedgerCryptoError.authorizationRequired(ledgerID: UUID(), fingerprint: record["keyFingerprint"] as? String)
             }
-            guard let key = try LedgerKeyStore.loadKey(for: bookID) else {
+            guard let key = try authorizedKey ?? LedgerKeyStore.loadKey(for: bookID, expectedFingerprint: record["keyFingerprint"] as? String) else {
                 throw LedgerCryptoError.authorizationRequired(ledgerID: bookID, fingerprint: record["keyFingerprint"] as? String)
             }
             let version = (record["encryptionVersion"] as? Int) ?? 1
@@ -506,15 +515,15 @@ enum CloudRecordMapper {
                 version: version,
                 expectedFingerprint: expectedFp
             )
-            return try decodePayload(T.self, data: decryptedData, record: record)
+            return try decodePayload(T.self, data: decryptedData, record: record, decoder: decoder)
         }
 
         guard let data = record["payload"] as? Data else { return nil }
-        return try decodePayload(T.self, data: data, record: record)
+        return try decodePayload(T.self, data: data, record: record, decoder: decoder)
     }
 
-    private static func decodePayload<T: Decodable>(_ type: T.Type, data: Data, record: CKRecord) throws -> T {
-        let decoded = try BackupCodec.decoder().decode(type, from: data)
+    private static func decodePayload<T: Decodable>(_ type: T.Type, data: Data, record: CKRecord, decoder: JSONDecoder) throws -> T {
+        let decoded = try decoder.decode(type, from: data)
         // Legacy payload dates have second precision; CKRecord dates retain the original
         // timestamp. Use them for conflict resolution without changing the wire format.
         guard let updatedAt = record["updatedAt"] as? Date else { return decoded }
@@ -527,8 +536,8 @@ enum CloudRecordMapper {
         return decoded
     }
 
-    private static func decodeAll<T: Decodable>(_ type: String, _ records: [CKRecord], ledgerID: UUID? = nil) throws -> [T] {
-        try records.filter { $0.recordType == type }.compactMap { try decode($0, ledgerID: ledgerID) }
+    private static func decodeAll<T: Decodable>(_ type: String, _ records: [CKRecord], ledgerID: UUID? = nil, authorizedKey: SymmetricKey? = nil, decoder: JSONDecoder = BackupCodec.decoder()) throws -> [T] {
+        try records.filter { $0.recordType == type }.compactMap { try decode($0, ledgerID: ledgerID, authorizedKey: authorizedKey, decoder: decoder) }
     }
 }
 

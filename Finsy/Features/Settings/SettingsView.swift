@@ -319,6 +319,7 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .foregroundStyle(.primary)
+            .disabled(working)
 
             Divider()
 
@@ -441,31 +442,38 @@ struct SettingsView: View {
     }
 
     private func prepareExportBackup() {
-        if store.activeBook.effectiveStorageKind != .local {
-            Task {
-                do {
-                    if let synced = try await CloudLedgerService.shared.flushAndFetch(book: store.activeBook) {
-                        store.addOrMergeCloudBook(synced)
-                    }
-                    performExportBackup()
-                } catch {
-                    pendingBackupAction = { self.performExportBackup() }
-                    confirmingPendingCloud = true
-                }
+        guard !working else { return }
+        let source = store.activeBook
+        guard source.effectiveStorageKind != .local else { performExportBackup(book: source); return }
+        working = true
+        Task { @MainActor in
+            do {
+                let synced = try await CloudLedgerService.shared.flushAndFetch(book: source) ?? source
+                store.addOrMergeCloudBook(synced, selectNewBook: false)
+                working = false
+                performExportBackup(book: synced)
+            } catch {
+                working = false
+                pendingBackupAction = { self.performExportBackup(book: source) }
+                confirmingPendingCloud = true
             }
-        } else {
-            performExportBackup()
         }
     }
 
-    private func performExportBackup() {
-        do {
-            let book = store.activeBook
-            let key = try CloudRecordMapper.encryptionKey(for: book)
-            let data = try BackupCodec.encodeFsy(envelope: store.backupEnvelope(), ledgerID: book.id, key: key)
-            exportDocument = BackupDocument(data: data)
-            showingExporter = true
-        } catch { store.presentedError = error.localizedDescription }
+    private func performExportBackup(book: LedgerBook) {
+        guard !working else { return }
+        working = true
+        Task { @MainActor in
+            defer { working = false }
+            do {
+                let data = try await Task.detached(priority: .userInitiated) {
+                    let key = try CloudRecordMapper.encryptionKey(for: book)
+                    return try BackupCodec.encodeFsy(envelope: BackupCodec.envelope(for: book.state), ledgerID: book.id, key: key)
+                }.value
+                exportDocument = BackupDocument(data: data)
+                showingExporter = true
+            } catch { store.presentedError = error.localizedDescription }
+        }
     }
 
     private func shareLedger() async {

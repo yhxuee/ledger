@@ -13,7 +13,7 @@ xcrun swiftc -parse-as-library \
   FinsyShared/FinanceIdentifiers.swift FinsyShared/PurchaseModels.swift \
   Finsy/Domain/Models.swift Finsy/Domain/SeedData.swift Finsy/Domain/TaxCalculations.swift \
   Finsy/Domain/LinkedTransactions.swift Finsy/Domain/LedgerIndex.swift \
-  Finsy/Domain/LedgerCalculations.swift Finsy/Domain/CurrencyRates.swift \
+  Finsy/Domain/LedgerCalculations.swift Finsy/Domain/CurrencyRates.swift Finsy/Domain/LedgerListWindow.swift \
   Finsy/Data/LedgerDiskDatabase.swift Finsy/Data/LedgerTransactionRepository.swift \
   Finsy/Data/IncrementalLedgerRepository.swift "$task_dir/LedgerCrypto.swift" \
   Scripts/verify-encrypted-storage.swift -o "$task_dir/verify"

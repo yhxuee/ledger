@@ -1,6 +1,6 @@
 import Foundation
 
-enum LedgerPresentationEntry: Identifiable {
+enum LedgerPresentationEntry: Identifiable, Sendable {
     case transaction(LedgerTransaction)
     case linkedGroup(LedgerTransaction, Date)
     case purchase(PurchaseSession, [LedgerTransaction], Date)
@@ -46,7 +46,7 @@ enum LedgerPresentation {
             if collapsePurchases, let sessionID = parent.purchaseSessionID, let session = sessions[sessionID] {
                 let children = purchaseChildren[sessionID, default: []]
                 // Preserve the original single Purchase row; subsequent linked activity gets a dated occurrence.
-                let date = activity.parentTransactionID == nil ? (children.map(\.occurredAt).max() ?? activity.occurredAt) : activity.occurredAt
+                let date = activity.parentTransactionID == nil ? (children.last?.occurredAt ?? activity.occurredAt) : activity.occurredAt
                 entry = .purchase(session, children, date)
             } else if parent.groupMode != nil {
                 entry = .linkedGroup(parent, activity.occurredAt)

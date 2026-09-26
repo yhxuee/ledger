@@ -16,39 +16,70 @@ struct LedgerView: View {
     @State private var revealedTransactionID: UUID? = nil
     @State private var isDetachDropTargeted = false
 
-    private var filtered: [LedgerTransaction] {
-        store.activeTransactions.filter { item in
-            let matchesCategory = selectedCategories.isEmpty || (item.type == .expense && selectedCategories.contains(item.categoryID))
-            let matchesAccount = selectedAccounts.isEmpty || selectedAccounts.contains(item.accountID) || item.destinationAccountID.map { selectedAccounts.contains($0) } == true
-            let matchesRange = !hasCustomRange || (item.occurredAt >= Calendar.current.startOfDay(for: rangeStart) && item.occurredAt < (Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: rangeEnd)) ?? rangeEnd))
-            let matchesDay = !hasCalendarDay || (item.type == .expense && Calendar.current.isDate(item.occurredAt, inSameDayAs: calendarDay))
-            return matchesCategory && matchesAccount && matchesRange && matchesDay
-        }
-    }
+    @State private var snapshot: ListSnapshot?
 
-    private var entries: [LedgerPresentationEntry] {
-        LedgerPresentation.entries(transactions: filtered, state: store.state, index: store.index)
+    private struct ListRequest: Hashable, Sendable {
+        var bookID: UUID
+        var revision: UInt64
+        var categories: Set<LedgerCategoryID>
+        var accounts: Set<UUID>
+        var rangeStart: Date?
+        var rangeEnd: Date?
+        var day: Date?
+        var today: Date
     }
-
-    private struct DateGroup: Identifiable {
+    private struct DateGroup: Identifiable, Sendable {
         let day: Date
         let entries: [LedgerPresentationEntry]
         var id: Date { day }
     }
+    private struct ListSnapshot: Sendable {
+        var request: ListRequest
+        var groups: [DateGroup]
+        var window: LedgerListWindow
+    }
+    private var listRequest: ListRequest {
+        let calendar = Calendar.current
+        return ListRequest(bookID: store.activeBookID, revision: store.financialRevision,
+            categories: selectedCategories, accounts: selectedAccounts,
+            rangeStart: hasCustomRange ? calendar.startOfDay(for: rangeStart) : nil,
+            rangeEnd: hasCustomRange ? calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: rangeEnd)) : nil,
+            day: hasCalendarDay ? calendar.startOfDay(for: calendarDay) : nil,
+            today: calendar.startOfDay(for: .now))
+    }
+    private var currentSnapshot: ListSnapshot? {
+        guard snapshot?.request == listRequest else { return nil }
+        return snapshot
+    }
 
-    private var dateGroups: [DateGroup] {
-        // Group presentation entries, keeping each Purchase and its children together.
-        let grouped = Dictionary(grouping: entries) { Calendar.current.startOfDay(for: $0.occurredAt) }
-        return grouped.keys.sorted(by: >).map { day in
-            DateGroup(day: day, entries: grouped[day, default: []])
+    nonisolated private static func buildSnapshot(request: ListRequest, state: LedgerState, index: LedgerIndex) -> ListSnapshot? {
+        let calendar = Calendar.current
+        let nextDay = request.day.flatMap { calendar.date(byAdding: .day, value: 1, to: $0) }
+        var matching: [LedgerTransaction] = []
+        matching.reserveCapacity(index.sortedActiveTransactions.count)
+        for item in index.sortedActiveTransactions {
+            if Task.isCancelled { return nil }
+            guard request.categories.isEmpty || (item.type == .expense && request.categories.contains(item.categoryID)),
+                  request.accounts.isEmpty || request.accounts.contains(item.accountID) || item.destinationAccountID.map({ request.accounts.contains($0) }) == true,
+                  request.rangeStart.map({ item.occurredAt >= $0 }) ?? true,
+                  request.rangeEnd.map({ item.occurredAt < $0 }) ?? true else { continue }
+            if let day = request.day, let nextDay {
+                guard item.type == .expense, item.occurredAt >= day, item.occurredAt < nextDay else { continue }
+            }
+            matching.append(item)
         }
+        let window = LedgerListWindow.select(matching, now: request.today, calendar: calendar)
+        let entries = LedgerPresentation.entries(transactions: window.transactions, state: state, index: index)
+        let grouped = Dictionary(grouping: entries) { calendar.startOfDay(for: $0.occurredAt) }
+        let groups = grouped.keys.sorted(by: >).map { DateGroup(day: $0, entries: grouped[$0, default: []]) }
+        return ListSnapshot(request: request, groups: groups, window: window)
     }
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 Section {
-                    ForEach(dateGroups) { group in
+                    ForEach(currentSnapshot?.groups ?? []) { group in
                         VStack(alignment: .leading, spacing: 8) {
                             Text(preferences.value.dateFormat.transactionDateString(from: group.day))
                                 .font(.subheadline.weight(.medium))
@@ -71,7 +102,7 @@ struct LedgerView: View {
                         .padding(.bottom, 4)
                     }
 
-                    if filtered.isEmpty {
+                    if let currentSnapshot, currentSnapshot.window.transactions.isEmpty {
                         ContentUnavailableView(
                             "No Transactions",
                             systemImage: "tray",
@@ -83,6 +114,23 @@ struct LedgerView: View {
                         )
                         .padding(.top, 40)
                         .frame(maxWidth: .infinity)
+                    }
+                    if let window = currentSnapshot?.window, window.excludedByMonths > 0 || window.excludedByCount > 0 {
+                        VStack(alignment: .leading, spacing: 5) {
+                            if window.excludedByMonths > 0 {
+                                Text("12-month limit: \(window.excludedByMonths) transactions outside the latest 12 months are hidden.")
+                            }
+                            if window.excludedByCount > 0 {
+                                Text("3,600-transaction limit: \(window.excludedByCount) additional transactions in this period are hidden.")
+                            }
+                            Text("All records remain available for analytics, backup, sync, and export.")
+                        }
+                        .font(.footnote).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(20)
+                    }
+                    if currentSnapshot == nil {
+                        ProgressView().frame(maxWidth: .infinity).padding(40)
                     }
                 } header: {
                     if showingCalendar {
@@ -155,6 +203,17 @@ struct LedgerView: View {
         }
         .sheet(isPresented: $showingRangePicker) {
             DateRangePickerSheet(start: rangeStart, end: rangeEnd) { start, end in rangeStart = start; rangeEnd = end; hasCustomRange = true; hasCalendarDay = false }
+        }
+        .task(id: listRequest) {
+            let request = listRequest
+            let state = store.state
+            let index = store.index
+            let worker = Task.detached(priority: .userInitiated) {
+                Self.buildSnapshot(request: request, state: state, index: index)
+            }
+            let result = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
+            guard !Task.isCancelled, let result else { return }
+            snapshot = result
         }
         .onChange(of: store.activeBookID) { _, _ in clearFilters() }
     }
