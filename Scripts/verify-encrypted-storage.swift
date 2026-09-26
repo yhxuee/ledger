@@ -31,14 +31,34 @@ struct EncryptedStorageVerification {
             deletedAt: nil, version: 1, syncStatus: .pending)
         var state = SeedData.makeProductionEmpty()
         state.accounts = [account]
-        state.transactions = (0..<12_000).map { index in
-            LedgerTransaction(id: UUID(), userID: "verification", type: .expense, accountID: accountID,
-                destinationAccountID: nil, amount: Double(index % 100 + 1), currency: .HKD,
-                accountAmount: Double(index % 100 + 1), destinationAmount: nil, categoryID: .food,
-                occurredAt: now.addingTimeInterval(-Double(index) * 13_140), note: marker,
-                exchangeRateAtTransaction: 1, createdAt: now, updatedAt: now, deletedAt: nil,
-                version: 1, syncStatus: .pending)
+        var transactions: [LedgerTransaction] = []
+        transactions.reserveCapacity(12_000)
+        for index in 0..<12_000 {
+            let amount = Double(index % 100 + 1)
+            let timestamp = now.addingTimeInterval(-Double(index) * 13_140)
+            let transaction = LedgerTransaction(
+                id: UUID(),
+                userID: "verification",
+                type: .expense,
+                accountID: accountID,
+                destinationAccountID: nil,
+                amount: amount,
+                currency: .HKD,
+                accountAmount: amount,
+                destinationAmount: nil,
+                categoryID: .food,
+                occurredAt: timestamp,
+                note: marker,
+                exchangeRateAtTransaction: 1.0,
+                createdAt: now,
+                updatedAt: now,
+                deletedAt: nil,
+                version: 1,
+                syncStatus: .pending
+            )
+            transactions.append(transaction)
         }
+        state.transactions = transactions
         let plainBook = LedgerBook(id: id, name: marker, state: state, createdAt: now, updatedAt: now)
         let plainLibrary = LedgerLibrary(schemaVersion: 3, activeBookID: id, books: [plainBook])
         try repository.save(plainLibrary, previous: nil)

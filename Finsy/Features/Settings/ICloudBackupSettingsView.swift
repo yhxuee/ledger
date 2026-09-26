@@ -145,7 +145,9 @@ struct ICloudBackupSettingsView: View {
                 .interactiveDismissDisabled(restoring)
             }
         }
-    }    private func restorePreview() async {
+    }
+
+    private func restorePreview() async {
         do { preview = try await coordinator.restorePreview(store: store, preferences: preferences) }
         catch LedgerCryptoError.authorizationRequired(let id, let fingerprint) {
             authorizationID = id
@@ -153,5 +155,4 @@ struct ICloudBackupSettingsView: View {
             askingAuthorization = true
         } catch { message = error.localizedDescription }
     }
-
 }
