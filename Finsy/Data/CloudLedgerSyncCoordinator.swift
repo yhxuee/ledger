@@ -342,11 +342,17 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
                 // Conflicts handled by the delegate need a new send operation with fresh tags.
                 let recovered = !sendFailureCodes.isEmpty && sendFailureCodes.contains { $0 == .serverRecordChanged || $0 == .unknownItem }
                     && sendFailureCodes.allSatisfy { $0 == .serverRecordChanged || $0 == .unknownItem || $0 == .batchRequestFailed }
+                if recovered, try !storage().hasPendingChanges(),
+                   try storage().database.keys("pending-zone-deletions").isEmpty { return }
                 if recovered && attempt < 2 { continue }
                 throw try detailedSendError(fallback: error)
             }
             if try !storage().hasPendingChanges(), try storage().database.keys("pending-zone-deletions").isEmpty { break }
             let after = Set(try storage().pendingIDs() + storage().deletionIDs())
+            // A repaired conflict keeps the same ID but now has the server change tag.
+            let repaired = sendFailureCodes.contains { $0 == .serverRecordChanged || $0 == .unknownItem }
+                && sendFailureCodes.allSatisfy { $0 == .serverRecordChanged || $0 == .unknownItem || $0 == .batchRequestFailed }
+            if repaired && attempt < 2 { continue }
             if attempt == 2 || before == after { throw try detailedSendError(fallback: CloudLedgerError.pendingChanges) }
         }
     }
@@ -439,10 +445,19 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
                     }
                 }
             case .sentRecordZoneChanges(let sent):
+                var conflictRecords: [CKRecord.ID: CKRecord] = [:]
+                for failure in sent.failedRecordSaves where failure.error.code == .serverRecordChanged {
+                    if let server = failure.error.serverRecord { conflictRecords[failure.record.recordID] = server }
+                    else {
+                        // Some insert conflicts omit the server copy; fetch its current change tag.
+                        do { conflictRecords[failure.record.recordID] = try await database.record(for: failure.record.recordID) }
+                        catch { LedgerDiagnostics.failure(error, operation: "conflict-fetch", logger: LedgerDiagnostics.cloud) }
+                    }
+                }
                 try storage.database.transaction {
                     for failure in sent.failedRecordSaves {
                         guard try storage.database.data("deleted-zones", zoneKey(failure.record.recordID.zoneID)) == nil else { continue }
-                        if let server = failure.error.serverRecord, server.recordType == CloudRecordType.book {
+                        if let server = conflictRecords[failure.record.recordID], server.recordType == CloudRecordType.book {
                             try storage.mergeEncryptionPolicy(CloudEncryptionPolicy(record: server), in: server.recordID.zoneID)
                         }
                     }
@@ -481,22 +496,33 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
                             syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(local.recordID)])
                             continue
                         }
-                        guard failure.error.code == .serverRecordChanged, let server = failure.error.serverRecord else { continue }
+                        guard failure.error.code == .serverRecordChanged, let server = conflictRecords[failure.record.recordID] else { continue }
                         let required = try storage.encryptionPolicy(in: server.recordID.zoneID)?.required ?? false
                         let localRootMatchesPolicy = server.recordType != CloudRecordType.book || (local["ciphertextV1"] != nil) == required
-                        if localRootMatchesPolicy && Self.localWins(local, over: server) {
+                        if localRootMatchesPolicy && !Self.sameContent(local, server) && Self.localWins(local, over: server) {
                             Self.copyUserFields(from: local, to: server)
                             try storage.store(server)
                             syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(server.recordID)])
                         } else {
                             try storage.store(server)
                             try storage.acknowledge(server.recordID)
+                            syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(server.recordID)])
+                            try storage.database.remove("send-failures", CloudRecordJournal.key(server.recordID))
                             try markChanged(server.recordID.zoneID, storage: storage)
                         }
                     }
                 }
                 for (id, error) in sent.failedRecordDeletes { try rememberSendFailure(error, id: id, type: "Delete") }
-                if let failure = sent.failedRecordSaves.first?.error ?? sent.failedRecordDeletes.values.first {
+                let unresolved = sent.failedRecordSaves.first { failure in
+                    switch failure.error.code {
+                    case .unknownItem: return false // Requeued above; report only if retries fail.
+                    case .serverRecordChanged: return conflictRecords[failure.record.recordID] == nil
+                    case .batchRequestFailed:
+                        return !sent.failedRecordSaves.contains { $0.error.code == .serverRecordChanged || $0.error.code == .unknownItem }
+                    default: return true
+                    }
+                }?.error
+                if let failure = unresolved ?? sent.failedRecordDeletes.values.first {
                     await report(failure)
                 } else if try !storage.hasPendingChanges() {
                     let participant = database.databaseScope == .shared

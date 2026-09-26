@@ -789,9 +789,6 @@ struct ImportPreviewView: View {
 struct DiagnosticsSettingsView: View {
     @EnvironmentObject private var store: LedgerStore
     @EnvironmentObject private var preferences: AppPreferencesStore
-    @State private var diagnostics: OverviewWidgetBridgeDiagnostics = OverviewWidgetSnapshotStore.diagnostics()
-    @State private var refreshMessage: String?
-    @State private var isRefreshing = false
     @State private var storageBytes: Int64 = 0
     @State private var cloudStatus = "Checking…"
     @State private var walletStatus = "Checking…"
@@ -807,24 +804,23 @@ struct DiagnosticsSettingsView: View {
                     LabeledContent("Storage Used", value: ByteCountFormatter.string(fromByteCount: storageBytes, countStyle: .file))
                 }
                 SettingsGlassSection("Connections") {
-                    LabeledContent("iCloud", value: cloudStatus)
-                    LabeledContent("Wallet Server", value: walletStatus)
-                    LabeledContent("Exchange Rate API", value: exchangeStatus)
-                    LabeledContent("Market Data API", value: marketStatus)
+                    statusRow("iCloud", cloudStatus)
+                    statusRow("Wallet Server", walletStatus)
+                    statusRow("Exchange Rate API", exchangeStatus)
+                    statusRow("Market Data API", marketStatus)
                 }
                 SettingsGlassSection("Diagnostics · Sync & Wallet") {
-                    LabeledContent("Ledger Sync", value: store.iCloudSyncReady ? "Ready" : "Inactive")
-                    LabeledContent("Automatic Sync", value: preferences.value.iCloudSyncEnabled ? "On" : "Off")
-                    LabeledContent("Automatic Backup", value: preferences.value.iCloudBackupEnabled ? "On" : "Off")
-                    LabeledContent("Account Pass", value: WalletPassManager.shared.isAccountPassInstalled() ? "Installed" : "Not Added")
-                    LabeledContent("Pass Updates", value: WalletPassManager.shared.refreshStatus ?? "Not refreshed this session")
-                    if let error = store.lastSyncError { Text(error).font(.caption).textSelection(.enabled) }
-                    if let warning = store.purchaseSyncWarning { Text(warning).font(.caption).textSelection(.enabled) }
-                    if let error = ICloudLibraryCoordinator.shared.lastError { Text(error).font(.caption).textSelection(.enabled) }
-                    LabeledContent("Storage", value: store.canMutateLedger ? "Writable" : "Recovery · Read Only")
-                    if let status = StockQuoteRefreshService.shared.status { Text(status).font(.caption).textSelection(.enabled) }
+                    statusRow("Ledger Sync", store.iCloudSyncReady ? "Ready" : "Inactive")
+                    statusRow("Automatic Sync", preferences.value.iCloudSyncEnabled ? "On" : "Off")
+                    statusRow("Automatic Backup", preferences.value.iCloudBackupEnabled ? "On" : "Off")
+                    statusRow("Account Pass", WalletPassManager.shared.isAccountPassInstalled() ? "Installed" : "Not Added")
+                    statusRow("Pass Updates", WalletPassManager.shared.refreshStatus ?? "Not refreshed this session")
+                    if let error = store.lastSyncError { LabeledContent("iCloud Sync Error") { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) } }
+                    if let warning = store.purchaseSyncWarning { LabeledContent("Purchase Sync Warning") { Text(warning).font(.caption).foregroundStyle(.orange).textSelection(.enabled) } }
+                    if let error = ICloudLibraryCoordinator.shared.lastError { LabeledContent("iCloud Backup Error") { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) } }
+                    statusRow("Storage", store.canMutateLedger ? "Writable" : "Recovery · Read Only")
+                    if let status = StockQuoteRefreshService.shared.status { LabeledContent("Market Data Status") { Text(status).font(.caption).foregroundStyle(.orange).textSelection(.enabled) } }
                 }
-                widgetDataSection
             }
             .padding()
         }
@@ -832,13 +828,7 @@ struct DiagnosticsSettingsView: View {
         .navigationTitle("About")
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            diagnostics = OverviewWidgetSnapshotStore.diagnostics()
             await refreshConnections()
-        }
-        .alert("Widget Data", isPresented: Binding(get: { refreshMessage != nil }, set: { if !$0 { refreshMessage = nil } })) {
-            Button("OK") { refreshMessage = nil }
-        } message: {
-            Text(refreshMessage ?? "")
         }
     }
 
@@ -897,128 +887,19 @@ struct DiagnosticsSettingsView: View {
         catch { return "Unavailable" }
     }
 
-    private var widgetDataSection: some View {
-        SettingsGlassSection("WIDGET DATA") {
-            LabeledContent {
-                Text(diagnostics.containerReachable ? "Available" : "Unavailable")
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(diagnostics.containerReachable ? .green : .red)
-            } label: {
-                SettingsLabel("App Group", systemImage: "person.2.circle")
-            }
-
-            Divider()
-
-            LabeledContent {
-                Text(snapshotStatusText)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(snapshotStatusColor)
-            } label: {
-                SettingsLabel("Snapshot", systemImage: "doc.text")
-            }
-
-            Divider()
-
-            LabeledContent {
-                Text(updatedText)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.secondary)
-            } label: {
-                SettingsLabel("Updated", systemImage: "clock")
-            }
-
-            Divider()
-
-            LabeledContent {
-                Text(sizeText)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.secondary)
-            } label: {
-                SettingsLabel("Size", systemImage: "internaldrive")
-            }
-
-            Divider()
-
-            LabeledContent {
-                Text(reloadStatusText)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(reloadStatusColor)
-            } label: {
-                SettingsLabel("Widget Reload", systemImage: "arrow.triangle.2.circlepath")
-            }
-
-            Divider()
-
-            Button {
-                isRefreshing = true
-                diagnostics = OverviewWidgetRelay.refreshWidgetData(store: store, preferences: preferences.value)
-                isRefreshing = false
-                refreshMessage = diagnostics.state == .available ? "Widget data refreshed and verified." : "Widget data refresh completed with state: \(diagnostics.state)"
-            } label: {
-                HStack {
-                    SettingsLabel("Refresh Widget Data", systemImage: "arrow.clockwise")
-                    Spacer()
-                    if isRefreshing {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .foregroundStyle(.primary)
-        }
+    private func statusRow(_ title: String, _ value: String) -> some View {
+        LabeledContent {
+            Text(value).foregroundStyle(statusColor(value))
+        } label: { Text(title) }
     }
 
-    private var snapshotStatusText: String {
-        switch diagnostics.state {
-        case .available:
-            return "Available"
-        case .snapshotMissing:
-            return "Missing"
-        case .containerUnavailable:
-            return "Unavailable"
-        case .snapshotIncompatible, .decodeFailed, .readFailed, .writeFailed:
-            return "Invalid"
+    private func statusColor(_ value: String) -> Color {
+        switch value {
+        case "Connected", "Ready", "On", "Installed", "Writable", "Up to date": return .green
+        case "Unavailable", "Restricted", "Recovery \u{00B7} Read Only": return .red
+        case "Off", "Inactive", "Not Added", "Not Configured", "Not Signed In", "Not refreshed this session": return .orange
+        default: return value.hasPrefix("Checking") ? .secondary : .red
         }
-    }
-
-    private var snapshotStatusColor: Color {
-        switch diagnostics.state {
-        case .available:
-            return .green
-        case .snapshotMissing:
-            return .orange
-        case .containerUnavailable, .snapshotIncompatible, .decodeFailed, .readFailed, .writeFailed:
-            return .red
-        }
-    }
-
-    private var reloadStatusText: String {
-        diagnostics.containerReachable && diagnostics.state == .available ? "Available" : "Unavailable"
-    }
-
-    private var reloadStatusColor: Color {
-        diagnostics.containerReachable && diagnostics.state == .available ? .green : .secondary
-    }
-
-    private var updatedText: String {
-        guard let date = diagnostics.snapshotFileModifiedAt else {
-            return "Never"
-        }
-        if abs(date.timeIntervalSinceNow) < 60 {
-            return "just now"
-        }
-        return date.formatted(date: .abbreviated, time: .shortened)
-    }
-
-    private var sizeText: String {
-        guard let bytes = diagnostics.snapshotFileSize else {
-            return "—"
-        }
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useBytes, .useKB, .useMB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(bytes))
     }
 }
 
