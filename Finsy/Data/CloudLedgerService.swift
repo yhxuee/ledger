@@ -150,7 +150,9 @@ actor CloudLedgerService {
         let zoneID = metadata.share.recordID.zoneID
         try await participantSync.allowRestoredZone(zoneID)
         let records = try await fetchZoneSnapshot(database: container.sharedCloudDatabase, zoneID: zoneID)
+        try receiveCloudGrants(records)
         let book = try CloudRecordMapper.decodeBook(from: records, participant: true, attachmentFolder: AttachmentStore.folderURL)
+        scheduleCloudAuthorization(records: records, book: book)
         try await participantSync.cache(records: records)
         return book
     }

@@ -10,6 +10,7 @@ enum AppSection: String, CaseIterable, Identifiable {
 
 struct LedgerBookMenu: View {
     @EnvironmentObject private var store: LedgerStore
+    @EnvironmentObject private var preferences: AppPreferencesStore
     @State private var showingNewBook = false
     @State private var showingPurchaseMode = false
     @State private var deletingBook: LedgerBook?
@@ -21,7 +22,11 @@ struct LedgerBookMenu: View {
             Divider()
             ForEach(store.books) { book in
                 Button { store.switchBook(to: book.id) } label: {
-                    Label(book.name, systemImage: store.activeBookID == book.id ? "checkmark.circle.fill" : "book.closed")
+                    HStack {
+                        storageIcon(for: book)
+                        Text(book.name)
+                        if store.activeBookID == book.id { Image(systemName: "checkmark") }
+                    }
                 }
             }
             Divider()
@@ -31,9 +36,12 @@ struct LedgerBookMenu: View {
             }
             .disabled(deleting || !store.canMutateLedger)
         } label: {
-            Image(systemName: "ellipsis")
+            HStack(spacing: 6) {
+                storageIcon(for: store.activeBook)
+                Image(systemName: "ellipsis")
+            }
                 .font(.body.weight(.semibold))
-                .frame(width: 28, height: 28)
+                .frame(height: 28)
                 .contentShape(Circle())
         }
         .accessibilityLabel("Choose ledger")
@@ -59,6 +67,35 @@ struct LedgerBookMenu: View {
             }
         }
     }
+    @ViewBuilder private func storageIcon(for book: LedgerBook) -> some View {
+        if book.effectiveStorageKind == .cloudParticipant || store.sharedLedgerIDs.contains(book.id.uuidString) {
+            Image(systemName: "person.2.fill").accessibilityLabel("Shared ledger")
+        } else if preferences.value.iCloudSyncEnabled || preferences.value.iCloudBackupEnabled {
+            let synced = preferences.value.iCloudSyncEnabled && (store.cloudSyncDates[book.id.uuidString].map { $0 >= book.updatedAt } ?? false)
+            let backedUp = preferences.value.iCloudBackupEnabled && (preferences.value.iCloudLastBackupAt.map { $0 >= book.updatedAt } ?? false)
+            if synced || backedUp {
+                Image(systemName: "cloud.fill").accessibilityLabel("Saved to iCloud")
+            } else {
+                PendingCloudShape().stroke(style: StrokeStyle(lineWidth: 1.2, dash: [2, 2]))
+                    .frame(width: 20, height: 14).accessibilityLabel("Waiting for iCloud")
+            }
+        } else {
+            Image(systemName: "externaldrive").accessibilityLabel("Local ledger")
+        }
+    }
+}
+
+private struct PendingCloudShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.width * 0.25, y: rect.height * 0.9))
+        path.addCurve(to: CGPoint(x: rect.width * 0.22, y: rect.height * 0.35), control1: CGPoint(x: 0, y: rect.height), control2: CGPoint(x: 0, y: rect.height * 0.3))
+        path.addCurve(to: CGPoint(x: rect.width * 0.8, y: rect.height * 0.4), control1: CGPoint(x: rect.width * 0.3, y: -rect.height * 0.2), control2: CGPoint(x: rect.width * 0.8, y: -rect.height * 0.1))
+        path.addCurve(to: CGPoint(x: rect.width * 0.8, y: rect.height * 0.9), control1: CGPoint(x: rect.width * 1.08, y: rect.height * 0.3), control2: CGPoint(x: rect.width * 1.08, y: rect.height))
+        path.closeSubpath()
+        return path
+    }
+
 }
 
 private struct NewLedgerSheet: View {
@@ -125,6 +162,9 @@ struct RootView: View {
                     selectedAccountID = id
                     section = .overview
                     store.activeRoute = nil
+                case .ledger:
+                    section = .ledger
+                    store.activeRoute = nil
                 case .overview:
                     selectedAccountID = nil
                     section = .overview
@@ -184,12 +224,11 @@ struct RootView: View {
                 NavigationStack { AccountsView() }.tabItem { Label("Accounts", systemImage: "wallet.bifold") }.tag(AppSection.accounts)
                 NavigationStack { SettingsView() }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(AppSection.settings)
             }
-            .animation(.easeInOut(duration: 0.24), value: section)
         }
     }
 
     private var animatedSection: Binding<AppSection> {
-        Binding(get: { section }, set: { newValue in withAnimation(.easeInOut(duration: 0.24)) { section = newValue } })
+        Binding(get: { section }, set: { section = $0 })
     }
 
     @ViewBuilder private var destination: some View {

@@ -51,20 +51,29 @@ struct AnalyticsView: View {
         return (start, end)
     }
 
-    private func summary(for type: LedgerTransactionType) -> AnalyticsSummary {
-        let cats = type == .income ? selectedIncomeCategories : selectedExpenseCategories
+    private struct SummaryRequest: Hashable, Sendable {
+        var bookID: UUID
+        var revision: UInt64
+        var range: AnalyticsRange
+        var start: Date
+        var end: Date
+        var customRange: ClosedRange<Date>?
+        var expenseCategories: Set<LedgerCategoryID>
+        var incomeCategories: Set<LedgerCategoryID>
+        var accounts: Set<UUID>
+    }
+    @State private var summaryRequest: SummaryRequest?
+    @State private var expenseSummary: AnalyticsSummary?
+    @State private var incomeSummary: AnalyticsSummary?
+    private var requestedSummary: SummaryRequest {
         let bounds = analyticsDateBounds
-        let txs = store.transactions(from: bounds.start, to: bounds.end)
-        return LedgerCalculations.analytics(
-            store.state,
-            range: range,
-            type: type,
-            categories: cats,
-            accountIDs: selectedAccounts,
-            customRange: hasCustomRange ? rangeStart...rangeEnd : nil,
-            index: store.index,
-            transactions: txs
-        )
+        return SummaryRequest(bookID: store.activeBookID, revision: store.financialRevision, range: range,
+            start: bounds.start, end: bounds.end, customRange: hasCustomRange ? rangeStart...rangeEnd : nil,
+            expenseCategories: selectedExpenseCategories, incomeCategories: selectedIncomeCategories, accounts: selectedAccounts)
+    }
+    private func summary(for type: LedgerTransactionType) -> AnalyticsSummary {
+        if summaryRequest == requestedSummary, let cached = type == .income ? incomeSummary : expenseSummary { return cached }
+        return AnalyticsSummary(buckets: [], categoryTotals: [:], subtitle: "Loading?", total: 0, average: 0, minimum: 0, maximum: 0)
     }
 
     private struct CategorySegment: Identifiable {
@@ -104,6 +113,26 @@ struct AnalyticsView: View {
                     .tag(AnalyticsPage.tax)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+        }
+        .task(id: requestedSummary) {
+            let request = requestedSummary
+            let state = store.state
+            let index = store.index
+            let worker = Task.detached(priority: .userInitiated) {
+                let transactions = index.sortedActiveTransactions.filter { $0.occurredAt >= request.start && $0.occurredAt < request.end }
+                let expense = LedgerCalculations.analytics(state, range: request.range, type: .expense,
+                    categories: request.expenseCategories, accountIDs: request.accounts,
+                    customRange: request.customRange, index: index, transactions: transactions)
+                let income = LedgerCalculations.analytics(state, range: request.range, type: .income,
+                    categories: request.incomeCategories, accountIDs: request.accounts,
+                    customRange: request.customRange, index: index, transactions: transactions)
+                return (expense, income)
+            }
+            let result = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
+            guard !Task.isCancelled else { return }
+            expenseSummary = result.0
+            incomeSummary = result.1
+            summaryRequest = request
         }
         .background(LedgerBackground())
         .navigationTitle("Analytics")

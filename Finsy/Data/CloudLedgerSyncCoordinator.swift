@@ -489,7 +489,11 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
                 if let failure = sent.failedRecordSaves.first?.error ?? sent.failedRecordDeletes.values.first {
                     await report(failure)
                 } else if try !storage.hasPendingChanges() {
-                    await MainActor.run { LedgerStore.shared.lastSyncError = nil }
+                    let participant = database.databaseScope == .shared
+                    await MainActor.run {
+                        LedgerStore.shared.lastSyncError = nil
+                        LedgerStore.shared.markCloudSyncCompleted(participant: participant)
+                    }
                 }
                 LedgerDiagnostics.cloud.info("Sent saved=\(sent.savedRecords.count) failed=\(sent.failedRecordSaves.count) deleted=\(sent.deletedRecordIDs.count)")
             case .sentDatabaseChanges(let sent):

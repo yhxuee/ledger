@@ -14,6 +14,24 @@ struct OverviewView: View {
     @State private var activeDetailMetric: OverviewMetricKind? = nil
     @State private var revealedTransactionID: UUID? = nil
 
+    @State private var latestEntries: [LedgerPresentationEntry] = []
+    @State private var latestRequest: LatestRequest?
+    private struct LatestRequest: Hashable, Sendable {
+        var bookID: UUID
+        var revision: UInt64
+        var accountID: UUID?
+        var day: Date
+    }
+    private var requestedLatest: LatestRequest {
+        LatestRequest(bookID: store.activeBookID, revision: store.financialRevision, accountID: selectedAccountID, day: Calendar.current.startOfDay(for: .now))
+    }
+
+    @State private var cachedWeekly: AnalyticsSummary?
+    @State private var cachedToday: AnalyticsSummary?
+    @State private var cachedSixMonths: AnalyticsSummary?
+    private var emptySummary: AnalyticsSummary {
+        AnalyticsSummary(buckets: [], categoryTotals: [:], subtitle: "Loading?", total: 0, average: 0, minimum: 0, maximum: 0)
+    }
     private var selected: AccountViewModel? { selectedAccountID.flatMap { id in store.accounts.first { $0.id == id } } }
     private var transactions: [LedgerTransaction] { LedgerCalculations.transactions(store.state, accountID: selectedAccountID, index: store.index) }
     private var usage: (budget: Double, spent: Double, ratio: Double) { selected.map { LedgerCalculations.budgetUsage(store.state, account: $0.account, index: store.index) } ?? LedgerCalculations.budgetUsage(store.state, index: store.index) }
@@ -21,7 +39,7 @@ struct OverviewView: View {
 
     // Metric summaries
     private var weeklySummary: AnalyticsSummary {
-        LedgerCalculations.analytics(store.state, range: .week, type: .expense, accountID: selectedAccountID, index: store.index)
+        latestRequest == requestedLatest ? (cachedWeekly ?? emptySummary) : emptySummary
     }
 
     private var todayRange: ClosedRange<Date> {
@@ -31,11 +49,11 @@ struct OverviewView: View {
     }
 
     private var todaySummary: AnalyticsSummary {
-        LedgerCalculations.analytics(store.state, range: .week, type: .expense, accountID: selectedAccountID, customRange: todayRange, index: store.index)
+        latestRequest == requestedLatest ? (cachedToday ?? emptySummary) : emptySummary
     }
 
     private var sixMonthsSummary: AnalyticsSummary {
-        LedgerCalculations.analytics(store.state, range: .sixMonths, type: .expense, accountID: selectedAccountID, index: store.index)
+        latestRequest == requestedLatest ? (cachedSixMonths ?? emptySummary) : emptySummary
     }
 
     private func categorySegments(from summary: AnalyticsSummary) -> [CategorySegmentData] {
@@ -49,7 +67,10 @@ struct OverviewView: View {
 
     var body: some View {
         ScrollView {
-            topSection
+            Group {
+                if latestRequest == requestedLatest { topSection }
+                else { ProgressView().frame(maxWidth: .infinity).padding(40) }
+            }
                 .padding(.horizontal, 20).padding(.top, 8)
             latest.padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 30)
         }
@@ -331,11 +352,32 @@ struct VerticalOverviewHeroLayout: Layout {
                 .accessibilityLabel("Open Ledger")
             }
             LazyVStack(spacing: 0) {
-                ForEach(Array(LedgerPresentation.entries(transactions: transactions, state: store.state, index: store.index).prefix(8))) { entry in
+                ForEach(latestRequest == requestedLatest ? latestEntries : []) { entry in
                     LedgerEntryRow(entry: entry, showsDate: true).padding(.vertical, 7)
                     Divider().padding(.leading, 67)
                 }
                 if transactions.isEmpty { ContentUnavailableView("No Transactions", systemImage: "tray", description: Text("Add the first entry for this account.")) }
+            }
+            .task(id: requestedLatest) {
+                let request = requestedLatest
+                let state = store.state
+                let index = store.index
+                let worker = Task.detached(priority: .userInitiated) {
+                    let transactions = LedgerCalculations.transactions(state, accountID: request.accountID, index: index)
+                    let entries = Array(LedgerPresentation.entries(transactions: transactions, state: state, index: index).prefix(8))
+                    let weekly = LedgerCalculations.analytics(state, range: .week, type: .expense, accountID: request.accountID, now: request.day, index: index)
+                    let today = LedgerCalculations.analytics(state, range: .week, type: .expense, accountID: request.accountID,
+                        customRange: request.day...request.day, now: request.day, index: index)
+                    let sixMonths = LedgerCalculations.analytics(state, range: .sixMonths, type: .expense, accountID: request.accountID, now: request.day, index: index)
+                    return (entries, weekly, today, sixMonths)
+                }
+                let result = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
+                guard !Task.isCancelled else { return }
+                latestEntries = result.0
+                cachedWeekly = result.1
+                cachedToday = result.2
+                cachedSixMonths = result.3
+                latestRequest = request
             }
             .environment(\.revealedTransactionID, $revealedTransactionID)
             .simultaneousGesture(

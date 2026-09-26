@@ -468,6 +468,7 @@ struct SettingsView: View {
         working = true; defer { working = false }
         do {
             let share = try await CloudLedgerService.shared.share(book: store.activeBook)
+            store.markLedgerShared(store.activeBookID)
             cloudShare = share
             if store.activeBook.effectiveStorageKind == .local {
                 store.markActiveBookCloudOwner(zoneName: share.recordID.zoneID.zoneName)

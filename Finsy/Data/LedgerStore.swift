@@ -7,6 +7,7 @@ enum AppRoute: Equatable, Sendable {
     case purchase(UUID)
     case account(UUID)
     case overview
+    case ledger
 }
 
 enum PurchaseFinalizationError: LocalizedError, Equatable, Sendable {
@@ -147,6 +148,21 @@ public enum LedgerAccessState: Sendable {
     /// Set only when a stale legacy snapshot is exposed because SQLite failed validation.
     /// Automatic writes and domain processing stay disabled so neither store is damaged.
     private(set) var persistenceRecoveryMode: LedgerLibraryLoadSource?
+    @Published var cloudSyncDates: [String: Date] = (UserDefaults.standard.dictionary(forKey: "Finsy.cloudSyncDates") ?? [:]).compactMapValues { $0 as? Date }
+    @Published var sharedLedgerIDs: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "Finsy.sharedLedgerIDs") ?? [])
+
+    func markCloudSyncCompleted(participant: Bool) {
+        for book in books where (participant ? book.effectiveStorageKind == .cloudParticipant : book.effectiveStorageKind == .cloudOwner) {
+            cloudSyncDates[book.id.uuidString] = .now
+        }
+        UserDefaults.standard.set(cloudSyncDates, forKey: "Finsy.cloudSyncDates")
+    }
+
+    func markLedgerShared(_ id: UUID) {
+        sharedLedgerIDs.insert(id.uuidString)
+        UserDefaults.standard.set(Array(sharedLedgerIDs), forKey: "Finsy.sharedLedgerIDs")
+    }
+
     @Published var lastSyncError: String?
     var saveRevision: UInt64 = 0
     /// Validated SQLite snapshot used only to seed the serialized writer after launch.
@@ -320,18 +336,11 @@ public enum LedgerAccessState: Sendable {
     }
 
     func transactions(from: Date? = nil, to: Date? = nil) -> [LedgerTransaction] {
-        // Startup guarantees a fully materialized state. Reading the same rows from SQLite here
-        // doubles I/O and memory for analytics and statement ranges without adding correctness.
-        return state.transactions.filter { tx in
-            guard tx.deletedAt == nil else { return false }
+        // The index already owns the stable chronology for this financial revision.
+        index.sortedActiveTransactions.filter { tx in
             if let from, tx.occurredAt < from { return false }
             if let to, tx.occurredAt > to { return false }
             return true
-        }.sorted {
-            if $0.occurredAt != $1.occurredAt {
-                return $0.occurredAt > $1.occurredAt
-            }
-            return $0.id.uuidString > $1.id.uuidString
         }
     }
 
