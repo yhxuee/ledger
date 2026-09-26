@@ -115,12 +115,15 @@ final class FinsyMaintenanceCoordinator {
     ) {
         scheduleLedgerSwitchMaintenance(store: store, preferences: preferences, expectedBookID: store.activeBookID)
 
+        // Unlocking must not wait for an earlier sync or backup to finish.
+        Task { @MainActor in
+            await privacy.unlockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
+        }
         guard !isPerformingBackgroundMaintenance else { return }
         isPerformingBackgroundMaintenance = true
 
         Task { @MainActor in
             defer { self.isPerformingBackgroundMaintenance = false }
-            await privacy.unlockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
             await CloudLedgerService.shared.recoverSyncIfNeeded()
             await ICloudSyncCoordinator.shared.maintenance(store: store, preferences: preferences)
             await ICloudLibraryCoordinator.shared.maintenance(store: store, preferences: preferences)

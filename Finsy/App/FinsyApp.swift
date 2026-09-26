@@ -41,7 +41,9 @@ struct FinsyApp: App {
                             preferences: preferences,
                             privacy: privacy
                         )
-                    } else {
+                    } else if phase == .background {
+                        // Authentication dialogs can make the scene inactive.
+                        // Re-lock only after actually leaving the foreground.
                         ICloudBackupBackground.schedule(preferences: preferences.value)
                         privacy.lockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
                         OverviewWidgetRelay.updateSnapshot(store: store, preferences: preferences.value)

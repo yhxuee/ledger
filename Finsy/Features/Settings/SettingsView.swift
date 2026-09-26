@@ -247,7 +247,7 @@ struct SettingsView: View {
     private var securitySection: some View {
         SettingsGlassSection("Security") {
             Toggle(isOn: biometricBinding) {
-                SettingsLabel("Face ID / Touch ID", systemImage: "faceid")
+                SettingsLabel(privacy.biometricName, systemImage: privacy.biometricSymbol)
             }
 
             Divider()
