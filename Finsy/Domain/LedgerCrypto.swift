@@ -154,7 +154,15 @@ enum LedgerDeviceIdentity {
         try getOrCreatePrivateKey(for: ledgerID).publicKey.rawRepresentation
     }
 
-    static func localWrappingKey(for ledgerID: UUID) throws -> SymmetricKey {
+    static func localWrappingKey(for ledgerID: UUID, create: Bool = true) throws -> SymmetricKey {
+        if !create {
+            let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service, kSecAttrAccount as String: "ledger-device-" + ledgerID.uuidString,
+                kSecAttrSynchronizable as String: false]
+            let status = SecItemCopyMatching(query as CFDictionary, nil)
+            if status == errSecItemNotFound { throw LedgerCryptoError.keyNotFound(ledgerID) }
+            guard status == errSecSuccess else { throw LedgerCryptoError.keychainError(status) }
+        }
         let privateKey = try getOrCreatePrivateKey(for: ledgerID)
         return HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: privateKey.rawRepresentation),
             salt: Data("FinsyLocalDeviceKeyV1".utf8), info: Data(service.utf8), outputByteCount: 32)
@@ -257,7 +265,7 @@ enum LedgerKeyStore {
             guard let name = item[kSecAttrAccount as String] as? String,
                   let id = UUID(uuidString: name), let data = item[kSecValueData as String] as? Data,
                   data.count == 32 else { throw LedgerCryptoError.corruptedContainer("Legacy cloud key is invalid.") }
-            if try loadKey(for: id) == nil { try saveKey(SymmetricKey(data: data), for: id) }
+            if !LedgerDeviceAuthorization.isRevoked(id), try loadKey(for: id) == nil { try saveKey(SymmetricKey(data: data), for: id) }
         }
         let deleted = SecItemDelete(query as CFDictionary)
         guard deleted == errSecSuccess || deleted == errSecItemNotFound else { throw LedgerCryptoError.keychainError(deleted) }
@@ -275,7 +283,9 @@ enum LedgerKeyStore {
         let plain: Data
         if data.starts(with: wrappedPrefix) {
             let box = try AES.GCM.SealedBox(combined: Data(data.dropFirst(wrappedPrefix.count)))
-            plain = try AES.GCM.open(box, using: LedgerDeviceIdentity.localWrappingKey(for: ledgerID), authenticating: Data(ledgerID.uuidString.utf8))
+            do {
+                plain = try AES.GCM.open(box, using: LedgerDeviceIdentity.localWrappingKey(for: ledgerID, create: false), authenticating: Data(ledgerID.uuidString.utf8))
+            } catch LedgerCryptoError.keyNotFound { return nil }
         } else {
             guard data.count == 32 else { throw LedgerCryptoError.corruptedContainer("Local key is invalid.") }
             plain = data
@@ -638,6 +648,9 @@ enum LedgerDeviceAuthorization {
     }
     static func grant(_ request: FinsyPairingRequest) throws -> FinsyKeyGrantEnvelope {
         try request.validate()
+        guard request.newDevicePublicKey != (try LedgerDeviceIdentity.exportPublicKeyData(for: request.ledgerID)) else {
+            throw LedgerCryptoError.corruptedContainer("The request belongs to this device.")
+        }
         guard let key = try LedgerKeyStore.loadKey(for: request.ledgerID, expectedFingerprint: request.expectedFingerprint) else {
             throw LedgerCryptoError.authorizationRequired(ledgerID: request.ledgerID, fingerprint: request.expectedFingerprint)
         }
@@ -675,6 +688,9 @@ enum LedgerDeviceAuthorization {
         let key = try P256.Signing.PublicKey(rawRepresentation: pending.request.newDevicePublicKey)
         let signature = try P256.Signing.ECDSASignature(derRepresentation: receipt.signature)
         guard key.isValidSignature(signature, for: receipt.signedData) else { throw LedgerCryptoError.invalidPublicKey }
+        guard LedgerKeyStore.hasKey(for: receipt.ledgerID, expectedFingerprint: pending.grant.keyFingerprint) else {
+            throw LedgerCryptoError.authorizationRequired(ledgerID: receipt.ledgerID, fingerprint: pending.grant.keyFingerprint)
+        }
         return pending
     }
     static func revoke(_ receipt: FinsyTransferReceipt) throws {

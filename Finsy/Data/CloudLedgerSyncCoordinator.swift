@@ -261,6 +261,22 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         }
     }
 
+    func revokeLocalAccess(zoneID: CKRecordZone.ID) async throws {
+        // Cancel in-flight sends before clearing only this device's journal for the zone.
+        if let engine { await engine.cancelOperations() }
+        let storage = try storage()
+        try storage.database.transaction { try storage.removeZone(zoneID) }
+        if let engine {
+            engine.state.remove(pendingRecordZoneChanges: engine.state.pendingRecordZoneChanges.filter {
+                switch $0 {
+                case .saveRecord(let id), .deleteRecord(let id): return id.zoneID == zoneID
+                @unknown default: return false
+                }
+            })
+        }
+        try storage.pruneAssets()
+    }
+
     func beginMigration(zoneID: CKRecordZone.ID) async throws {
         let storage = try storage()
         try storage.database.put("blocked", zoneKey(zoneID), Data([1]))

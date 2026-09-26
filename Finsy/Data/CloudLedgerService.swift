@@ -60,6 +60,12 @@ actor CloudLedgerService {
         try await ownerSync.deleteZone(zone)
     }
 
+    func revokeLocalAccess(_ book: LedgerBook) async throws {
+        guard let name = book.cloudZoneName else { return }
+        let zone = CKRecordZone.ID(zoneName: name, ownerName: book.cloudZoneOwnerName ?? CKCurrentUserDefaultName)
+        try await (book.effectiveStorageKind == .cloudParticipant ? participantSync : ownerSync).revokeLocalAccess(zoneID: zone)
+    }
+
     func leaveSharedLedger(_ book: LedgerBook) async throws {
         guard let zoneName = book.cloudZoneName, let ownerName = book.cloudZoneOwnerName else { throw CloudLedgerError.missingZone }
         try await configureCallbacksIfNeeded()
@@ -187,7 +193,7 @@ actor CloudLedgerService {
     }
 
     func synchronize(book: LedgerBook, revision: UInt64? = nil) async throws {
-        guard book.effectiveStorageKind != .local, let zoneName = book.cloudZoneName else { return }
+        guard book.effectiveStorageKind != .local, let zoneName = book.cloudZoneName, !LedgerDeviceAuthorization.isRevoked(book.id) else { return }
         if await MainActor.run(body: { AppPreferencesStore.shared.value.endToEndEncryptionEnabled }), book.isEncrypted != true { return }
         if book.effectiveStorageKind == .cloudOwner,
            !(await MainActor.run { AppPreferencesStore.shared.value.iCloudSyncEnabled && LedgerStore.shared.iCloudSyncReady }) { return }
@@ -537,7 +543,12 @@ actor CloudLedgerService {
                   pending.effectivePurpose == .authorization else { continue }
             // A migration requires explicit receipt delivery and is never completed by automatic sync.
             _ = try LedgerDeviceAuthorization.receive(grant)
+            awaitDeviceAuthorizationNotice(grant.ledgerID)
         }
+    }
+
+    private func awaitDeviceAuthorizationNotice(_ id: UUID) {
+        Task { @MainActor in NotificationCenter.default.post(name: .finsyDeviceAuthorized, object: id) }
     }
 
     private func scheduleCloudAuthorization(records: [CKRecord], book: LedgerBook) {
@@ -566,6 +577,7 @@ actor CloudLedgerService {
                       let request = try? JSONDecoder().decode(FinsyPairingRequest.self, from: data),
                       request.ledgerID == book.id, !request.isExpired,
                       request.effectivePurpose == .authorization,
+                      request.newDevicePublicKey != (try LedgerDeviceIdentity.exportPublicKeyData(for: book.id)),
                       !records.contains(where: { $0.recordType == CloudRecordType.keyEnvelope &&
                           ($0["requestID"] as? String) == request.requestID.uuidString }) else { continue }
                 // A private-zone request belongs to this iCloud account. A shared-zone request

@@ -16,6 +16,7 @@ struct DeviceAuthorizationView: View {
     var onAuthorized: (() -> Void)? = nil
     @State private var selectedLedgerID: UUID?
     @State private var scanner = false
+    @State private var scannedData: Data?
     @State private var importer = false
     @State private var requestToAuthorize: FinsyPairingRequest?
     @State private var confirmingAuthorization = false
@@ -79,7 +80,10 @@ struct DeviceAuthorizationView: View {
         .background(LedgerBackground())
         .navigationTitle("Device Authorization")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $scanner) { VisionKitQRScannerSheet { handle(Data($0.utf8)) } }
+        .sheet(isPresented: $scanner, onDismiss: {
+            if let scannedData { handle(scannedData) }
+            scannedData = nil
+        }) { VisionKitQRScannerSheet { scannedData = Data($0.utf8); scanner = false } }
         .sheet(item: $displayedPacket) { packet in
             NavigationStack {
                 VStack(spacing: 20) {

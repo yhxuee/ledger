@@ -134,6 +134,10 @@ extension LedgerStore {
 }
 
 extension LedgerStore {
+    private static func encryptionAttachmentIDs(_ book: LedgerBook) -> [String] {
+        book.state.transactions.compactMap(\.noteAttachmentID)
+        + (book.state.purchaseSessions ?? []).compactMap(\.receiptAttachmentID)
+    }
     func completeKeyTransfer(_ receipt: FinsyTransferReceipt) async throws {
         guard canMutateLedger else { throw CocoaError(.fileWriteNoPermission) }
         _ = try LedgerDeviceAuthorization.verify(receipt)
@@ -141,6 +145,13 @@ extension LedgerStore {
         try LedgerDeviceAuthorization.write(true, account: "revoked-" + receipt.ledgerID.uuidString)
         commitActiveBook()
         if let index = books.firstIndex(where: { $0.id == receipt.ledgerID }) {
+            let transferred = books[index]
+            try await CloudLedgerService.shared.revokeLocalAccess(transferred)
+            // Leave attachments still referenced by another ledger untouched.
+            let retained = Set(books.filter { $0.id != receipt.ledgerID }.flatMap { Self.encryptionAttachmentIDs($0) })
+            for identifier in Set(Self.encryptionAttachmentIDs(transferred)).subtracting(retained) {
+                try await AttachmentStore.shared.delete(identifier: identifier)
+            }
             books[index].state = SeedData.makeProductionEmpty()
             books[index].encryptionState = .authorizationRequired
             if activeBookID == receipt.ledgerID {
