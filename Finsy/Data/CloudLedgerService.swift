@@ -22,7 +22,7 @@ actor CloudLedgerService {
             try await ownerSync.recoverIfNeeded()
             try await participantSync.recoverIfNeeded()
             if await MainActor.run(body: {
-                AppPreferencesStore.shared.value.iCloudSyncEnabled || !LedgerStore.shared.sharedLedgerIDs.isEmpty
+                AppPreferencesStore.shared.value.iCloudSyncEnabled || LedgerStore.shared.ownsSharedLedgers
             }) {
                 try await ownerSync.fetchChanges()
             }
@@ -53,7 +53,7 @@ actor CloudLedgerService {
     func updateICloudPreference() async throws {
         let enabled = await MainActor.run {
             (AppPreferencesStore.shared.value.iCloudSyncEnabled && LedgerStore.shared.iCloudSyncReady)
-                || !LedgerStore.shared.sharedLedgerIDs.isEmpty
+                || LedgerStore.shared.ownsSharedLedgers
         }
         try await ownerSync.setAutomaticallySync(enabled)
     }

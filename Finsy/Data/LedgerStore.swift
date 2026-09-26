@@ -159,8 +159,13 @@ public enum LedgerAccessState: Sendable {
         UserDefaults.standard.set(cloudSyncDates, forKey: "Finsy.cloudSyncDates")
     }
 
-    func markLedgerShared(_ id: UUID) {
-        sharedLedgerIDs.insert(id.uuidString)
+    var ownsSharedLedgers: Bool {
+        books.contains { $0.effectiveStorageKind == .cloudOwner && sharedLedgerIDs.contains($0.id.uuidString) }
+    }
+
+    func markLedgerShared(_ id: UUID, shared: Bool = true) {
+        if shared { sharedLedgerIDs.insert(id.uuidString) }
+        else { sharedLedgerIDs.remove(id.uuidString) }
         UserDefaults.standard.set(Array(sharedLedgerIDs), forKey: "Finsy.sharedLedgerIDs")
         Task {
             do { try await CloudLedgerService.shared.updateICloudPreference() }
