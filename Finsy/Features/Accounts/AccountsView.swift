@@ -5,7 +5,6 @@ import UIKit
 struct AccountsView: View {
     @EnvironmentObject private var store: LedgerStore
     @EnvironmentObject private var preferences: AppPreferencesStore
-    @EnvironmentObject private var privacy: PrivacyController
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var stockRefresh = StockQuoteRefreshService.shared
     @State private var editing: AccountViewModel?
@@ -111,27 +110,6 @@ struct AccountsView: View {
                                     editing = item
                                 }
                             }
-                            .onDrag {
-                                isReordering = true
-                                return NSItemProvider(object: "finsy-account:\(store.activeBookID):\(item.id)" as NSString)
-                            } preview: {
-                                accountRowContent(item)
-                                    // Drag previews are hosted outside the list's environment.
-                                    .environmentObject(privacy)
-                                    .environmentObject(store)
-                                    .environmentObject(preferences)
-                                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                            }
-                            .dropDestination(for: String.self) { values, _ in
-                                guard isReordering, values.count == 1,
-                                      let value = values.first else { return false }
-                                let prefix = "finsy-account:\(store.activeBookID):"
-                                guard value.hasPrefix(prefix),
-                                      let sourceID = UUID(uuidString: String(value.dropFirst(prefix.count))),
-                                      store.accounts.contains(where: { $0.id == sourceID }) else { return false }
-                                withAnimation { store.moveAccount(from: sourceID, to: item.id) }
-                                return true
-                            }
                             .accessibilityAction(named: "Move up") { moveAccount(item.id, by: -1) }
                             .accessibilityAction(named: "Move down") { moveAccount(item.id, by: 1) }
                             .swipeActions(edge: .leading, allowsFullSwipe: true) {
@@ -161,6 +139,12 @@ struct AccountsView: View {
                             .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
+                    }
+                    // List owns the long-press lift, live row movement and drop.
+                    // Custom drag providers override this native reorder path.
+                    .onMove { offsets, destination in
+                        isReordering = true
+                        store.moveAccounts(from: offsets, to: destination)
                     }
                 }
             }

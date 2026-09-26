@@ -218,9 +218,10 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         guard automaticallySync, !paused, !stopped else { return }
         requestedSend = true
         guard sendTask == nil else { return }
-        // Never await sending from a receive callback: the engine must finish
-        // that callback before starting its next operation.
-        sendTask = Task { await self.sendRequestedChanges() }
+        // Task {} inherits the SDK's task-local delegate context, even after
+        // the callback returns. sendChanges traps in that context. Detach the
+        // operation, then enter this actor again to keep the outbox serialized.
+        sendTask = Task.detached { await self.sendRequestedChanges() }
     }
 
     private func sendRequestedChanges() async {
