@@ -116,7 +116,7 @@ struct PurchaseReceiptPassSnapshot: Codable, Hashable, Sendable {
         finalizedAt: Date
     ) {
         self.passTypeIdentifier = passTypeIdentifier
-        // A receipt stays as it was when added, even if the session is exported again.
+        // Stable identity lets ledger refunds replace the installed receipt.
         self.serialNumber = "purchase-\(sessionID.uuidString)"
         self.sessionID = sessionID
         self.storeName = storeName
@@ -158,46 +158,6 @@ struct PurchaseReceiptPassSnapshot: Codable, Hashable, Sendable {
 struct WalletReceiptBarcode: Codable, Hashable, Sendable {
     var message: String
     var format: String
-}
-
-struct TaxReceiptPassSnapshot: Codable, Hashable, Sendable {
-    var passTypeIdentifier: String
-    var serialNumber: String
-    var year: Int
-    var month: Int
-    var monthName: String
-    var totalExpenseTax: Double
-    var totalTaxableExpense: Double
-    var currency: CurrencyCode
-    var formattedExpenseTax: String
-    var formattedTaxableExpense: String
-    var generatedAt: Date
-
-    init(
-        passTypeIdentifier: String = "pass.com.finsy.tax",
-        year: Int,
-        month: Int,
-        monthName: String,
-        totalExpenseTax: Double,
-        totalTaxableExpense: Double,
-        currency: CurrencyCode,
-        formattedExpenseTax: String,
-        formattedTaxableExpense: String,
-        generatedAt: Date = .now
-    ) {
-        self.passTypeIdentifier = passTypeIdentifier
-        // A later export of the same month must not replace an earlier snapshot.
-        self.serialNumber = "tax-expense-\(year)-\(String(format: "%02d", month))-\(UUID().uuidString)"
-        self.year = year
-        self.month = month
-        self.monthName = monthName
-        self.totalExpenseTax = totalExpenseTax
-        self.totalTaxableExpense = totalTaxableExpense
-        self.currency = currency
-        self.formattedExpenseTax = formattedExpenseTax
-        self.formattedTaxableExpense = formattedTaxableExpense
-        self.generatedAt = generatedAt
-    }
 }
 
 enum WalletPassError: LocalizedError, Sendable {

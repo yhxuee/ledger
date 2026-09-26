@@ -18,6 +18,8 @@ struct PurchaseSummaryView: View {
     @State private var passToPresent: PKPass?
     @State private var showingAddPassSheet = false
     @State private var showingBarcodeOptions = false
+    @State private var requestedPass = false
+    @State private var pendingBarcode: WalletReceiptBarcode?
     @State private var passErrorMessage: String?
     private var session: PurchaseSession? { store.purchaseSessions.first(where: { $0.id == sessionID }) }
 
@@ -30,7 +32,7 @@ struct PurchaseSummaryView: View {
     }
 
     private var isWalletActionEnabled: Bool {
-        readOnly && isPassLibraryAvailable && isIssuerConfigured && !generatingPass
+        readOnly && session?.status == .completed && isPassLibraryAvailable && isIssuerConfigured && !generatingPass
     }
 
     private var walletStatusMessage: String? {
@@ -171,9 +173,16 @@ struct PurchaseSummaryView: View {
             }
         }
         .sheet(isPresented: $showingCamera) { CameraPicker(image: $receiptImage) }
-        .sheet(isPresented: $showingBarcodeOptions) {
+        .sheet(isPresented: $showingBarcodeOptions, onDismiss: {
+            guard requestedPass else { return }
+            requestedPass = false
+            let barcode = pendingBarcode
+            pendingBarcode = nil
+            Task { await addReceiptToWallet(barcode: barcode) }
+        }) {
             ReceiptBarcodeSheet { barcode in
-                Task { await addReceiptToWallet(barcode: barcode) }
+                pendingBarcode = barcode
+                requestedPass = true
             }
         }
         .sheet(isPresented: $showingAddPassSheet) {

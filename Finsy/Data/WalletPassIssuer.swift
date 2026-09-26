@@ -83,7 +83,6 @@ final class MockWalletPassIssuer: WalletPassIssuer, @unchecked Sendable {
     var mockPassToReturn: PKPass?
     var lastAccountSnapshot: AccountPassSnapshot?
     var lastPurchaseSnapshot: PurchaseReceiptPassSnapshot?
-    var lastTaxSnapshot: TaxReceiptPassSnapshot?
 
     init(mockPassToReturn: PKPass? = nil) {
         self.mockPassToReturn = mockPassToReturn

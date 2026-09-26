@@ -141,7 +141,7 @@ final class WalletPassManager: ObservableObject {
         let total = passItems.reduce(0) { $0 + $1.amount }
         let formattedTotal = WalletPassFormatting.money(total, currency: session.currency, space: true)
         let tax = PurchaseReceiptCalculations.resolvedTax(for: session, in: store.state, isCompleted: true)
-        let formattedTax = "\(session.currency.symbol)\(String(format: "%.2f", tax))"
+        let formattedTax = WalletPassFormatting.money(tax, currency: session.currency, space: true)
 
         let itemsSummary = orderedItems.prefix(3).map { item in
             let trimmedNote = item.note.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -176,60 +176,6 @@ final class WalletPassManager: ObservableObject {
         return snapshot
     }
 
-    func buildTaxReceiptSnapshot(
-        year: Int,
-        month: Int,
-        store: LedgerStore
-    ) -> TaxReceiptPassSnapshot {
-        let baseCurrency = store.state.settings.baseCurrency
-        let rates = store.state.settings.rates
-        let calendar = Calendar.current
-        var comps = DateComponents()
-        comps.year = year
-        comps.month = month
-        comps.day = 1
-        let startDate = calendar.date(from: comps) ?? Date()
-        let endDate = calendar.date(byAdding: .month, value: 1, to: startDate) ?? Date()
-
-        // Monthly expense tax only (NOT income tax!)
-        let expenseTxs = store.state.transactions.filter {
-            $0.deletedAt == nil &&
-            $0.type == .expense &&
-            $0.occurredAt >= startDate &&
-            $0.occurredAt < endDate
-        }
-
-        var totalExpenseTax = 0.0
-        var totalTaxableExpense = 0.0
-
-        for tx in expenseTxs {
-            let convertedAmount = LedgerCalculations.convert(tx.recognizedExpenseAmount, from: tx.currency, to: baseCurrency, rates: rates)
-            if let tax = tx.taxAmount, tax > 0 {
-                let convertedTax = LedgerCalculations.convert(tax, from: tx.currency, to: baseCurrency, rates: rates)
-                totalExpenseTax += convertedTax
-                totalTaxableExpense += convertedAmount
-            }
-        }
-
-        let monthFormatter = DateFormatter()
-        monthFormatter.dateFormat = "LLLL yyyy"
-        let monthName = monthFormatter.string(from: startDate)
-
-        let formattedExpenseTax = "\(baseCurrency.symbol)\(String(format: "%.2f", totalExpenseTax))"
-        let formattedTaxableExpense = "\(baseCurrency.symbol)\(String(format: "%.2f", totalTaxableExpense))"
-
-        return TaxReceiptPassSnapshot(
-            year: year,
-            month: month,
-            monthName: monthName,
-            totalExpenseTax: totalExpenseTax,
-            totalTaxableExpense: totalTaxableExpense,
-            currency: baseCurrency,
-            formattedExpenseTax: formattedExpenseTax,
-            formattedTaxableExpense: formattedTaxableExpense
-        )
-    }
-
     func replaceAccountPass(with pass: PKPass) -> Bool {
         guard isPassLibraryAvailable else { return false }
         return passLibrary.replacePass(with: pass)
@@ -239,9 +185,15 @@ final class WalletPassManager: ObservableObject {
     /// No claim of server push: refresh runs while the app is active.
     func refreshInstalledPasses(store: LedgerStore, preferences: AppPreferences, force: Bool = false) async {
         let key = WalletPassRefreshKey(bookID: store.activeBookID, modifiedAt: store.state.lastModifiedAt, preferences: preferences)
-        guard isIssuerConfigured, isPassLibraryAvailable, !refreshing, force || lastRefreshKey != key else { return }
+        guard isIssuerConfigured, isPassLibraryAvailable, force || lastRefreshKey != key else { return }
         do { try await Task.sleep(for: .seconds(1)) } catch { return }
+        // A previous signing request can still be finishing after its task was cancelled.
+        // Wait for it rather than dropping the newest ledger revision.
+        while refreshing {
+            do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+        }
         guard !Task.isCancelled else { return }
+        guard force || lastRefreshKey != key else { return }
         refreshing = true
         defer { refreshing = false }
         do {
