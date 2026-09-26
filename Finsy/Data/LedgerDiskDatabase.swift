@@ -7,8 +7,12 @@ final class LedgerDiskDatabase: @unchecked Sendable {
     private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     init(url: URL) throws {
+        #if !os(macOS)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                               attributes: [.protectionKey: FileProtectionType.complete])
+        #else
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        #endif
         guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
             let failure = error(); sqlite3_close(handle); handle = nil; throw failure
         }
@@ -58,12 +62,14 @@ final class LedgerDiskDatabase: @unchecked Sendable {
                 format_version INTEGER NOT NULL
             ) WITHOUT ROWID
             """)
+            #if !os(macOS)
             for suffix in ["", "-wal", "-shm"] {
                 let path = url.path + suffix
                 if FileManager.default.fileExists(atPath: path) {
                     try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: path)
                 }
             }
+            #endif
         } catch { sqlite3_close(handle); handle = nil; throw error }
     }
 

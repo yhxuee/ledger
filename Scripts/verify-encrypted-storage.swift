@@ -74,9 +74,9 @@ struct EncryptedStorageVerification {
         try require(try database.transactionCount(bookID: id.uuidString, includeDeleted: true) == 0, "Plaintext financial index survived encryption")
         try require(try database.data(id.uuidString, "transaction-" + state.transactions[0].id.uuidString) == nil, "Plaintext transaction survived migration")
         for suffix in ["", "-wal"] {
-            let candidate = URL(fileURLWithPath: url.path + suffix)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                let data = try Data(contentsOf: candidate)
+            let path = url.path + suffix
+            if FileManager.default.fileExists(atPath: path) {
+                let data = FileManager.default.contents(atPath: path) ?? (try Data(contentsOf: URL(fileURLWithPath: path), options: .uncached))
                 try require(data.range(of: Data(marker.utf8)) == nil, "Plaintext financial content remains on disk")
             }
         }
