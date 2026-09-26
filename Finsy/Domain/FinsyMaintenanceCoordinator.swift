@@ -29,6 +29,7 @@ final class FinsyMaintenanceCoordinator {
         await privacy.unlockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
         await store.resumeEncryptionMigrations()
         await CloudLedgerService.shared.recoverSyncIfNeeded()
+        await ICloudSyncCoordinator.shared.maintenance(store: store, preferences: preferences)
         await ICloudLibraryCoordinator.shared.maintenance(store: store, preferences: preferences)
         RecentTransactionActivityCoordinator.shared.registerObservers(store: store)
 
@@ -121,6 +122,7 @@ final class FinsyMaintenanceCoordinator {
             defer { self.isPerformingBackgroundMaintenance = false }
             await privacy.unlockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
             await CloudLedgerService.shared.recoverSyncIfNeeded()
+            await ICloudSyncCoordinator.shared.maintenance(store: store, preferences: preferences)
             await ICloudLibraryCoordinator.shared.maintenance(store: store, preferences: preferences)
             _ = try? await store.refreshExchangeRatesIfNeeded()
             await StockQuoteRefreshService.shared.refreshIfDue(store: store)

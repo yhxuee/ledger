@@ -8,6 +8,8 @@ final class CloudShareAppDelegate: NSObject, UIApplicationDelegate {
         MarketRefreshBackground.register()
         ICloudBackupBackground.register()
         FinsyNotificationScheduler.shared.configure()
+        // CloudKit subscriptions use silent pushes to wake the sync engine.
+        application.registerForRemoteNotifications()
         return true
     }
     func application(_ application: UIApplication, userDidAcceptCloudKitShareWith cloudKitShareMetadata: CKShare.Metadata) {

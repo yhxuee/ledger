@@ -11,13 +11,9 @@ struct ICloudBackupSettingsView: View {
     private var busy: Bool { coordinator.working || restoring }
     private var enabled: Binding<Bool> {
         Binding(get: { preferences.value.iCloudBackupEnabled }, set: { value in
-            // Re-enabling must discover remote deletions before sending offline edits.
-            store.iCloudSyncReady = false
             preferences.update { $0.iCloudBackupEnabled = value }
             ICloudBackupBackground.schedule(preferences: preferences.value)
             Task {
-                do { try await CloudLedgerService.shared.updateICloudPreference() }
-                catch { message = error.localizedDescription }
                 if value { await coordinator.maintenance(store: store, preferences: preferences) }
             }
         })
@@ -29,9 +25,9 @@ struct ICloudBackupSettingsView: View {
                 SettingsGlassSection("iCloud Backup") {
                     Toggle("iCloud Backup", isOn: enabled)
                         .disabled(busy || !store.canMutateLedger)
-                    Text("Sync all your ledgers across devices using the same iCloud account. Changes sync automatically while iCloud Backup is enabled.")
+                    Text("Automatically save snapshots of all your ledgers to iCloud Drive. Restore a snapshot on any device using the same iCloud account.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Text("Encrypted ledgers use iCloud Keychain to securely sync their keys between your devices.")
+                    Text("Encrypted backups use iCloud Keychain to securely make their keys available on your devices.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 SettingsGlassSection("Backup Frequency") {
@@ -76,7 +72,7 @@ struct ICloudBackupSettingsView: View {
                     .disabled(!preferences.value.iCloudBackupEnabled || busy || !store.canMutateLedger)
                 }
                 if busy { ProgressView("Updating iCloud…") }
-                if let error = coordinator.lastError ?? store.lastSyncError {
+                if let error = coordinator.lastError {
                     Text(error).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
                 }
             }

@@ -11,6 +11,8 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
     private var lastAssetPrune: Date?
     private var storageFailed = false
     private var automaticallySync = true
+    private var requestedSend = false
+    private var sendTask: Task<Void, Never>?
     private var submittedRecords: [CKRecord.ID: CKRecord] = [:]
     private var sendFailureCodes: [CKError.Code] = []
     private var lastSubmittedRevision: [UUID: UInt64] = [:]
@@ -24,7 +26,11 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
     func stop() async {
         stopped = true
         paused = true
+        sendTask?.cancel()
+        requestedSend = false
         if let engine { await engine.cancelOperations() }
+        if let sendTask { await sendTask.value }
+        sendTask = nil
         engine = nil
         journal = nil
         receive = nil
@@ -51,7 +57,11 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
     func setAutomaticallySync(_ enabled: Bool) async throws {
         guard automaticallySync != enabled else { return }
         automaticallySync = enabled
+        sendTask?.cancel()
+        requestedSend = false
         if let engine { await engine.cancelOperations() }
+        if let sendTask { await sendTask.value }
+        sendTask = nil
         engine = nil
         submittedRecords.removeAll()
         if receive != nil { _ = try syncEngine() }
@@ -79,6 +89,7 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         engine.state.remove(pendingRecordZoneChanges: changes)
         engine.state.remove(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zone))])
         engine.state.add(pendingDatabaseChanges: [.deleteZone(zone)])
+        requestSend()
     }
 
     func allowRestoredZone(_ zone: CKRecordZone.ID) throws {
@@ -200,6 +211,33 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         engine.state.add(pendingRecordZoneChanges: records.map { .saveRecord($0.recordID) } + removals.map { .deleteRecord($0) })
         if let revision { lastSubmittedRevision[book.id] = revision }
         LedgerDiagnostics.cloud.info("Enqueued saves=\(records.count) deletes=\(removals.count)")
+        if !records.isEmpty || !removals.isEmpty { requestSend() }
+    }
+
+    private func requestSend() {
+        guard automaticallySync, !paused, !stopped else { return }
+        requestedSend = true
+        guard sendTask == nil else { return }
+        // Never await sending from a receive callback: the engine must finish
+        // that callback before starting its next operation.
+        sendTask = Task { await self.sendRequestedChanges() }
+    }
+
+    private func sendRequestedChanges() async {
+        defer { sendTask = nil }
+        while requestedSend, automaticallySync, !paused, !stopped, !Task.isCancelled {
+            requestedSend = false
+            do { try await sendPendingChanges() }
+            catch {
+                if !Task.isCancelled {
+                    let message = error.localizedDescription
+                    await MainActor.run { LedgerStore.shared.lastSyncError = message }
+                    LedgerDiagnostics.failure(error, operation: "cloud-send", logger: LedgerDiagnostics.cloud)
+                }
+                // The durable outbox stays queued; the SDK retries recoverable failures.
+                break
+            }
+        }
     }
 
     nonisolated static func copyUserFields(from source: CKRecord, to target: CKRecord) {
@@ -261,6 +299,12 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
     }
 
     func flush() async throws {
+        if let sendTask { await sendTask.value }
+        try await sendPendingChanges()
+        try await syncEngine().fetchChanges()
+    }
+
+    private func sendPendingChanges() async throws {
         guard !paused else { throw CloudLedgerError.migrationInProgress }
         let engine = try syncEngine()
         for attempt in 0..<3 {
@@ -278,7 +322,6 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
             let after = Set(try storage().pendingIDs() + storage().deletionIDs())
             if attempt == 2 || before == after { throw try detailedSendError(fallback: CloudLedgerError.pendingChanges) }
         }
-        try await engine.fetchChanges()
     }
 
     private func detailedSendError(fallback: Error) throws -> Error {

@@ -43,7 +43,7 @@ extension LedgerStore {
     }
 
     func prepareBooksForICloudSync() {
-        guard canMutateLedger, iCloudSyncReady, AppPreferencesStore.shared.value.iCloudBackupEnabled else { return }
+        guard canMutateLedger, iCloudSyncReady, AppPreferencesStore.shared.value.iCloudSyncEnabled else { return }
         commitActiveBook()
         for index in books.indices where books[index].effectiveStorageKind == .local {
             if books[index].isImplicitPlaceholder == true {
@@ -61,7 +61,7 @@ extension LedgerStore {
         guard let book = books.first(where: { $0.id == id }) else { return }
         if book.effectiveStorageKind == .cloudParticipant {
             try await CloudLedgerService.shared.leaveSharedLedger(book)
-        } else if book.effectiveStorageKind == .cloudOwner || AppPreferencesStore.shared.value.iCloudBackupEnabled {
+        } else if book.effectiveStorageKind == .cloudOwner || AppPreferencesStore.shared.value.iCloudSyncEnabled {
             // Persist the cloud deletion before removing the local copy, including offline.
             try await CloudLedgerService.shared.deleteOwnedLedger(book)
         }

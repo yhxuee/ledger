@@ -23,7 +23,7 @@ final class ICloudLibraryCoordinator: ObservableObject {
         working = true
         defer { working = false; ICloudBackupBackground.schedule(preferences: preferences.value) }
         do {
-            try await synchronizeAll(store: store)
+            try await prepareBackup(store: store)
             guard preferences.value.iCloudBackupEnabled, store.persistenceEnabled else { return }
             let value = preferences.value
             let due = value.iCloudLastBackupAt.map { value.iCloudBackupInterval.nextDate(after: $0) <= .now } ?? true
@@ -37,7 +37,6 @@ final class ICloudLibraryCoordinator: ObservableObject {
             lastError = nil
         } catch {
             lastError = error.localizedDescription
-            store.lastSyncError = lastError
         }
     }
 
@@ -46,7 +45,7 @@ final class ICloudLibraryCoordinator: ObservableObject {
         guard !working else { throw ICloudLibraryError.busy }
         working = true
         defer { working = false; ICloudBackupBackground.schedule(preferences: preferences.value) }
-        try await synchronizeAll(store: store)
+        try await prepareBackup(store: store)
         guard preferences.value.iCloudBackupEnabled, store.persistenceEnabled else { throw ICloudLibraryError.disabled }
         let date = try await ICloudBackupService.shared.backupLibrary(store.librarySnapshot())
         preferences.update { $0.iCloudLastBackupAt = date }
@@ -61,26 +60,19 @@ final class ICloudLibraryCoordinator: ObservableObject {
         return try await ICloudBackupService.shared.restoreLibrary(existingState: store.state)
     }
 
-    func synchronizeAll(store: LedgerStore) async throws {
+    private func prepareBackup(store: LedgerStore) async throws {
         guard store.persistenceEnabled else { throw BackupError.invalidFormat }
-        // Fetch deletions first, before creating zones or sending a stale local snapshot.
-        try await CloudLedgerService.shared.fetchAllLedgers()
-        for id in store.books.filter({ $0.effectiveEncryptionState == .authorizationRequired }).map(\.id) {
-            await store.restoreAuthorizedLedger(bookID: id)
-        }
-        store.prepareBooksForICloudSync()
         try await store.persistDurableAsync()
-        for book in store.librarySnapshot().books where book.isImplicitPlaceholder != true {
+        for book in store.librarySnapshot().books {
             if book.effectiveEncryptionState == .authorizationRequired || book.effectiveEncryptionState == .migrationFailed || book.effectiveEncryptionState == .enabling {
                 throw LedgerCryptoError.authorizationRequired(ledgerID: book.id, fingerprint: book.keyFingerprint)
             }
             if book.isEncrypted == true {
                 try LedgerKeyStore.publishKeyToICloud(for: book.id, expectedFingerprint: book.keyFingerprint)
             }
-            try await CloudLedgerService.shared.synchronize(book: book)
         }
-        try await CloudLedgerService.shared.flushAllLedgers()
     }
+
 }
 
 @MainActor

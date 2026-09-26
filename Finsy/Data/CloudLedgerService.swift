@@ -20,7 +20,7 @@ actor CloudLedgerService {
             try await configureCallbacksIfNeeded()
             try await ownerSync.recoverIfNeeded()
             try await participantSync.recoverIfNeeded()
-            if await MainActor.run(body: { AppPreferencesStore.shared.value.iCloudBackupEnabled }) {
+            if await MainActor.run(body: { AppPreferencesStore.shared.value.iCloudSyncEnabled }) {
                 try await ownerSync.fetchChanges()
             }
             try await participantSync.fetchChanges()
@@ -48,7 +48,7 @@ actor CloudLedgerService {
     }
 
     func updateICloudPreference() async throws {
-        let enabled = await MainActor.run { AppPreferencesStore.shared.value.iCloudBackupEnabled && LedgerStore.shared.iCloudSyncReady }
+        let enabled = await MainActor.run { AppPreferencesStore.shared.value.iCloudSyncEnabled && LedgerStore.shared.iCloudSyncReady }
         try await ownerSync.setAutomaticallySync(enabled)
     }
 
@@ -186,7 +186,7 @@ actor CloudLedgerService {
     func synchronize(book: LedgerBook, revision: UInt64? = nil) async throws {
         guard book.effectiveStorageKind != .local, let zoneName = book.cloudZoneName else { return }
         if book.effectiveStorageKind == .cloudOwner,
-           !(await MainActor.run { AppPreferencesStore.shared.value.iCloudBackupEnabled && LedgerStore.shared.iCloudSyncReady }) { return }
+           !(await MainActor.run { AppPreferencesStore.shared.value.iCloudSyncEnabled && LedgerStore.shared.iCloudSyncReady }) { return }
         try await configureCallbacksIfNeeded()
         let securityMatches = await MainActor.run {
             guard LedgerStore.shared.persistenceEnabled, let current = LedgerStore.shared.books.first(where: { $0.id == book.id }) else { return false }
@@ -200,7 +200,7 @@ actor CloudLedgerService {
               book.effectiveEncryptionState != .enabling,
               book.effectiveEncryptionState != .migrationFailed else { return }
         if book.isEncrypted == true,
-           await MainActor.run(body: { AppPreferencesStore.shared.value.iCloudBackupEnabled }) {
+           await MainActor.run(body: { AppPreferencesStore.shared.value.iCloudSyncEnabled }) {
             try LedgerKeyStore.publishKeyToICloud(for: book.id, expectedFingerprint: book.keyFingerprint)
         }
         switch book.effectiveStorageKind {

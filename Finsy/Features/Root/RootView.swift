@@ -55,7 +55,7 @@ struct LedgerBookMenu: View {
             if let book = deletingBook {
                 Text(book.effectiveStorageKind == .cloudParticipant
                      ? "Leave \(book.name)? Other participants keep their data."
-                     : "Delete \(book.name) and its records? Synced copies and sharing access are also removed when iCloud Backup is enabled and connected.")
+                     : "Delete \(book.name) and its records? Synced copies and sharing access are also removed when iCloud Sync is enabled and connected.")
             }
         }
     }

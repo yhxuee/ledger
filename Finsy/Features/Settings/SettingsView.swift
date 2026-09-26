@@ -295,6 +295,15 @@ struct SettingsView: View {
             Divider()
 
             NavigationLink {
+                ICloudSyncSettingsView()
+            } label: {
+                SettingsLinkRow("iCloud Sync", systemImage: "arrow.triangle.2.circlepath.icloud", detail: preferences.value.iCloudSyncEnabled ? "On" : "Off")
+            }
+            .foregroundStyle(.primary)
+
+            Divider()
+
+            NavigationLink {
                 ICloudBackupSettingsView()
             } label: {
                 SettingsLinkRow("iCloud Backup", systemImage: "icloud", detail: preferences.value.iCloudBackupEnabled ? "On" : "Off")

@@ -18,7 +18,7 @@ final class AppPreferencesStore: ObservableObject {
             OverviewWidgetRelay.updatePrivacyMask(isPrivacyMasked: snapshot.biometricLockEnabled)
         }
         saveTask?.cancel()
-        if previous.iCloudBackupEnabled != snapshot.iCloudBackupEnabled || previous.iCloudBackupInterval != snapshot.iCloudBackupInterval || previous.iCloudLastBackupAt != snapshot.iCloudLastBackupAt {
+        if previous.iCloudSyncEnabled != snapshot.iCloudSyncEnabled || previous.iCloudBackupEnabled != snapshot.iCloudBackupEnabled || previous.iCloudBackupInterval != snapshot.iCloudBackupInterval || previous.iCloudLastBackupAt != snapshot.iCloudLastBackupAt {
             do { try Self.write(snapshot) }
             catch {
                 value = previous

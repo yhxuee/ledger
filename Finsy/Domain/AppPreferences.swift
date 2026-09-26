@@ -167,6 +167,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
         RecordingReminderSlot(id: 3, isEnabled: false, hour: 21, minute: 0)
     ]
 
+    var iCloudSyncEnabled = false
     var iCloudBackupEnabled = false
     var iCloudBackupInterval: ICloudBackupInterval = .day
     var iCloudLastBackupAt: Date? = nil
@@ -201,7 +202,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
     var turboModeEnabled: Bool = false
 
     enum CodingKeys: String, CodingKey {
-        case iCloudBackupEnabled, iCloudBackupInterval, iCloudLastBackupAt
+        case iCloudSyncEnabled, iCloudBackupEnabled, iCloudBackupInterval, iCloudLastBackupAt
         case splitActionOnRightSwipe, reimbursementActionOnRightSwipe
         case schemaVersion, languageCode, biometricLockEnabled, swipeActionOrientation, transactionSwipeActions, hapticFeedbackEnabled, dateFormat, transactionLayout, overviewMetrics, overviewCardLayout, accountCardMaterialStyle
         case cashFlowForecastEnabled, forecastYellowThreshold, forecastRedThreshold
@@ -261,6 +262,8 @@ struct AppPreferences: Codable, Hashable, Sendable {
         splitActionOnRightSwipe = try values.decodeIfPresent(Bool.self, forKey: .splitActionOnRightSwipe) ?? true
         reimbursementActionOnRightSwipe = try values.decodeIfPresent(Bool.self, forKey: .reimbursementActionOnRightSwipe) ?? true
         iCloudBackupEnabled = try values.decodeIfPresent(Bool.self, forKey: .iCloudBackupEnabled) ?? false
+        // Earlier versions enabled sync through the backup switch. Preserve that choice.
+        iCloudSyncEnabled = try values.decodeIfPresent(Bool.self, forKey: .iCloudSyncEnabled) ?? iCloudBackupEnabled
         iCloudBackupInterval = try values.decodeIfPresent(ICloudBackupInterval.self, forKey: .iCloudBackupInterval) ?? .day
         iCloudLastBackupAt = try values.decodeIfPresent(Date.self, forKey: .iCloudLastBackupAt)
         schemaVersion = try values.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1

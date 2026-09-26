@@ -5,6 +5,7 @@ import UIKit
 struct AccountsView: View {
     @EnvironmentObject private var store: LedgerStore
     @EnvironmentObject private var preferences: AppPreferencesStore
+    @EnvironmentObject private var privacy: PrivacyController
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var stockRefresh = StockQuoteRefreshService.shared
     @State private var editing: AccountViewModel?
@@ -115,6 +116,10 @@ struct AccountsView: View {
                                 return NSItemProvider(object: "finsy-account:\(store.activeBookID):\(item.id)" as NSString)
                             } preview: {
                                 accountRowContent(item)
+                                    // Drag previews are hosted outside the list's environment.
+                                    .environmentObject(privacy)
+                                    .environmentObject(store)
+                                    .environmentObject(preferences)
                                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                             }
                             .dropDestination(for: String.self) { values, _ in
