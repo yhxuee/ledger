@@ -422,13 +422,15 @@ private struct ExpenseMetricContent: View {
 
         GeometryReader { proxy in
             let availableHeight = proxy.size.height
-            let diameter = min(max(55, availableHeight - (isSideColumn ? 6 : 10)), isSideColumn ? 64 : 68)
+            let horizontalDiameter = min(42, max(28, proxy.size.width * 0.28))
+            let diameter = isSideColumn ? min(max(55, availableHeight - 6), 64) : horizontalDiameter
+            let textWidth = max(1, proxy.size.width - diameter - (isSideColumn ? 8 : 6))
 
-            HStack(alignment: .center, spacing: isSideColumn ? 8 : 10) {
+            HStack(alignment: .center, spacing: isSideColumn ? 8 : 6) {
                 donutView(diameter: diameter)
 
                 VStack(alignment: .leading, spacing: isSideColumn ? 2 : 3) {
-                    SensitiveMoneyText(amount: total, currency: currency, compact: true)
+                    SensitiveMoneyText(amount: total, currency: currency, compact: isSideColumn, maxIntegerDigits: isSideColumn ? nil : 3)
                         .font(valueFont)
                         .minimumScaleFactor(0.65)
                         .lineLimit(1)
@@ -449,16 +451,19 @@ private struct ExpenseMetricContent: View {
 
                                     Spacer(minLength: 3)
 
-                                    SensitiveMoneyText(amount: item.value, currency: currency, compact: true)
+                                    SensitiveMoneyText(amount: item.value, currency: currency, compact: isSideColumn, maxIntegerDigits: isSideColumn ? nil : 2)
                                         .font(.caption2)
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
+                                        .minimumScaleFactor(0.65)
+                                        .layoutPriority(1)
                                 }
                             }
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: textWidth, alignment: .leading)
+                .layoutPriority(1)
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .center)
         }

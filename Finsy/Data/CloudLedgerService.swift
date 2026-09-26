@@ -146,8 +146,25 @@ actor CloudLedgerService {
 
     func accept(_ metadata: CKShare.Metadata) async throws -> LedgerBook {
         try await configureCallbacksIfNeeded()
-        try await container.accept(metadata)
-        let zoneID = metadata.share.recordID.zoneID
+        guard metadata.containerIdentifier == "iCloud.com.finsy.app" else { throw CloudLedgerError.shareUnavailable }
+        if metadata.participantStatus != .accepted { try await container.accept(metadata) }
+        let invitedZone = metadata.share.recordID.zoneID
+        let database = container.sharedCloudDatabase
+        var resolvedZone: CKRecordZone.ID?
+        // The shared database uses the owner's actual record name, which may differ
+        // from the invitation's private-database default-owner identifier.
+        for attempt in 0..<4 {
+            let zones = try await database.allRecordZones().map(\.zoneID)
+            if zones.contains(invitedZone) { resolvedZone = invitedZone; break }
+            let matches = zones.filter { $0.zoneName == invitedZone.zoneName }
+            if let ownerName = metadata.ownerIdentity.userRecordID?.recordName,
+               let match = matches.first(where: { $0.ownerName == ownerName }) {
+                resolvedZone = match; break
+            }
+            if matches.count == 1 { resolvedZone = matches[0]; break }
+            if attempt < 3 { try await Task.sleep(for: .seconds(1)) }
+        }
+        guard let zoneID = resolvedZone else { throw CloudLedgerError.shareUnavailable }
         try await participantSync.allowRestoredZone(zoneID)
         let records = try await fetchZoneSnapshot(database: container.sharedCloudDatabase, zoneID: zoneID)
         try receiveCloudGrants(records)
@@ -807,10 +824,12 @@ actor CloudLedgerService {
                 changeToken = page.changeToken
                 moreComing = page.moreComing
             } catch let error as CKError where error.code == .zoneNotFound {
-                // Zone does not exist on server yet. Ensure it is created and return empty snapshot.
+                // Participants cannot create an owner's shared zone.
+                guard database.databaseScope == .private else { throw error }
                 try await ensureZoneExists(database: database, zoneID: zoneID)
                 return []
             } catch let nsError as NSError where nsError.domain == CKErrorDomain && nsError.code == CKError.Code.zoneNotFound.rawValue {
+                guard database.databaseScope == .private else { throw nsError }
                 try await ensureZoneExists(database: database, zoneID: zoneID)
                 return []
             }

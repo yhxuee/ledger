@@ -11,7 +11,11 @@ final class CloudRecordJournal {
         database = try LedgerDiskDatabase(url: folder.appending(path: "records.sqlite"))
         assets = folder.appending(path: "Assets", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true,
-                                              attributes: [.protectionKey: FileProtectionType.complete])
+                                              attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: assets.path)
+        for url in try FileManager.default.contentsOfDirectory(at: assets, includingPropertiesForKeys: nil) {
+            try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: url.path)
+        }
     }
 
     static func key(_ id: CKRecord.ID) -> String {
@@ -44,7 +48,7 @@ final class CloudRecordJournal {
             if source.deletingLastPathComponent().standardizedFileURL == assets.standardizedFileURL { continue }
             let destination = assets.appending(path: UUID().uuidString)
             try FileManager.default.copyItem(at: source, to: destination)
-            try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: destination.path)
+            try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: destination.path)
             record[field] = CKAsset(fileURL: destination)
         }
         let assetPaths = ["receipt", "noteAttachment"].compactMap { (record[$0] as? CKAsset)?.fileURL?.path }

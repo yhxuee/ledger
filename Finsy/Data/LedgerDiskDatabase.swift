@@ -9,15 +9,28 @@ final class LedgerDiskDatabase: @unchecked Sendable {
     init(url: URL) throws {
         #if !os(macOS)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
-                                              attributes: [.protectionKey: FileProtectionType.complete])
+                                              attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
         #else
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        #endif
+        #if !os(macOS)
+        // CloudKit can keep SQLite/WAL shared-memory mappings alive after the screen locks.
+        // Complete protection invalidates those pages and causes an uncatchable SIGBUS.
+        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                                              ofItemAtPath: url.deletingLastPathComponent().path)
+        for suffix in ["", "-wal", "-shm"] {
+            let path = url.path + suffix
+            if FileManager.default.fileExists(atPath: path) {
+                try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: path)
+            }
+        }
         #endif
         guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
             let failure = error(); sqlite3_close(handle); handle = nil; throw failure
         }
         do {
             sqlite3_busy_timeout(handle, 5_000)
+            try execute("PRAGMA mmap_size = 0")
             try execute("PRAGMA journal_mode = WAL")
             try execute("PRAGMA synchronous = FULL")
             try execute("PRAGMA secure_delete = ON")
@@ -66,7 +79,7 @@ final class LedgerDiskDatabase: @unchecked Sendable {
             for suffix in ["", "-wal", "-shm"] {
                 let path = url.path + suffix
                 if FileManager.default.fileExists(atPath: path) {
-                    try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: path)
+                    try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: path)
                 }
             }
             #endif

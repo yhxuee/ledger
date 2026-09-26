@@ -125,6 +125,7 @@ public enum LedgerAccessState: Sendable {
     @Published var activeBookID: UUID
     @Published var currencyCatalog: [CurrencyDescriptor]
     @Published var presentedError: String?
+    @Published var acceptingCloudShare = false
     @Published var incomingDeviceAuthorization: IncomingDeviceAuthorization?
     /// Nonfatal Purchase Mode infrastructure notice (App Group bridge / Live Activity).
     /// Never used for business-logic failures and never presented as a modal alert.

@@ -15,7 +15,13 @@ struct FinsyApp: App {
                 .environmentObject(preferences)
                 .environmentObject(privacy)
                 .preferredColorScheme(nil)
-                .onOpenURL { store.handleDeepLink($0) }
+                .onOpenURL {
+                    CloudShareSceneDelegate.open($0)
+                    store.handleDeepLink($0)
+                }
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                    if let url = activity.webpageURL { CloudShareSceneDelegate.open(url) }
+                }
                 .onReceive(NotificationCenter.default.publisher(for: .acceptedCloudLedger)) { notification in
                     if let book = notification.object as? LedgerBook { store.addOrMergeCloudBook(book) }
                     else if let error = notification.object as? Error { store.presentedError = error.localizedDescription }

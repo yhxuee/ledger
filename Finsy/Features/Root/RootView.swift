@@ -155,8 +155,18 @@ struct RootView: View {
         ZStack { LedgerBackground(); content }
             .alert("Finsy", isPresented: Binding(get: { store.presentedError != nil }, set: { if !$0 { store.presentedError = nil } })) { Button("OK") { store.presentedError = nil } } message: { Text(store.presentedError ?? "") }
             .overlay(alignment: .bottom) { bottomOverlays }
+            .overlay {
+                if store.acceptingCloudShare {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("Opening shared ledger?").font(.subheadline)
+                    }
+                    .padding(24)
+                    .ledgerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                }
+            }
             .onChange(of: store.activeBookID) { _, _ in selectedAccountID = nil }
-            .onChange(of: store.activeRoute) { _, route in
+            .onReceive(store.$activeRoute) { route in
                 switch route {
                 case .account(let id):
                     selectedAccountID = id
