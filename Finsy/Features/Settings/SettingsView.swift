@@ -487,7 +487,7 @@ struct SettingsView: View {
             try await store.resetLocalData()
             preferences.reset()
             privacy.protectionWasDisabled()
-            statusMessage = "Local app data was reset. Shared CloudKit data was not deleted."
+            statusMessage = "Local app data was reset. Encryption keys and CloudKit ledgers were preserved."
         } catch {
             store.presentedError = error.localizedDescription
         }
@@ -609,7 +609,7 @@ private struct SettingsAlertsModifier: ViewModifier {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This clears local ledgers, receipts, caches, and device preferences. It does not delete CloudKit ledgers owned by or shared with other people.")
+                Text("This clears local ledgers, receipts, caches, and device preferences. Encryption keys and CloudKit ledgers are preserved.")
             }
             .confirmationDialog("Cloud Changes Pending", isPresented: $confirmingPendingCloud, titleVisibility: .visible) {
                 Button("Continue Anyway") {

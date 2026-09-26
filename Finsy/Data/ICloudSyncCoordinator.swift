@@ -8,6 +8,7 @@ final class ICloudSyncCoordinator: ObservableObject {
     @Published private(set) var phase = ""
     @Published private(set) var startedAt: Date?
     @Published private(set) var lastCompletedAt: Date?
+    @Published private(set) var awaitingAuthorizationCount = 0
     private var operation: Task<Void, Error>?
     private var timedOut = false
 
@@ -37,7 +38,7 @@ final class ICloudSyncCoordinator: ObservableObject {
             try Task.checkCancellation()
             guard !work.isCancelled else { throw CancellationError() }
             lastCompletedAt = .now
-            phase = "Up to date"
+            phase = awaitingAuthorizationCount == 0 ? "Up to date" : "Waiting for device authorization"
             store.lastSyncError = nil
         } catch {
             phase = timedOut ? "Sync timed out" : (work.isCancelled ? "Sync stopped" : "Sync failed")
@@ -57,6 +58,7 @@ final class ICloudSyncCoordinator: ObservableObject {
         }
         try Task.checkCancellation()
         phase = "Checking device authorization..."
+        awaitingAuthorizationCount = 0
         for id in store.books.filter({ $0.effectiveEncryptionState == .authorizationRequired }).map(\.id) {
             await store.restoreAuthorizedLedger(bookID: id)
         }
@@ -69,8 +71,12 @@ final class ICloudSyncCoordinator: ObservableObject {
         for (index, book) in books.enumerated() {
             try Task.checkCancellation()
             phase = "Preparing ledger \(index + 1) of \(books.count)..."
-            if book.effectiveEncryptionState == .authorizationRequired || book.effectiveEncryptionState == .migrationFailed || book.effectiveEncryptionState == .enabling {
-                throw LedgerCryptoError.authorizationRequired(ledgerID: book.id, fingerprint: book.keyFingerprint)
+            if book.effectiveEncryptionState == .authorizationRequired {
+                awaitingAuthorizationCount += 1
+                continue // A locked ledger must not block other authorized ledgers.
+            }
+            if book.effectiveEncryptionState == .migrationFailed || book.effectiveEncryptionState == .enabling {
+                continue // Encryption migration owns these ledgers; never send plaintext.
             }
             if book.isEncrypted == true {
                 try LedgerKeyStore.validateLocalKey(for: book.id, expectedFingerprint: book.keyFingerprint)

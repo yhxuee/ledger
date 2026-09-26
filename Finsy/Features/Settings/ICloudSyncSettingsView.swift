@@ -49,6 +49,10 @@ struct ICloudSyncSettingsView: View {
                         Button("Stop Sync") { Task { await coordinator.cancel() } }
                     }
                 } else {
+                    if coordinator.awaitingAuthorizationCount > 0 {
+                        Text("\(coordinator.awaitingAuthorizationCount) ledgers awaiting automatic device authorization. Keep an authorized device online.")
+                            .font(.footnote).foregroundStyle(.orange)
+                    }
                     if let error = store.lastSyncError {
                         Text(error).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
                     } else if let date = coordinator.lastCompletedAt {

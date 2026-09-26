@@ -183,12 +183,36 @@ actor CloudLedgerService {
         }
         guard let zoneID = resolvedZone else { throw CloudLedgerError.shareUnavailable }
         try await participantSync.allowRestoredZone(zoneID)
-        let records = try await fetchZoneSnapshot(database: container.sharedCloudDatabase, zoneID: zoneID)
+        var records = try await fetchZoneSnapshot(database: database, zoneID: zoneID)
         try receiveCloudGrants(records)
-        let book = try CloudRecordMapper.decodeBook(from: records, participant: true, attachmentFolder: AttachmentStore.folderURL)
-        scheduleCloudAuthorization(records: records, book: book)
+        var book = try CloudRecordMapper.decodeBook(from: records, participant: true, attachmentFolder: AttachmentStore.folderURL)
         try await participantSync.cache(records: records)
+        if book.isEncrypted == true && book.effectiveEncryptionState == .authorizationRequired {
+            // Accepting a read/write CloudKit share is the consent step. Request its key
+            // immediately, without QR/manual approval. Any authorized participant can reply.
+            try await requestShareAuthorization(book: book, records: records)
+            let deadline = Date.now.addingTimeInterval(30)
+            while book.effectiveEncryptionState == .authorizationRequired && Date.now < deadline {
+                try Task.checkCancellation()
+                try await Task.sleep(for: .seconds(2))
+                records = try await fetchZoneSnapshot(database: database, zoneID: zoneID)
+                try receiveCloudGrants(records)
+                book = try CloudRecordMapper.decodeBook(from: records, participant: true, attachmentFolder: AttachmentStore.folderURL)
+                try await participantSync.cache(records: records)
+            }
+        }
+        // If all peers are offline, retain the accepted locked ledger. Later sync
+        // completes authorization automatically; accepting the invite is not repeated.
+        scheduleCloudAuthorization(records: records, book: book)
         return book
+    }
+
+    private func requestShareAuthorization(book: LedgerBook, records: [CKRecord]) async throws {
+        let request = try LedgerDeviceAuthorization.request(ledgerID: book.id, name: book.name,
+            fingerprint: book.keyFingerprint, purpose: .authorization)
+        if !records.contains(where: { ($0["requestID"] as? String) == request.requestID.uuidString }) {
+            try await postEnrollmentRequest(request, book: book)
+        }
     }
 
     func synchronize(book: LedgerBook, revision: UInt64? = nil) async throws {

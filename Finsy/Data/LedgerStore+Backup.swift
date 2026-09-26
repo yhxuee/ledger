@@ -70,7 +70,9 @@ extension LedgerStore {
         try Self.localRepository.resetLocalData()
         try PurchaseSharedStateStore.resetLocalSnapshots()
         IncrementalLedgerRepository.clearDecryptedCache()
-        try LedgerKeyStore.reset()
+        // Clearing reinstallable local snapshots must never revoke device access.
+        // Only an explicitly confirmed key migration deletes ledger secrets.
+        // Keep identities, current/historical keys, and revocation tombstones in Keychain.
         leaveRecoveryModeAfterReset()
         Task { await PurchaseLiveActivityController.shared.endAll() }
         let initial = SeedData.makeProductionEmpty()

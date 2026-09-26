@@ -13,3 +13,7 @@ source = source.replace('com.finsy.app.', 'com.finsy.verification.' + uuid.uuid4
 PY
 xcrun swiftc -parse-as-library "$task_dir/Models.swift" "$task_dir/LedgerCrypto.swift" Scripts/verify-ledger-crypto.swift -o "$task_dir/verify"
 "$task_dir/verify"
+
+# New processes with no ledger files must retain the same Keychain identity/key.
+"$task_dir/verify" --seed-reinstall "$task_dir/probe.json"
+"$task_dir/verify" --verify-reinstall "$task_dir/probe.json"

@@ -10,11 +10,44 @@ struct LedgerCryptoVerification {
         do { try operation() } catch { return }
         throw NSError(domain: "CryptoVerification", code: 2, userInfo: [NSLocalizedDescriptionKey: message])
     }
+    struct ReinstallProbe: Codable {
+        var ledgerID: UUID
+        var fingerprint: String
+        var publicKey: Data
+        var ciphertext: Data
+    }
     static func main() throws {
+        if CommandLine.arguments.count == 3 {
+            let url = URL(fileURLWithPath: CommandLine.arguments[2])
+            if CommandLine.arguments[1] == "--seed-reinstall" {
+                let id = UUID()
+                let generated = try LedgerKeyStore.generateAndSaveKey(for: id)
+                let sealed = try LedgerCryptoService.encryptBackup(Data("Reinstall recovery".utf8), ledgerID: id, key: generated.key)
+                let probe = ReinstallProbe(ledgerID: id, fingerprint: generated.fingerprint,
+                    publicKey: try LedgerDeviceIdentity.exportPublicKeyData(for: id), ciphertext: sealed.ciphertext)
+                try JSONEncoder().encode(probe).write(to: url)
+                return
+            }
+            if CommandLine.arguments[1] == "--verify-reinstall" {
+                defer { try? LedgerKeyStore.reset() }
+                let probe = try JSONDecoder().decode(ReinstallProbe.self, from: Data(contentsOf: url))
+                let reused = try LedgerKeyStore.generateAndSaveKey(for: probe.ledgerID)
+                try require(reused.fingerprint == probe.fingerprint, "Fresh process changed ledger key")
+                try require(try LedgerDeviceIdentity.exportPublicKeyData(for: probe.ledgerID) == probe.publicKey, "Fresh process changed device identity")
+                let opened = try LedgerCryptoService.decryptBackup(probe.ciphertext, ledgerID: probe.ledgerID,
+                    key: reused.key, formatVersion: 1, expectedFingerprint: probe.fingerprint)
+                try require(opened == Data("Reinstall recovery".utf8), "Old backup no longer decrypts")
+                print("PASS: fresh-process key and identity reuse with old-backup decryption")
+                return
+            }
+        }
         defer { try? LedgerKeyStore.reset() }
         let id = UUID(), otherID = UUID()
         let generated = try LedgerKeyStore.generateAndSaveKey(for: id)
         let unrelated = try LedgerKeyStore.generateAndSaveKey(for: otherID)
+        let reused = try LedgerKeyStore.generateAndSaveKey(for: id)
+        try require(reused.fingerprint == generated.fingerprint, "Reinitialization rotated an existing ledger key")
+        try require(reused.key.withUnsafeBytes { Data($0) } == generated.key.withUnsafeBytes { Data($0) }, "Reinitialization replaced key bytes")
         try require(LedgerKeyStore.hasKey(for: id, expectedFingerprint: generated.fingerprint), "Wrapped local key round trip failed")
         let originalIdentity = try LedgerDeviceIdentity.exportPublicKeyData(for: id)
         try require(originalIdentity == LedgerDeviceIdentity.exportPublicKeyData(for: id), "Identity changed during ordinary use")
@@ -64,6 +97,13 @@ struct LedgerCryptoVerification {
         let ordinaryGrant = try LedgerCryptoService.grantKey(request: ordinary, ledgerKey: unrelated.key)
         try require(try LedgerDeviceAuthorization.receive(ordinaryGrant) == nil, "Ordinary authorization unexpectedly migrated the key")
         try require(LedgerKeyStore.hasKey(for: otherID, expectedFingerprint: unrelated.fingerprint), "Ordinary authorization removed access")
+        try LedgerDeviceIdentity.revoke(for: otherID)
+        try rejects("Orphaned wrapped key was overwritten") {
+            _ = try LedgerKeyStore.generateAndSaveKey(for: otherID)
+        }
+        try rejects("Revoked ledger generated a replacement key") {
+            _ = try LedgerKeyStore.generateAndSaveKey(for: id)
+        }
         print("PASS: device wrapping, stable identity, backup AAD, request binding, expiry, recipient isolation, replay rejection, signed receipts, confirmed revocation, other-ledger preservation, ordinary authorization")
     }
 }

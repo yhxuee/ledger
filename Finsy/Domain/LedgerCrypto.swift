@@ -207,6 +207,22 @@ enum LedgerKeyStore {
     }
 
     static func generateAndSaveKey(for ledgerID: UUID) throws -> (key: SymmetricKey, fingerprint: String) {
+        guard !LedgerDeviceAuthorization.isRevoked(ledgerID) else {
+            throw LedgerCryptoError.authorizationRequired(ledgerID: ledgerID, fingerprint: nil)
+        }
+        // Rebuilding local files after reinstall is not a key rotation.
+        // Preserve the existing key; propagate inaccessible/corrupt Keychain errors.
+        if let existing = try loadKey(for: ledgerID) {
+            return (existing, fingerprint(for: existing, ledgerID: ledgerID))
+        }
+        // A wrapped key can survive while its device identity is inaccessible/missing.
+        // Never overwrite that old key with a newly generated, unrelated key.
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: ledgerID.uuidString,
+            kSecAttrSynchronizable as String: false]
+        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        if status == errSecSuccess { throw LedgerCryptoError.authorizationRequired(ledgerID: ledgerID, fingerprint: nil) }
+        guard status == errSecItemNotFound else { throw LedgerCryptoError.keychainError(status) }
         let key = SymmetricKey(size: .bits256)
         let fp = fingerprint(for: key, ledgerID: ledgerID)
         try saveKey(key, for: ledgerID)
