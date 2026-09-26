@@ -11,6 +11,8 @@ struct ICloudBackupSettingsView: View {
     private var busy: Bool { coordinator.working || restoring }
     private var enabled: Binding<Bool> {
         Binding(get: { preferences.value.iCloudBackupEnabled }, set: { value in
+            // Re-enabling must discover remote deletions before sending offline edits.
+            store.iCloudSyncReady = false
             preferences.update { $0.iCloudBackupEnabled = value }
             ICloudBackupBackground.schedule(preferences: preferences.value)
             Task {
