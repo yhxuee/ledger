@@ -837,19 +837,7 @@ struct DiagnosticsSettingsView: View {
     @MainActor
     private func refreshConnections() async {
         async let bytes = Task.detached(priority: .utility) { () -> Int64 in
-            let manager = FileManager.default
-            let roots = [FileManager.SearchPathDirectory.applicationSupportDirectory, .cachesDirectory, .documentDirectory]
-            var total: Int64 = 0
-            for directory in roots {
-                guard let root = manager.urls(for: directory, in: .userDomainMask).first,
-                      let enumerator = manager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey], options: [.skipsHiddenFiles]) else { continue }
-                for case let url as URL in enumerator {
-                    if let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true {
-                        total += Int64(values.fileSize ?? 0)
-                    }
-                }
-            }
-            return total
+            AboutStorageMeasurement.bytes()
         }.value
         async let cloud: String = probeCloud()
         async let wallet: String = probeWallet()
@@ -1012,5 +1000,25 @@ struct DiagnosticsSettingsView: View {
         formatter.allowedUnits = [.useBytes, .useKB, .useMB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: Int64(bytes))
+    }
+}
+
+private enum AboutStorageMeasurement {
+    static func bytes() -> Int64 {
+        let manager = FileManager.default
+        let directories: [FileManager.SearchPathDirectory] = [.applicationSupportDirectory, .cachesDirectory, .documentDirectory]
+        var roots = directories.compactMap { manager.urls(for: $0, in: .userDomainMask).first }
+        roots.append(Bundle.main.bundleURL)
+        if let shared = manager.containerURL(forSecurityApplicationGroupIdentifier: "group.com.finsy.app") { roots.append(shared) }
+        var total: Int64 = 0
+        for root in roots {
+            guard let enumerator = manager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey], options: [.skipsHiddenFiles]) else { continue }
+            for case let url as URL in enumerator {
+                if let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true {
+                    total += Int64(values.fileSize ?? 0)
+                }
+            }
+        }
+        return total
     }
 }

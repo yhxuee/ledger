@@ -45,7 +45,7 @@ struct ReceiptBarcodeSheet: View {
         }
         .sheet(isPresented: $scanning) {
             NavigationStack {
-                ReceiptCodeScanner { value in message = value; scanning = false }
+                ReceiptCodeScanner(onScan: { value in message = value; scanning = false }, onError: { value in error = value; scanning = false })
                     .ignoresSafeArea(edges: .bottom)
                     .navigationTitle("Scan Receipt")
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { scanning = false } } }
@@ -69,17 +69,41 @@ struct ReceiptBarcodeSheet: View {
 
 private struct ReceiptCodeScanner: UIViewControllerRepresentable {
     var onScan: (String) -> Void
+    var onError: (String) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(onScan: onScan) }
-    func makeUIViewController(context: Context) -> DataScannerViewController {
-        let controller = DataScannerViewController(recognizedDataTypes: [.barcode()], qualityLevel: .balanced,
+    func makeUIViewController(context: Context) -> ScannerContainer {
+        let container = ScannerContainer()
+        container.scanner.delegate = context.coordinator
+        container.onError = onError
+        return container
+    }
+    func updateUIViewController(_ controller: ScannerContainer, context: Context) {}
+    static func dismantleUIViewController(_ controller: ScannerContainer, coordinator: Coordinator) { controller.scanner.stopScanning() }
+
+    final class ScannerContainer: UIViewController {
+        let scanner = DataScannerViewController(recognizedDataTypes: [.barcode()], qualityLevel: .balanced,
             recognizesMultipleItems: false, isHighFrameRateTrackingEnabled: false,
             isPinchToZoomEnabled: true, isGuidanceEnabled: true, isHighlightingEnabled: true)
-        controller.delegate = context.coordinator
-        try? controller.startScanning()
-        return controller
+        var onError: ((String) -> Void)?
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            addChild(scanner)
+            view.addSubview(scanner.view)
+            scanner.view.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                scanner.view.topAnchor.constraint(equalTo: view.topAnchor),
+                scanner.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+                scanner.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                scanner.view.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+            ])
+            scanner.didMove(toParent: self)
+        }
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            do { try scanner.startScanning() }
+            catch { onError?("Camera scanning is unavailable. Import a receipt image or enter the code.") }
+        }
     }
-    func updateUIViewController(_ controller: DataScannerViewController, context: Context) {}
-    static func dismantleUIViewController(_ controller: DataScannerViewController, coordinator: Coordinator) { controller.stopScanning() }
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
         let onScan: (String) -> Void
         init(onScan: @escaping (String) -> Void) { self.onScan = onScan }
