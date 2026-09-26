@@ -128,7 +128,7 @@ for path, bundle, is_app in ((app, "com.finsy.app", True),
 
     # iCloud authorization (for main app)
     if is_app:
-        pass_types = {f"{team}.pass.com.finsy.{kind}" for kind in ("account", "receipt", "tax")}
+        pass_types = {f"{team}.pass.com.finsy.{kind}" for kind in ("account", "receipt")}
         signed_pass_types = set(signature.get("com.apple.developer.pass-type-identifiers", []))
         profile_pass_types = set(authorized.get("com.apple.developer.pass-type-identifiers", []))
         require(pass_types <= signed_pass_types,

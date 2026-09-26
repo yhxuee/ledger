@@ -39,8 +39,6 @@ struct ICloudBackupSettingsView: View {
                     }
                     .pickerStyle(.segmented)
                     .disabled(busy)
-                    Text("D · Daily   W · Weekly   M · Monthly")
-                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 SettingsGlassSection("Backup & Restore") {
                     Button {

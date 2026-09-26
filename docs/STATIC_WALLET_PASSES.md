@@ -1,41 +1,32 @@
-# Static Apple Wallet Passes
+# Apple Wallet Passes
 
-## 1. Scope and Design Principles
+## Account pass
 
-Finsy integrates static Apple Wallet passes using native `PassKit` (`PKPassLibrary`) without introducing any external services or compromising user privacy.
+- Uses Apple's `storeCard` layout with the app logo and Finsy name.
+- The fixed serial `finsy-primary-account-pass` prevents duplicate account cards.
+- Source is All (net worth) or one account in its own currency.
+- Header: current month. Primary: balance. Secondary: monthly expenses and income.
+- Auxiliary: entry count and account budget remaining, or today's spending when category budgets are selected.
+- Back: source account and the most recent five posted entries.
+- Up to ten relevant locations can provide Lock Screen suggestions.
 
-### Explicit Non-Goals & Out-of-Scope Items
-- **Zero FinanceKit**: Absolutely no FinanceKit APIs, entitlements, or models.
-- **Zero Bank Reading**: No access to Apple Pay, Wallet bank card numbers, or bank transaction history.
-- **Zero Background Updates**: No PassKit Web Service registrations (`/v1/devices/...`), no APNs push certificates, no silent background wakeups.
-- **Zero Automatic Pass Updates**: The Account Pass is intentionally updated solely via manual user initiation ("Update Pass in Wallet").
+## Receipt pass
 
----
+- Uses Apple's `coupon` layout with a subtle theme-colored serrated strip.
+- Header: transaction date in the chosen Settings order. Primary: actual paid total.
+- Secondary: item count and account tag. Auxiliary: invoice number and ledger refund status.
+- Back: store, tax and itemized details.
+- Add-to-Wallet asks whether to include a barcode. Scan a real receipt or import a photo, then choose QR or Code 128.
+- Stable serial `purchase-{sessionID}` allows ledger changes to replace the installed receipt.
+- Invoice numbers are assigned in creation order and retained in the purchase session. Legacy sessions receive numbers when saved.
 
-## 2. Supported Passes
+## Updates and compatibility
 
-### 1. Primary Account Pass (Single Static Pass)
-- **Identity**: Fixed `passTypeIdentifier` (`pass.com.finsy.account`) and deterministic `serialNumber` (`finsy-primary-account-pass`).
-- **Configuration**: Managed in `SettingsView -> Functions -> Apple Wallet` (`WalletSettingsView.swift`).
-- **Source Selection**:
-  - `All Accounts (Net Worth)`: Calculates cumulative net worth converted into the user's primary currency.
-  - `Specific Account`: Tracks a designated account's current balance in its native currency.
-- **Relevant Locations**:
-  - Supports up to 10 user-configured geofenced coordinates (`latitude`, `longitude`, `relevantText`).
-  - Enables iOS Lock Screen pass suggestions when the user is physically near designated supermarkets, shops, or transit stops.
-- **Manual Refresh**:
-  - User explicitly taps **Update Pass in Wallet**.
-  - Calls `PKPassLibrary.replacePass(with:)` directly in place without creating duplicate cards.
+While Finsy is open, ledger changes, synchronization and relevant settings changes
+refresh installed passes through the HTTPS issuer and `PKPassLibrary.replacePass`.
+The app also refreshes on foreground entry. A manual update remains available.
+There is no Wallet web-service registration or background APNs pass update.
+Older receipts with random serial numbers remain snapshots; add a new receipt to enable refresh.
+Tax Pass has been removed. Tax analytics exports a serrated receipt image.
 
-### 2. Purchase Receipt Pass
-- **Style**: Coupon pass with a serrated paper strip image.
-- **Trigger**: Generated upon completion of a Purchase Session from `PurchaseSummaryView`.
-- **Content**: Store/merchant name, items summary (e.g. top items), total amount spent, currency, finalization timestamp.
-
-### 3. Monthly Expense Tax Statement Pass
-- **Style**: Coupon pass with a serrated paper strip image.
-- **Trigger**: Generated from `TaxAnalyticsPage`.
-- **Content**:
-  - Monthly taxable expenses and total tax paid.
-  - **Expense Tax Only**: Income tax is strictly excluded to preserve accurate business expense deductibility records.
-  - Parity with `LedgerCalculations.taxAnalytics`.
+See [issuer setup](WALLET_PASS_ISSUER.md) and [server instructions](../WalletIssuer/README.md).

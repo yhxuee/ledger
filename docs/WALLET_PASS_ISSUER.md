@@ -1,213 +1,52 @@
-# Apple Wallet Pass Signing Architecture (`WalletPassIssuer`)
+# Wallet Pass Issuer
 
-## 1. Security Architecture & Boundary
+## Signing boundary
 
-Apple Wallet `.pkpass` bundles require cryptographic signatures using a Pass Type ID Certificate issued by Apple Developer and an Apple Worldwide Developer Relations (WWDR) certificate.
+Pass Type ID private keys and the WWDR certificate remain on the signing server.
+The app posts account or receipt snapshots over HTTPS and receives signed `.pkpass`
+data. It never stores pass signing keys or reads bank transactions from Wallet.
 
-### Client-Side Security Rule
-**Private keys must NEVER reside on client iOS devices.** 
-Storing `.p12` certificates or private keys within the application bundle or client keychain poses a severe security risk:
-- Binaries can be disassembled and private keys extracted.
-- Revoking a compromised certificate breaks pass generation for all existing users.
+## Setup
 
-Consequently, Finsy strictly enforces a **server-side signing boundary**.
+1. Register `pass.com.finsy.account` and `pass.com.finsy.receipt`, with matching certificates.
+2. Include those pass identifiers in the app's Wallet capability and distribution profile.
+3. Deploy the server and logo assets from `WalletIssuer/`. It provides `POST /account`, `POST /purchase-receipt`, and `GET /health`.
+4. Set `FINSY_WALLET_PASS_ISSUER_URL` to the HTTPS base URL. It is injected into the app's Info.plist by the build workflow.
+5. Validate installation, replacement, refund updates and barcode scanning on a signed iPhone build.
 
-### External Signing Server Notice
-> [!IMPORTANT]
-> This repository includes a small server-side signing service in `WalletIssuer/`. Pass signing private keys remain on the deployed server, outside Git. The iOS app reaches the service through `FINSY_WALLET_PASS_ISSUER_URL`.
->
-> The client now sends the complete itemized payload including `items`, `taxAmount`, and `formattedTax`. **The external signing server must be upgraded according to the contract below before issued `.pkpass` files will visually display itemized lines and tax in Apple Wallet.**
+`/tax-receipt` is no longer supported. Tax exports are generated in the app.
 
-### Required setup before distribution
+## Snapshot contract
 
-1. In Apple Developer, register `pass.com.finsy.account`, `pass.com.finsy.receipt`, and `pass.com.finsy.tax` as Pass Type IDs. Create a separate Pass Type ID signing certificate and private key for each. The Apple Distribution app certificate does not sign Wallet passes.
-2. Enable the Wallet capability for the existing `com.finsy.app` App ID and select those three pass types. Regenerate its App Store distribution provisioning profile after changing the capability. The widget does not need Wallet access.
-3. Deploy an HTTPS signing service implementing `POST /account`, `POST /purchase-receipt`, and `POST /tax-receipt` according to this document. Keep the pass signing private keys and Apple WWDR certificate on the server. Each response must be a valid signed `.pkpass` with a pass type identifier matching its signing certificate.
-4. Set the GitHub Actions repository secret `FINSY_WALLET_PASS_ISSUER_URL` to the service base URL, with no trailing endpoint suffix. The signed workflow injects it into the app's Info.plist and verifies the archive. A local Xcode build can set the same build setting or use the environment variable for development.
-5. Install the signed build on a Wallet-capable iPhone and exercise both Settings and a completed purchase. Test the add prompt, installation, detection, and manual account pass replacement. TestFlight upload alone does not validate the pass signing service.
+The Swift definitions in `WalletPassModels.swift` and `WalletIssuer/server.py` are
+the contract. Foundation dates use seconds since 2001-01-01; human-readable dates
+and amounts are formatted by the client to honor Settings and currency prefixes.
 
-The issuer receives account balances and purchase details over HTTPS. Restrict access to the issuer and retain no payloads unless that is explicitly intended; a public endpoint without abuse controls can be used to generate passes at your expense.
+| Receipt field | Wallet region |
+| --- | --- |
+| `formattedDate` | Header |
+| `formattedTotal` | Primary |
+| `itemCount`, `payment` | Secondary |
+| `invoiceNumber`, `transactionStatus` | Auxiliary |
+| `storeName`, `formattedTax`, `items` | Back |
+| `themeColorHex` | Generated strip artwork |
+| Optional `barcode.message`, `barcode.format` | QR or Code 128 |
 
----
+| Account field | Wallet region |
+| --- | --- |
+| `monthTitle` | Header |
+| `formattedBalance` | Primary |
+| `formattedExpenses`, `formattedIncome` | Secondary |
+| `entries`, `remainingLabel`, `formattedRemaining` | Auxiliary |
+| `title`, `recentEntries` | Back |
 
-## 2. The `WalletPassIssuer` Client Architecture
+Receipt totals use recorded item payments after coupon discounts. Refund status
+comes from linked ledger transactions. Existing tax snapshots remain historical;
+changing tax settings does not recompute previously recorded tax.
 
-Pass issuance is abstracted behind the `WalletPassIssuer` protocol in `Finsy/Data/WalletPassIssuer.swift`:
+## Verification
 
-```swift
-protocol WalletPassIssuer: Sendable {
-    var isConfigured: Bool { get }
-    func issueAccountPass(snapshot: AccountPassSnapshot) async throws -> PKPass
-    func issuePurchaseReceiptPass(snapshot: PurchaseReceiptPassSnapshot) async throws -> PKPass
-    func issueTaxReceiptPass(snapshot: TaxReceiptPassSnapshot) async throws -> PKPass
-}
-```
-
-### Client Implementations
-
-1. **`NetworkWalletPassIssuer` (Production)**:
-   - Configured via `FINSY_WALLET_PASS_ISSUER_URL`.
-   - Sends HTTP POST requests with JSON snapshot payloads to `{FINSY_WALLET_PASS_ISSUER_URL}/{endpointSuffix}`.
-   - Accepts binary `application/vnd.apple.pkpass` responses and initializes `PKPass(data: data)`.
-   - If no endpoint is configured or the network request fails, surfaces a clear localized error.
-
-2. **`MockWalletPassIssuer` (Test & Debug)**:
-   - Available under `#if DEBUG`.
-   - Records incoming snapshots (`lastAccountSnapshot`, `lastPurchaseSnapshot`, `lastTaxSnapshot`) for assertions in unit tests without requiring live network calls.
-
----
-
-## 3. Purchase Receipt Signing Endpoint Contract
-
-### HTTP Request
-- **Method**: `POST`
-- **Path**: `{FINSY_WALLET_PASS_ISSUER_URL}/purchase-receipt`
-- **Headers**:
-  ```http
-  Content-Type: application/json
-  Accept: application/vnd.apple.pkpass
-  ```
-
-### HTTP Response
-- **Status 200 OK**:
-  - `Content-Type: application/vnd.apple.pkpass`
-  - Body: Valid signed `.pkpass` ZIP archive.
-- **Status 4xx / 5xx**:
-  - `Content-Type: application/json`
-  - Body: `{"error": "Description of failure"}`
-
----
-
-## 4. Inbound JSON Payload Schema (`PurchaseReceiptPassSnapshot`)
-
-The client serializes `PurchaseReceiptPassSnapshot` to JSON. Outbound requests from the client always include all fields below:
-
-```json
-{
-  "passTypeIdentifier": "pass.com.finsy.receipt",
-  "serialNumber": "purchase-B8A4E391-7C6B-4C0E-92B1-5674751A29D4",
-  "sessionID": "B8A4E391-7C6B-4C0E-92B1-5674751A29D4",
-  "storeName": "Supermarket Supplies",
-  "totalAmount": 128.50,
-  "currency": "HKD",
-  "formattedTotal": "HK$128.50",
-  "itemCount": 3,
-  "itemsSummary": "Apples, Whole Wheat Bread, Fresh Milk",
-  "items": [
-    {
-      "name": "Apples",
-      "category": "Groceries",
-      "amount": 28.50,
-      "formattedAmount": "HK$28.50"
-    },
-    {
-      "name": "Whole Wheat Bread",
-      "category": "Groceries",
-      "amount": 35.00,
-      "formattedAmount": "HK$35.00"
-    },
-    {
-      "name": "Fresh Milk",
-      "category": "Groceries",
-      "amount": 65.00,
-      "formattedAmount": "HK$65.00"
-    }
-  ],
-  "taxAmount": 10.50,
-  "formattedTax": "HK$10.50",
-  "finalizedAt": "2026-09-22T12:30:00Z"
-}
-```
-
-### Field Descriptions
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `passTypeIdentifier` | String | Yes | Apple Pass Type Identifier registered in Apple Developer Portal. |
-| `serialNumber` | String | Yes | Unique pass serial number (`purchase-{sessionID}`). |
-| `sessionID` | String (UUID) | Yes | Purchase session unique identifier. |
-| `storeName` | String | Yes | Name of the store or purchase session. |
-| `totalAmount` | Number | Yes | Total purchase amount in session currency. |
-| `currency` | String | Yes | 3-letter currency code (e.g. `HKD`, `USD`, `EUR`). |
-| `formattedTotal` | String | Yes | Formatted total with currency symbol (e.g. `HK$128.50`). |
-| `itemCount` | Integer | Yes | Count of canonical items in the purchase session. |
-| `itemsSummary` | String | Yes | Comma-separated summary of first items (backward compatibility). |
-| `items` | Array | Yes | Complete array of itemized purchase items (`PurchaseReceiptPassItem`). |
-| `items[].name` | String | Yes | Item note or category name fallback. |
-| `items[].category` | String | Yes | Display name of the item category. |
-| `items[].amount` | Number | Yes | Item cost in session currency. |
-| `items[].formattedAmount` | String | Yes | Formatted item amount with currency symbol. |
-| `taxAmount` | Number | Yes | Resolved tax amount. |
-| `formattedTax` | String | Yes | Formatted tax amount with currency symbol (e.g. `HK$10.50`). |
-| `finalizedAt` | String (ISO 8601) | Yes | UTC timestamp when session was completed or created. |
-
----
-
-## 5. Expected Server-Side `pass.json` Field Mapping
-
-The signing server must map the snapshot payload into `pass.json` fields using stable keys (never localized display strings as keys):
-
-### Pass Structure
-- **Pass Style**: `coupon` for purchase receipts and monthly expense tax statements. A transparent `strip.png` with triangular top and bottom edges gives the paper-ticket appearance within Wallet's fixed card outline. The account pass remains `generic`.
-
-### Header Fields
-- `key`: `"store"`
-  - `label`: `"STORE"`
-  - `value`: `snapshot.storeName`
-
-### Primary Fields (Card Front - Large Value)
-- `key`: `"total"`
-  - `label`: `"TOTAL"`
-  - `value`: `snapshot.formattedTotal`
-
-### Secondary Fields (Card Front - Mid-Row)
-- `key`: `"tax"`
-  - `label`: `"TAX"`
-  - `value`: `snapshot.formattedTax`
-- `key`: `"itemCount"`
-  - `label`: `"ITEMS"`
-  - `value`: `"\(snapshot.itemCount) items"`
-
-### Auxiliary Fields (Card Front - Lower Row)
-- `key`: `"date"`
-  - `label`: `"DATE"`
-  - `value`: `snapshot.finalizedAt`
-  - `dateStyle`: `"PKDateStyleShort"`
-  - `timeStyle`: `"PKDateStyleShort"`
-
-### Back Fields (Card Back - Itemized Details)
-Because Apple Wallet front-of-card space is strictly constrained, full itemization must be rendered in back fields:
-- Itemized rows:
-  - For each `(index, item)` in `snapshot.items`:
-    - `key`: `"item-\(index)"`
-    - `label`: `"\(item.name) (\(item.category))"`
-    - `value`: `item.formattedAmount`
-- Legacy fallback:
-  - If `snapshot.items` is empty, render:
-    - `key`: `"itemsSummary"`
-    - `label`: `"ITEMS SUMMARY"`
-    - `value`: `snapshot.itemsSummary`
-- Historical receipt note:
-  - `key`: `"receiptNotice"`
-  - `label`: `"RECEIPT"`
-  - `value`: `"Historical purchase receipt finalized in Finsy."`
-
----
-
-## 6. Client / Server Compatibility & Migration
-
-- **Client Forward Transmission**: The iOS client always transmits `items`, `taxAmount`, and `formattedTax` in all outbound requests.
-- **Client Backward Decoding**: The client's `PurchaseReceiptPassSnapshot` implements custom decoding with default fallbacks (`items = []`, `taxAmount = 0.0`, `formattedTax = ""`) so legacy cached or stored snapshot payloads decode cleanly without throwing exceptions.
-- **Server Backward Compatibility**: If the signing server receives older payloads lacking `items` or `taxAmount`, it should gracefully fall back to `itemsSummary` and omit the tax secondary field.
-
----
-
-## 7. Historical Receipt Semantics
-
-- **Snapshot Invariance**: For completed purchase sessions:
-  - Item data is taken from canonical `session.orderedItems`.
-  - Total is taken from `session.plannedAmount`.
-  - Tax is taken from historical recorded transaction snapshots (`PurchaseReceiptCalculations.historicalTax`).
-- **Configuration Independence**:
-  - Changing category tax settings at a later date does NOT alter previously finalized purchase receipts.
-  - Live FX rate updates do NOT rewrite historical item amounts or totals.
+Run `python -m unittest discover -s WalletIssuer -p test_layout.py` to verify fields,
+barcode validation and strip PNG output without keys or network. With a deployed
+issuer and its signing material, `WalletIssuer/smoke.py` verifies signed bundles.
+Compilation does not verify server deployment or Wallet rendering on a device.

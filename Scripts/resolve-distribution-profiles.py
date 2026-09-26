@@ -152,7 +152,7 @@ def verify_and_install_profile(data: bytes, bundle_id: str, is_app: bool, expect
         raise ValueError(f"{bundle_id}: Profile does not authorize group.com.finsy.app (found {groups}).")
 
     if is_app:
-        expected_pass_types = {f"{team_id}.pass.com.finsy.{kind}" for kind in ("account", "receipt", "tax")}
+        expected_pass_types = {f"{team_id}.pass.com.finsy.{kind}" for kind in ("account", "receipt")}
         authorized_pass_types = set(entitlements.get("com.apple.developer.pass-type-identifiers", []))
         if not expected_pass_types <= authorized_pass_types and f"{team_id}.*" not in authorized_pass_types:
             raise ValueError(
