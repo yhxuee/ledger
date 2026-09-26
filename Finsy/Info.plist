@@ -40,6 +40,7 @@
                 <string>org.medx.walletledger.backup</string>
                 <string>com.finsy.app.pairing-request</string>
                 <string>com.finsy.app.key-grant</string>
+                <string>com.finsy.app.transfer-receipt</string>
                 <string>public.json</string>
                 <string>public.comma-separated-values-text</string>
             </array>
@@ -69,6 +70,14 @@
             <key>UTTypeConformsTo</key><array><string>public.data</string></array>
             <key>UTTypeTagSpecification</key><dict>
                 <key>public.filename-extension</key><array><string>fsykey</string></array>
+            </dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key><string>com.finsy.app.transfer-receipt</string>
+            <key>UTTypeDescription</key><string>Finsy Key Transfer Confirmation</string>
+            <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+            <key>UTTypeTagSpecification</key><dict>
+                <key>public.filename-extension</key><array><string>fsyreceipt</string></array>
             </dict>
         </dict>
     </array>

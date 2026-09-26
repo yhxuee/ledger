@@ -507,6 +507,11 @@ private struct SettingsFileTransferModifier: ViewModifier {
     @Binding var showingCloudSharing: Bool
     let cloudShare: CKShare?
 
+    @State private var lockedBackup: LockedBackupImport?
+    @State private var askingBackupAuthorization = false
+    @State private var backupAuthorization: LockedBackupImport?
+    @State private var authorizedPreview: ImportPreview?
+
     func body(content: Content) -> some View {
         content
             .fileExporter(
@@ -524,6 +529,26 @@ private struct SettingsFileTransferModifier: ViewModifier {
                 allowedContentTypes: BackupDocument.readableContentTypes
             ) { result in
                 handleImport(result: result)
+            }
+            .alert("Backup Cannot Be Decrypted", isPresented: $askingBackupAuthorization) {
+                Button("Exit", role: .cancel) { lockedBackup = nil }
+                Button("Request Authorization") { backupAuthorization = lockedBackup }
+            } message: {
+                Text("This device needs the backup's encryption key. Request migration from the original device; after confirmation, the original device's key for this ledger is revoked.")
+            }
+            .sheet(item: $backupAuthorization, onDismiss: {
+                if let authorizedPreview { importPreview = authorizedPreview }
+                authorizedPreview = nil
+                lockedBackup = nil
+            }) { backup in
+                NavigationStack {
+                    DeviceAuthorizationView(targetLedgerID: backup.ledgerID, targetName: backup.sourceName,
+                        targetFingerprint: backup.fingerprint, requestPurpose: .migration, onAuthorized: {
+                            do {
+                                authorizedPreview = try BackupCodec.decode(backup.data, sourceName: backup.sourceName, existingState: store.state)
+                            } catch { store.presentedError = error.localizedDescription }
+                        })
+                }
             }
             .sheet(item: $importPreview) { preview in
                 ImportPreviewView(preview: preview) {
@@ -543,19 +568,16 @@ private struct SettingsFileTransferModifier: ViewModifier {
         do {
             let url = try result.get()
             let accessed = url.startAccessingSecurityScopedResource()
-            defer {
-                if accessed {
-                    url.stopAccessingSecurityScopedResource()
-                }
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            let data = try Data(contentsOf: url)
+            do {
+                importPreview = try BackupCodec.decode(data, sourceName: url.lastPathComponent, existingState: store.state)
+            } catch LedgerCryptoError.authorizationRequired(let ledgerID, let fingerprint) {
+                lockedBackup = LockedBackupImport(ledgerID: ledgerID, fingerprint: fingerprint,
+                    data: data, sourceName: url.lastPathComponent)
+                askingBackupAuthorization = true
             }
-            importPreview = try BackupCodec.decode(
-                Data(contentsOf: url),
-                sourceName: url.lastPathComponent,
-                existingState: store.state
-            )
-        } catch {
-            store.presentedError = error.localizedDescription
-        }
+        } catch { store.presentedError = error.localizedDescription }
     }
 }
 
@@ -922,4 +944,12 @@ struct DiagnosticsSettingsView: View {
         formatter.countStyle = .file
         return formatter.string(fromByteCount: Int64(bytes))
     }
+}
+
+private struct LockedBackupImport: Identifiable {
+    var id: UUID { ledgerID }
+    var ledgerID: UUID
+    var fingerprint: String?
+    var data: Data
+    var sourceName: String
 }

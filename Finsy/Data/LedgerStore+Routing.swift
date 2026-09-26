@@ -183,21 +183,8 @@ extension LedgerStore {
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
         guard let data = try? Data(contentsOf: url) else { return }
 
-        if url.pathExtension.lowercased() == "fsykey" {
-            do {
-                let envelope = try JSONDecoder().decode(FinsyKeyGrantEnvelope.self, from: data)
-                let privateKey = try LedgerDeviceIdentity.getOrCreatePrivateKey()
-                if let current = books.first(where: { $0.id == envelope.ledgerID }),
-                   let expected = current.keyFingerprint,
-                   expected.lowercased() != envelope.keyFingerprint.lowercased() {
-                    throw LedgerCryptoError.fingerprintMismatch(expected: expected, actual: envelope.keyFingerprint)
-                }
-                let (_, ledgerID, _) = try LedgerCryptoService.receiveKeyGrant(envelope: envelope, devicePrivateKey: privateKey)
-                // Keep the placeholder locked until the actual ledger has been fetched/decrypted.
-                Task { await restoreAuthorizedLedger(bookID: ledgerID) }
-            } catch {
-                presentedError = error.localizedDescription
-            }
+        if ["fsykey", "fsyrequest", "fsyreceipt"].contains(url.pathExtension.lowercased()) {
+            incomingDeviceAuthorization = IncomingDeviceAuthorization(data: data)
         }
     }
 

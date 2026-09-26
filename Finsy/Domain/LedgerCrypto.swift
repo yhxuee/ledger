@@ -74,7 +74,7 @@ struct FsyInnerBackupPayload: Codable, Sendable {
 // MARK: - Pairing & Device Authorization Models
 
 struct FinsyPairingRequest: Codable, Sendable, Identifiable {
-    static let currentProtocolVersion = 1
+    static let currentProtocolVersion = 2
 
     var id: UUID { requestID }
     var protocolVersion: Int
@@ -85,11 +85,20 @@ struct FinsyPairingRequest: Codable, Sendable, Identifiable {
     var nonce: Data
     var expiresAt: Date
 
+    var purpose: Purpose? = nil
+    var expectedFingerprint: String? = nil
+    enum Purpose: String, Codable, Sendable { case authorization, migration }
+    var effectivePurpose: Purpose { purpose ?? .authorization }
     var isExpired: Bool { Date.now > expiresAt }
+    func validate() throws {
+        guard protocolVersion == Self.currentProtocolVersion else { throw LedgerCryptoError.invalidProtocolVersion(protocolVersion) }
+        guard !isExpired, expiresAt.timeIntervalSinceNow <= 610, nonce.count >= 16 else { throw LedgerCryptoError.pairingExpired }
+        _ = try P256.KeyAgreement.PublicKey(rawRepresentation: newDevicePublicKey)
+    }
 }
 
 struct FinsyKeyGrantEnvelope: Codable, Sendable {
-    static let currentProtocolVersion = 1
+    static let currentProtocolVersion = 2
 
     var protocolVersion: Int
     var requestID: UUID
@@ -105,6 +114,7 @@ struct LedgerKeyGrantPayload: Codable, Sendable {
     var keyData: Data
     var keyFingerprint: String
     var keyVersion: Int
+    var request: FinsyPairingRequest
 }
 
 // MARK: - Device Identity (K_device)
@@ -113,64 +123,65 @@ enum LedgerDeviceIdentity {
     private static let service = "com.finsy.app.device-identity"
     private static let account = "k-device-p256"
 
-    static func getOrCreatePrivateKey() throws -> P256.KeyAgreement.PrivateKey {
-        if let existing = try loadPrivateKey() {
-            return existing
-        }
-        let fresh = P256.KeyAgreement.PrivateKey()
-        try savePrivateKey(fresh)
-        return fresh
-    }
-
-    static func publicKey() throws -> P256.KeyAgreement.PublicKey {
-        let privateKey = try getOrCreatePrivateKey()
-        return privateKey.publicKey
-    }
-
-    static func exportPublicKeyData() throws -> Data {
-        let pub = try publicKey()
-        return pub.rawRepresentation
-    }
-
-    private static func loadPrivateKey() throws -> P256.KeyAgreement.PrivateKey? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
+    static func getOrCreatePrivateKey(for ledgerID: UUID? = nil) throws -> P256.KeyAgreement.PrivateKey {
+        let keyAccount = ledgerID.map { "ledger-device-" + $0.uuidString } ?? account
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: keyAccount,
+            kSecAttrSynchronizable as String: false]
+        var read = query
+        read[kSecReturnData as String] = true
+        read[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = item as? Data else {
-            throw LedgerCryptoError.keychainError(status)
+        let status = SecItemCopyMatching(read as CFDictionary, &item)
+        if status == errSecSuccess, let data = item as? Data {
+            let updated = SecItemUpdate(query as CFDictionary,
+                [kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock] as CFDictionary)
+            guard updated == errSecSuccess else { throw LedgerCryptoError.keychainError(updated) }
+            return try P256.KeyAgreement.PrivateKey(rawRepresentation: data)
         }
-        return try P256.KeyAgreement.PrivateKey(rawRepresentation: data)
+        guard status == errSecItemNotFound else { throw LedgerCryptoError.keychainError(status) }
+        let key = P256.KeyAgreement.PrivateKey()
+        var attributes = query
+        attributes[kSecValueData as String] = key.rawRepresentation
+        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        let added = SecItemAdd(attributes as CFDictionary, nil)
+        if added == errSecDuplicateItem { return try getOrCreatePrivateKey(for: ledgerID) }
+        guard added == errSecSuccess else { throw LedgerCryptoError.keychainError(added) }
+        return key
     }
 
-    private static func savePrivateKey(_ key: P256.KeyAgreement.PrivateKey) throws {
-        let data = key.rawRepresentation
-        let attributes: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-            kSecAttrSynchronizable as String: false
-        ]
-        SecItemDelete(attributes as CFDictionary)
-        let status = SecItemAdd(attributes as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw LedgerCryptoError.keychainError(status)
-        }
+    static func exportPublicKeyData(for ledgerID: UUID? = nil) throws -> Data {
+        try getOrCreatePrivateKey(for: ledgerID).publicKey.rawRepresentation
     }
+
+    static func localWrappingKey(for ledgerID: UUID) throws -> SymmetricKey {
+        let privateKey = try getOrCreatePrivateKey(for: ledgerID)
+        return HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: privateKey.rawRepresentation),
+            salt: Data("FinsyLocalDeviceKeyV1".utf8), info: Data(service.utf8), outputByteCount: 32)
+    }
+
+    static func revoke(for ledgerID: UUID) throws {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: "ledger-device-" + ledgerID.uuidString,
+            kSecAttrSynchronizable as String: false]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw LedgerCryptoError.keychainError(status) }
+    }
+
+    static func reset() throws {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrSynchronizable as String: false]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw LedgerCryptoError.keychainError(status) }
+    }
+
 }
 
 // MARK: - Ledger Key Store (K_ledger)
 
 enum LedgerKeyStore {
     private static let service = "com.finsy.app.ledger-key"
+    private static let wrappedPrefix = Data("FinsyDeviceWrappedKeyV1:".utf8)
 
     static func fingerprint(for key: SymmetricKey, ledgerID: UUID) -> String {
         var hasher = SHA256()
@@ -193,7 +204,10 @@ enum LedgerKeyStore {
     }
 
     static func saveKey(_ key: SymmetricKey, for ledgerID: UUID) throws {
-        let keyData = key.withUnsafeBytes { Data($0) }
+        let plain = key.withUnsafeBytes { Data($0) }
+        let sealed = try AES.GCM.seal(plain, using: LedgerDeviceIdentity.localWrappingKey(for: ledgerID), authenticating: Data(ledgerID.uuidString.utf8))
+        guard let combined = sealed.combined else { throw LedgerCryptoError.decryptionFailed }
+        let keyData = wrappedPrefix + combined
         let account = ledgerID.uuidString
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -219,63 +233,56 @@ enum LedgerKeyStore {
         }
     }
 
-    static func publishKeyToICloud(for ledgerID: UUID, expectedFingerprint: String?) throws {
-        guard let key = try loadKey(for: ledgerID, expectedFingerprint: expectedFingerprint) else {
+    static func validateLocalKey(for ledgerID: UUID, expectedFingerprint: String?) throws {
+        guard try loadKey(for: ledgerID, expectedFingerprint: expectedFingerprint) != nil else {
             throw LedgerCryptoError.authorizationRequired(ledgerID: ledgerID, fingerprint: expectedFingerprint)
         }
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service + ".icloud",
-            kSecAttrAccount as String: ledgerID.uuidString,
-            kSecAttrSynchronizable as String: true
-        ]
-        let keyData = key.withUnsafeBytes { Data($0) }
-        var readQuery = query
-        readQuery[kSecReturnData as String] = true
-        readQuery[kSecMatchLimit as String] = kSecMatchLimitOne
-        var existing: CFTypeRef?
-        let readStatus = SecItemCopyMatching(readQuery as CFDictionary, &existing)
-        if readStatus == errSecSuccess, existing as? Data == keyData { return }
-        if readStatus != errSecSuccess && readStatus != errSecItemNotFound { throw LedgerCryptoError.keychainError(readStatus) }
-        let attributes: [String: Any] = [
-            kSecValueData as String: keyData,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
-        ]
-        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if status == errSecItemNotFound {
-            var item = query
-            item.merge(attributes) { _, new in new }
-            let added = SecItemAdd(item as CFDictionary, nil)
-            guard added == errSecSuccess else { throw LedgerCryptoError.keychainError(added) }
-        } else if status != errSecSuccess { throw LedgerCryptoError.keychainError(status) }
+    }
+
+    static func migrateLegacyCloudKeys() throws {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service + ".icloud", kSecAttrSynchronizable as String: true]
+        var read = query
+        read[kSecReturnData as String] = true
+        read[kSecReturnAttributes as String] = true
+        read[kSecMatchLimit as String] = kSecMatchLimitAll
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(read as CFDictionary, &result)
+        if status == errSecItemNotFound { return }
+        guard status == errSecSuccess, let items = result as? [[String: Any]] else {
+            throw LedgerCryptoError.keychainError(status)
+        }
+        // Preserve a local, device-wrapped copy before deleting legacy cloud secrets.
+        for item in items {
+            guard let name = item[kSecAttrAccount as String] as? String,
+                  let id = UUID(uuidString: name), let data = item[kSecValueData as String] as? Data,
+                  data.count == 32 else { throw LedgerCryptoError.corruptedContainer("Legacy cloud key is invalid.") }
+            if try loadKey(for: id) == nil { try saveKey(SymmetricKey(data: data), for: id) }
+        }
+        let deleted = SecItemDelete(query as CFDictionary)
+        guard deleted == errSecSuccess || deleted == errSecItemNotFound else { throw LedgerCryptoError.keychainError(deleted) }
     }
 
     static func loadKey(for ledgerID: UUID, expectedFingerprint: String? = nil) throws -> SymmetricKey? {
-        let account = ledgerID.uuidString
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: ledgerID.uuidString,
+            kSecAttrSynchronizable as String: false, kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne]
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status != errSecSuccess && status != errSecItemNotFound { throw LedgerCryptoError.keychainError(status) }
-        if let data = item as? Data {
-            let key = SymmetricKey(data: data)
-            if expectedFingerprint == nil || fingerprint(for: key, ledgerID: ledgerID).lowercased() == expectedFingerprint?.lowercased() { return key }
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = item as? Data else { throw LedgerCryptoError.keychainError(status) }
+        let plain: Data
+        if data.starts(with: wrappedPrefix) {
+            let box = try AES.GCM.SealedBox(combined: Data(data.dropFirst(wrappedPrefix.count)))
+            plain = try AES.GCM.open(box, using: LedgerDeviceIdentity.localWrappingKey(for: ledgerID), authenticating: Data(ledgerID.uuidString.utf8))
+        } else {
+            guard data.count == 32 else { throw LedgerCryptoError.corruptedContainer("Local key is invalid.") }
+            plain = data
         }
-        var syncedQuery = query
-        syncedQuery[kSecAttrService as String] = service + ".icloud"
-        syncedQuery[kSecAttrSynchronizable as String] = true
-        item = nil
-        let syncedStatus = SecItemCopyMatching(syncedQuery as CFDictionary, &item)
-        if syncedStatus == errSecItemNotFound { return nil }
-        guard syncedStatus == errSecSuccess, let data = item as? Data else { throw LedgerCryptoError.keychainError(syncedStatus) }
-        let key = SymmetricKey(data: data)
+        let key = SymmetricKey(data: plain)
         guard expectedFingerprint == nil || fingerprint(for: key, ledgerID: ledgerID).lowercased() == expectedFingerprint?.lowercased() else { return nil }
-        try saveKey(key, for: ledgerID)
+        if !data.starts(with: wrappedPrefix) { try saveKey(key, for: ledgerID) }
         return key
     }
 
@@ -290,6 +297,17 @@ enum LedgerKeyStore {
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw LedgerCryptoError.keychainError(status)
         }
+    }
+
+    static func reset() throws {
+        for name in [service, service + ".icloud"] {
+            let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: name, kSecAttrSynchronizable as String: kSecAttrSynchronizableAny]
+            let status = SecItemDelete(query as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else { throw LedgerCryptoError.keychainError(status) }
+        }
+        try LedgerDeviceAuthorization.reset()
+        try LedgerDeviceIdentity.reset()
     }
 
     static func hasKey(for ledgerID: UUID, expectedFingerprint: String?) -> Bool {
@@ -451,24 +469,28 @@ enum LedgerCryptoService {
     // MARK: - HPKE Device Key Grants (P256_SHA256_AES_GCM_256)
 
     private static let hpkeSuite = HPKE.Ciphersuite.P256_SHA256_AES_GCM_256
-    private static let hpkeInfo = Data("FinsyDeviceKeyGrantV1".utf8)
+    private static let hpkeInfo = Data("FinsyDeviceKeyGrantV2".utf8)
 
     static func grantKey(
         request: FinsyPairingRequest,
         ledgerKey: SymmetricKey
     ) throws -> FinsyKeyGrantEnvelope {
-        guard !request.isExpired else { throw LedgerCryptoError.pairingExpired }
+        try request.validate()
         guard let recipientKey = try? P256.KeyAgreement.PublicKey(rawRepresentation: request.newDevicePublicKey) else {
             throw LedgerCryptoError.invalidPublicKey
         }
 
         let fp = LedgerKeyStore.fingerprint(for: ledgerKey, ledgerID: request.ledgerID)
+        if let expected = request.expectedFingerprint, expected.lowercased() != fp.lowercased() {
+            throw LedgerCryptoError.fingerprintMismatch(expected: expected, actual: fp)
+        }
         let keyData = ledgerKey.withUnsafeBytes { Data($0) }
         let payload = LedgerKeyGrantPayload(
             ledgerID: request.ledgerID,
             keyData: keyData,
             keyFingerprint: fp,
-            keyVersion: currentEncryptionVersion
+            keyVersion: currentEncryptionVersion,
+            request: request
         )
         let encodedPayload = try JSONEncoder().encode(payload)
 
@@ -493,8 +515,15 @@ enum LedgerCryptoService {
 
     static func receiveKeyGrant(
         envelope: FinsyKeyGrantEnvelope,
-        devicePrivateKey: P256.KeyAgreement.PrivateKey
+        devicePrivateKey: P256.KeyAgreement.PrivateKey,
+        request: FinsyPairingRequest
     ) throws -> (key: SymmetricKey, ledgerID: UUID, fingerprint: String) {
+        try request.validate()
+        guard envelope.protocolVersion == FinsyKeyGrantEnvelope.currentProtocolVersion,
+              envelope.requestID == request.requestID, envelope.ledgerID == request.ledgerID,
+              devicePrivateKey.publicKey.rawRepresentation == request.newDevicePublicKey else {
+            throw LedgerCryptoError.corruptedContainer("Unsolicited device key grant.")
+        }
         var recipient = try HPKE.Recipient(
             privateKey: devicePrivateKey,
             ciphersuite: hpkeSuite,
@@ -504,7 +533,14 @@ enum LedgerCryptoService {
         let decryptedBytes = try recipient.open(envelope.ciphertext)
         let payload = try JSONDecoder().decode(LedgerKeyGrantPayload.self, from: decryptedBytes)
 
-        guard payload.ledgerID == envelope.ledgerID else {
+        guard payload.request.requestID == request.requestID,
+              payload.request.nonce == request.nonce,
+              payload.request.newDevicePublicKey == request.newDevicePublicKey,
+              payload.request.expiresAt == request.expiresAt,
+              payload.request.effectivePurpose == request.effectivePurpose,
+              payload.request.expectedFingerprint == request.expectedFingerprint,
+              payload.keyData.count == 32, payload.keyVersion == currentEncryptionVersion,
+              payload.ledgerID == envelope.ledgerID else {
             throw LedgerCryptoError.corruptedContainer("Ledger ID mismatch")
         }
         let recoveredKey = SymmetricKey(data: payload.keyData)
@@ -513,7 +549,147 @@ enum LedgerCryptoService {
             throw LedgerCryptoError.fingerprintMismatch(expected: envelope.keyFingerprint, actual: recoveredFp)
         }
 
+        if let expected = request.expectedFingerprint, expected.lowercased() != recoveredFp.lowercased() {
+            throw LedgerCryptoError.fingerprintMismatch(expected: expected, actual: recoveredFp)
+        }
         try LedgerKeyStore.saveKey(recoveredKey, for: payload.ledgerID)
         return (recoveredKey, payload.ledgerID, recoveredFp)
+    }
+}
+
+
+// Pending requests and transfer receipts stay in the local, migratable Keychain.
+// A transfer is committed only after a receipt signed by the requesting device.
+struct FinsyTransferReceipt: Codable, Sendable {
+    var requestID: UUID
+    var ledgerID: UUID
+    var grantDigest: Data
+    var signature: Data
+    var signedData: Data {
+        Data("FinsyTransferReceiptV2:\(requestID.uuidString):\(ledgerID.uuidString):".utf8) + grantDigest
+    }
+}
+
+enum LedgerDeviceAuthorization {
+    private static let service = "com.finsy.app.device-authorization"
+    struct PendingTransfer: Codable {
+        var request: FinsyPairingRequest
+        var grant: FinsyKeyGrantEnvelope
+    }
+    static func read<T: Decodable>(_ type: T.Type, account: String) throws -> T? {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: false, kSecReturnData as String: true]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = item as? Data else { throw LedgerCryptoError.keychainError(status) }
+        return try JSONDecoder().decode(type, from: data)
+    }
+    static func write<T: Encodable>(_ value: T, account: String) throws {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: false]
+        let attributes: [String: Any] = [kSecValueData as String: try JSONEncoder().encode(value),
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var added = query
+            added.merge(attributes) { _, new in new }
+            let result = SecItemAdd(added as CFDictionary, nil)
+            guard result == errSecSuccess else { throw LedgerCryptoError.keychainError(result) }
+        } else if status != errSecSuccess { throw LedgerCryptoError.keychainError(status) }
+    }
+    static func remove(_ account: String) throws {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: false]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw LedgerCryptoError.keychainError(status) }
+    }
+    static func isRevoked(_ ledgerID: UUID) -> Bool {
+        // Fail closed if Keychain is temporarily unavailable.
+        do { return try read(Bool.self, account: "revoked-" + ledgerID.uuidString) == true }
+        catch { return true }
+    }
+    static func request(ledgerID: UUID, name: String, fingerprint: String?, purpose: FinsyPairingRequest.Purpose,
+                        explicit: Bool = false) throws -> FinsyPairingRequest {
+        guard explicit || !isRevoked(ledgerID) else {
+            throw LedgerCryptoError.authorizationRequired(ledgerID: ledgerID, fingerprint: fingerprint)
+        }
+        let account = "request-" + ledgerID.uuidString
+        if let pending = try read(FinsyPairingRequest.self, account: account), !pending.isExpired,
+           pending.effectivePurpose == purpose, pending.expectedFingerprint == fingerprint { return pending }
+        let request = FinsyPairingRequest(protocolVersion: FinsyPairingRequest.currentProtocolVersion,
+            ledgerID: ledgerID, ledgerName: name, requestID: UUID(),
+            newDevicePublicKey: try LedgerDeviceIdentity.exportPublicKeyData(for: ledgerID),
+            nonce: Data(UUID().uuidString.utf8), expiresAt: .now.addingTimeInterval(600),
+            purpose: purpose, expectedFingerprint: fingerprint)
+        try write(request, account: account)
+        return request
+    }
+    static func pendingRequest(_ ledgerID: UUID) throws -> FinsyPairingRequest? {
+        try read(FinsyPairingRequest.self, account: "request-" + ledgerID.uuidString)
+    }
+    static func digest(_ grant: FinsyKeyGrantEnvelope) -> Data {
+        // Hash the cryptographic bytes, not JSON whose field order may vary.
+        Data(SHA256.hash(data: Data(grant.requestID.uuidString.utf8) + Data(grant.ledgerID.uuidString.utf8)
+            + Data(grant.keyFingerprint.utf8) + grant.encapsulatedKey + grant.ciphertext))
+    }
+    static func grant(_ request: FinsyPairingRequest) throws -> FinsyKeyGrantEnvelope {
+        try request.validate()
+        guard let key = try LedgerKeyStore.loadKey(for: request.ledgerID, expectedFingerprint: request.expectedFingerprint) else {
+            throw LedgerCryptoError.authorizationRequired(ledgerID: request.ledgerID, fingerprint: request.expectedFingerprint)
+        }
+        let grant = try LedgerCryptoService.grantKey(request: request, ledgerKey: key)
+        if request.effectivePurpose == .migration {
+            try write(PendingTransfer(request: request, grant: grant), account: "transfer-" + request.requestID.uuidString)
+        }
+        return grant
+    }
+    static func receive(_ grant: FinsyKeyGrantEnvelope) throws -> FinsyTransferReceipt? {
+        guard let request = try pendingRequest(grant.ledgerID) else {
+            throw LedgerCryptoError.corruptedContainer("No matching device authorization request.")
+        }
+        let privateKey = try LedgerDeviceIdentity.getOrCreatePrivateKey(for: grant.ledgerID)
+        _ = try LedgerCryptoService.receiveKeyGrant(envelope: grant, devicePrivateKey: privateKey, request: request)
+        var receipt: FinsyTransferReceipt?
+        if request.effectivePurpose == .migration {
+            var value = FinsyTransferReceipt(requestID: request.requestID, ledgerID: request.ledgerID,
+                                            grantDigest: digest(grant), signature: Data())
+            value.signature = try P256.Signing.PrivateKey(rawRepresentation: privateKey.rawRepresentation)
+                .signature(for: value.signedData).derRepresentation
+            try write(value, account: "receipt-" + request.ledgerID.uuidString)
+            receipt = value
+        }
+        try remove("request-" + grant.ledgerID.uuidString)
+        try remove("revoked-" + grant.ledgerID.uuidString)
+        return receipt
+    }
+    static func verify(_ receipt: FinsyTransferReceipt) throws -> PendingTransfer {
+        guard let pending = try read(PendingTransfer.self, account: "transfer-" + receipt.requestID.uuidString),
+              pending.request.effectivePurpose == .migration, pending.request.ledgerID == receipt.ledgerID,
+              digest(pending.grant) == receipt.grantDigest else {
+            throw LedgerCryptoError.corruptedContainer("No matching key transfer.")
+        }
+        let key = try P256.Signing.PublicKey(rawRepresentation: pending.request.newDevicePublicKey)
+        let signature = try P256.Signing.ECDSASignature(derRepresentation: receipt.signature)
+        guard key.isValidSignature(signature, for: receipt.signedData) else { throw LedgerCryptoError.invalidPublicKey }
+        return pending
+    }
+    static func revoke(_ receipt: FinsyTransferReceipt) throws {
+        _ = try verify(receipt)
+        // Persist the tombstone before deletion; automatic sync must never re-enroll this device.
+        try write(true, account: "revoked-" + receipt.ledgerID.uuidString)
+        try LedgerKeyStore.deleteKey(for: receipt.ledgerID)
+        try LedgerDeviceIdentity.revoke(for: receipt.ledgerID)
+        try remove("request-" + receipt.ledgerID.uuidString)
+        try remove("transfer-" + receipt.requestID.uuidString)
+    }
+    static func reset() throws {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrSynchronizable as String: false]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw LedgerCryptoError.keychainError(status) }
     }
 }

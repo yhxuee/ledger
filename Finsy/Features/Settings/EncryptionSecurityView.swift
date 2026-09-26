@@ -51,7 +51,7 @@ struct EncryptionSecurityView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Future CloudKit records and backups for this ledger will no longer use the ledger encryption key. Existing encrypted backup files remain encrypted.")
+            Text("New unencrypted ledgers will no longer be encrypted automatically. Existing encrypted ledgers, their sync, sharing, and backups remain encrypted.")
         }
         .alert("End-to-End Encryption", isPresented: Binding(get: { statusMessage != nil }, set: { if !$0 { statusMessage = nil } })) {
             Button("OK") { statusMessage = nil }
@@ -67,26 +67,11 @@ struct EncryptionSecurityView: View {
 
     private var encryptionSection: some View {
         SettingsGlassSection("End-to-End Encryption") {
-            if isParticipant {
-                HStack {
-                    Text("End-to-End Encryption")
-                    Spacer()
-                    Text("Required by Owner")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            } else if activeBook.effectiveEncryptionState == .authorizationRequired {
-                HStack {
-                    Text("End-to-End Encryption")
-                    Spacer()
-                    Text("Locked")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                Toggle("End-to-End Encryption", isOn: e2eeBinding)
-                    .disabled(working || activeBook.effectiveEncryptionState == .enabling || activeBook.effectiveEncryptionState == .disabling)
-            }
+            Toggle("End-to-End Encryption", isOn: e2eeBinding)
+                .disabled(working)
+            Text("Applies to all ledgers on this device, including existing records, iCloud Sync, sharing, and new backups.")
+                .font(.footnote).foregroundStyle(.secondary)
+            LabeledContent("Encrypted Ledgers", value: "\(store.books.filter { $0.isEncrypted == true }.count) / \(store.books.filter { $0.isImplicitPlaceholder != true }.count)")
 
             Divider()
 
@@ -205,7 +190,7 @@ struct EncryptionSecurityView: View {
 
     private var e2eeBinding: Binding<Bool> {
         Binding(
-            get: { activeBook.effectiveEncryptionState == .enabled },
+            get: { preferences.value.endToEndEncryptionEnabled },
             set: { enabled in
                 if enabled {
                     Task { await enableE2EE() }
@@ -217,7 +202,6 @@ struct EncryptionSecurityView: View {
     }
 
     private func enableE2EE() async {
-        let targetBookID = store.activeBookID
         guard await privacy.authorizeSensitiveChange(
             reason: "Authenticate to enable End-to-End Encryption.",
             protectionEnabled: preferences.value.biometricLockEnabled
@@ -226,9 +210,9 @@ struct EncryptionSecurityView: View {
         working = true
         defer { working = false }
         do {
-            try await store.enableEncryption(bookID: targetBookID)
+            try await store.enableEncryptionForAllBooks()
             errorMessage = nil
-            statusMessage = "End-to-End Encryption enabled for this ledger."
+            statusMessage = "End-to-End Encryption enabled for all ledgers."
         } catch {
             let desc = error.localizedDescription
             errorMessage = desc
@@ -238,8 +222,8 @@ struct EncryptionSecurityView: View {
     }
 
     private func disableE2EE() {
-        store.markActiveBookUnencrypted()
-        statusMessage = "End-to-End Encryption disabled. Existing encrypted backups remain readable."
+        preferences.update { $0.endToEndEncryptionEnabled = false }
+        statusMessage = "Automatic encryption disabled. Existing encrypted ledgers remain protected."
     }
 }
 

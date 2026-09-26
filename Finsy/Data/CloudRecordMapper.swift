@@ -299,7 +299,7 @@ enum CloudRecordMapper {
             guard let bookID = inferredID else {
                 throw CloudMappingError.missingBook
             }
-            let localKey = try? LedgerKeyStore.loadKey(for: bookID)
+            let localKey = LedgerDeviceAuthorization.isRevoked(bookID) ? nil : try? LedgerKeyStore.loadKey(for: bookID)
             let localFp = localKey.map { LedgerKeyStore.fingerprint(for: $0, ledgerID: bookID) }
 
             // If key is missing or fingerprint mismatches, return a locked book in authorizationRequired state

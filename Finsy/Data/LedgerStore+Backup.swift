@@ -69,6 +69,7 @@ extension LedgerStore {
         await CloudLedgerService.shared.resetLocalState()
         try Self.localRepository.resetLocalData()
         try PurchaseSharedStateStore.resetLocalSnapshots()
+        try LedgerKeyStore.reset()
         leaveRecoveryModeAfterReset()
         Task { await PurchaseLiveActivityController.shared.endAll() }
         let initial = SeedData.makeProductionEmpty()

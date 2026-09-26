@@ -8,6 +8,7 @@ actor CloudLedgerService {
     private lazy var ownerSync = CloudLedgerSyncCoordinator(database: container.privateCloudDatabase, stateName: "private")
     private lazy var participantSync = CloudLedgerSyncCoordinator(database: container.sharedCloudDatabase, stateName: "shared")
     private var callbacksConfigured = false
+    private var enrollmentTasks: Set<UUID> = []
     func resetLocalState() async {
         await ownerSync.stop()
         await participantSync.stop()
@@ -92,7 +93,9 @@ actor CloudLedgerService {
                 try await LedgerStore.shared.persistDurableAsync()
                 return true
             }
+            try receiveCloudGrants(records)
             let book = try CloudRecordMapper.decodeBook(from: records, participant: participant, attachmentFolder: AttachmentStore.folderURL)
+            scheduleCloudAuthorization(records: records, book: book)
             let accepted = await MainActor.run {
                 LedgerStore.shared.persistenceEnabled && LedgerStore.shared.addOrMergeCloudBook(book, deletedRecordNames: Set(deletions.map(\.recordName)), selectNewBook: false)
             }
@@ -185,6 +188,7 @@ actor CloudLedgerService {
 
     func synchronize(book: LedgerBook, revision: UInt64? = nil) async throws {
         guard book.effectiveStorageKind != .local, let zoneName = book.cloudZoneName else { return }
+        if await MainActor.run(body: { AppPreferencesStore.shared.value.endToEndEncryptionEnabled }), book.isEncrypted != true { return }
         if book.effectiveStorageKind == .cloudOwner,
            !(await MainActor.run { AppPreferencesStore.shared.value.iCloudSyncEnabled && LedgerStore.shared.iCloudSyncReady }) { return }
         try await configureCallbacksIfNeeded()
@@ -201,7 +205,7 @@ actor CloudLedgerService {
               book.effectiveEncryptionState != .migrationFailed else { return }
         if book.isEncrypted == true,
            await MainActor.run(body: { AppPreferencesStore.shared.value.iCloudSyncEnabled }) {
-            try LedgerKeyStore.publishKeyToICloud(for: book.id, expectedFingerprint: book.keyFingerprint)
+            try LedgerKeyStore.validateLocalKey(for: book.id, expectedFingerprint: book.keyFingerprint)
         }
         switch book.effectiveStorageKind {
         case .cloudOwner: try await ownerSync.enqueue(book: book, zoneID: zoneID, ensureZone: true, revision: revision)
@@ -255,11 +259,13 @@ actor CloudLedgerService {
             }
         }
         try validateStoredKey()
-        guard book.effectiveStorageKind == .cloudOwner, let zoneName = book.cloudZoneName else { return book }
+        guard book.effectiveStorageKind != .local, let zoneName = book.cloudZoneName else { return book }
         try await configureCallbacksIfNeeded()
+        let cloudSync = book.effectiveStorageKind == .cloudOwner ? ownerSync : participantSync
+        let database = book.effectiveStorageKind == .cloudOwner ? container.privateCloudDatabase : container.sharedCloudDatabase
         let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: book.cloudZoneOwnerName ?? CKCurrentUserDefaultName)
-        try await ensureZoneExists(database: container.privateCloudDatabase, zoneID: zoneID)
-        try await ownerSync.beginMigration(zoneID: zoneID)
+        if book.effectiveStorageKind == .cloudOwner { try await ensureZoneExists(database: database, zoneID: zoneID) }
+        try await cloudSync.beginMigration(zoneID: zoneID)
 
         let maxMigrationAttempts = 3
         var currentBook = book
@@ -274,18 +280,23 @@ actor CloudLedgerService {
                 )
 
                 // 1. Fetch fresh complete zone snapshot
-                let remoteRecords = try await fetchZoneSnapshot(database: container.privateCloudDatabase, zoneID: zoneID)
+                let remoteRecords = try await fetchZoneSnapshot(database: database, zoneID: zoneID)
                 LedgerDiagnostics.security.info(
                     "Fetched zone snapshot for attempt=\(attempt) remoteRecords=\(remoteRecords.count)"
                 )
 
+                if let root = remoteRecords.first(where: { $0.recordType == CloudRecordType.book }),
+                   let fingerprint = root["keyFingerprint"] as? String,
+                   fingerprint.lowercased() != LedgerKeyStore.fingerprint(for: key, ledgerID: book.id).lowercased() {
+                    throw LedgerCryptoError.authorizationRequired(ledgerID: book.id, fingerprint: fingerprint)
+                }
                 // 2. Decode remote book if complete, merge with current local book
                 let remote: LedgerBook? = {
                     guard remoteRecords.contains(where: { $0.recordType == CloudRecordType.book }),
                           remoteRecords.contains(where: { $0.recordType == CloudRecordType.settings }) else {
                         return nil
                     }
-                    return try? CloudRecordMapper.decodeBook(from: remoteRecords, participant: false, attachmentFolder: AttachmentStore.folderURL)
+                    return try? CloudRecordMapper.decodeBook(from: remoteRecords, participant: book.effectiveStorageKind == .cloudParticipant, attachmentFolder: AttachmentStore.folderURL)
                 }()
                 var encrypted = try remote.map { try CloudBookMerge.merge(local: currentBook, remote: $0) } ?? currentBook
                 let expectedFingerprint = LedgerKeyStore.fingerprint(for: key, ledgerID: book.id)
@@ -359,7 +370,7 @@ actor CloudLedgerService {
                             )
 
                             do {
-                                let response = try await container.privateCloudDatabase.modifyRecords(
+                                let response = try await database.modifyRecords(
                                     saving: batch,
                                     deleting: batchDeletions,
                                     savePolicy: .ifServerRecordUnchanged,
@@ -406,7 +417,7 @@ actor CloudLedgerService {
 
                         if !pendingDeletions.isEmpty {
                             do {
-                                let response = try await container.privateCloudDatabase.modifyRecords(
+                                let response = try await database.modifyRecords(
                                     saving: [],
                                     deleting: pendingDeletions,
                                     savePolicy: .ifServerRecordUnchanged,
@@ -443,13 +454,13 @@ actor CloudLedgerService {
 
                         // Fetch a fresh complete zone snapshot again to verify actual server state.
                         LedgerDiagnostics.security.info("Fetching fresh post-migration zone snapshot for ledger=\(book.id)")
-                        let verifiedSnapshot = try await fetchZoneSnapshot(database: container.privateCloudDatabase, zoneID: zoneID)
+                        let verifiedSnapshot = try await fetchZoneSnapshot(database: database, zoneID: zoneID)
                         try verifyEncryptedZoneSnapshot(verifiedSnapshot, expectedFingerprint: expectedFingerprint)
                         LedgerDiagnostics.security.info(
                             "Post-migration server verification succeeded for ledger=\(book.id) verifiedRecords=\(verifiedSnapshot.count)"
                         )
 
-                        try await ownerSync.completeMigration(records: verifiedSnapshot, book: encrypted, zoneID: zoneID)
+                        try await cloudSync.completeMigration(records: verifiedSnapshot, book: encrypted, zoneID: zoneID)
                         LedgerDiagnostics.security.info("Encryption migration completed records=\(verifiedSnapshot.count)")
                         return .success(encrypted)
                     } catch {
@@ -485,7 +496,7 @@ actor CloudLedgerService {
                 reason: "Migration exceeded maximum retry attempts (\(maxMigrationAttempts)) due to persistent conflicts."
             )
         } catch {
-            try? await ownerSync.resume()
+            try? await cloudSync.resume()
             LedgerDiagnostics.failure(error, operation: "encryption-migration", logger: LedgerDiagnostics.security)
             throw error
         }
@@ -497,10 +508,11 @@ actor CloudLedgerService {
         let record = CKRecord(recordType: CloudRecordType.enrollmentRequest, recordID: CKRecord.ID(recordName: "enroll-\(request.requestID.uuidString)", zoneID: zoneID))
         record["requestID"] = request.requestID.uuidString as CKRecordValue
         record["ledgerID"] = request.ledgerID.uuidString as CKRecordValue
-        record["publicKey"] = request.newDevicePublicKey as CKRecordValue
+        record["publicKey"] = try JSONEncoder().encode(request) as CKRecordValue
         record["expiresAt"] = request.expiresAt as CKRecordValue
         record["createdAt"] = Date.now as CKRecordValue
-        _ = try await container.sharedCloudDatabase.save(record)
+        let database = book.effectiveStorageKind == .cloudOwner ? container.privateCloudDatabase : container.sharedCloudDatabase
+        _ = try await database.save(record)
     }
 
     func postKeyEnvelope(_ envelope: FinsyKeyGrantEnvelope, book: LedgerBook) async throws {
@@ -511,9 +523,61 @@ actor CloudLedgerService {
         record["ledgerID"] = envelope.ledgerID.uuidString as CKRecordValue
         record["keyFingerprint"] = envelope.keyFingerprint as CKRecordValue
         record["encapsulatedKey"] = envelope.encapsulatedKey as CKRecordValue
-        record["ciphertext"] = envelope.ciphertext as CKRecordValue
+        record["ciphertext"] = try JSONEncoder().encode(envelope) as CKRecordValue
         let database = (book.effectiveStorageKind == .cloudOwner) ? container.privateCloudDatabase : container.sharedCloudDatabase
         _ = try await database.save(record)
+    }
+
+    private func receiveCloudGrants(_ records: [CKRecord]) throws {
+        for record in records where record.recordType == CloudRecordType.keyEnvelope {
+            guard let data = record["ciphertext"] as? Data,
+                  let grant = try? JSONDecoder().decode(FinsyKeyGrantEnvelope.self, from: data),
+                  let pending = try LedgerDeviceAuthorization.pendingRequest(grant.ledgerID),
+                  pending.requestID == grant.requestID, !pending.isExpired,
+                  pending.effectivePurpose == .authorization else { continue }
+            // A migration requires explicit receipt delivery and is never completed by automatic sync.
+            _ = try LedgerDeviceAuthorization.receive(grant)
+        }
+    }
+
+    private func scheduleCloudAuthorization(records: [CKRecord], book: LedgerBook) {
+        guard book.isEncrypted == true, !LedgerDeviceAuthorization.isRevoked(book.id),
+              enrollmentTasks.insert(book.id).inserted else { return }
+        // CKSyncEngine delegate callbacks cannot call send/fetch recursively.
+        Task.detached { [weak self] in
+            await self?.processCloudAuthorization(records: records, book: book)
+        }
+    }
+
+    private func processCloudAuthorization(records: [CKRecord], book: LedgerBook) async {
+        defer { enrollmentTasks.remove(book.id) }
+        do {
+            if !LedgerKeyStore.hasKey(for: book.id, expectedFingerprint: book.keyFingerprint) {
+                let request = try LedgerDeviceAuthorization.request(ledgerID: book.id, name: book.name,
+                    fingerprint: book.keyFingerprint, purpose: .authorization)
+                // Reposting an existing request is unnecessary and can create conflict loops.
+                if !records.contains(where: { ($0["requestID"] as? String) == request.requestID.uuidString }) {
+                    try await postEnrollmentRequest(request, book: book)
+                }
+                return
+            }
+            for record in records where record.recordType == CloudRecordType.enrollmentRequest {
+                guard let data = record["publicKey"] as? Data,
+                      let request = try? JSONDecoder().decode(FinsyPairingRequest.self, from: data),
+                      request.ledgerID == book.id, !request.isExpired,
+                      request.effectivePurpose == .authorization,
+                      !records.contains(where: { $0.recordType == CloudRecordType.keyEnvelope &&
+                          ($0["requestID"] as? String) == request.requestID.uuidString }) else { continue }
+                // A private-zone request belongs to this iCloud account. A shared-zone request
+                // can only be written by a participant already granted write access to the share.
+                let grant = try LedgerDeviceAuthorization.grant(request)
+                try await postKeyEnvelope(grant, book: book)
+            }
+        } catch {
+            LedgerDiagnostics.failure(error, operation: "device-key-enrollment", logger: LedgerDiagnostics.security)
+            let message = error.localizedDescription
+            await MainActor.run { LedgerStore.shared.lastSyncError = message }
+        }
     }
 
     private static let financialRecordTypes: Set<String> = [

@@ -136,6 +136,9 @@ struct RootView: View {
             .task {
                 evaluateLaunchForecast()
             }
+            .sheet(item: $store.incomingDeviceAuthorization) { incoming in
+                NavigationStack { DeviceAuthorizationView(incomingData: incoming.data) }
+            }
             .sheet(isPresented: $showingForecastBudgetDetail) {
                 if let launchForecast {
                     BudgetDetailView(forecast: launchForecast)

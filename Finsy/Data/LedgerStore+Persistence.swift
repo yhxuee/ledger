@@ -43,6 +43,7 @@ extension LedgerStore {
     }
 
     func prepareBooksForICloudSync() {
+        prepareBooksForEncryption()
         guard canMutateLedger, iCloudSyncReady, AppPreferencesStore.shared.value.iCloudSyncEnabled else { return }
         commitActiveBook()
         for index in books.indices where books[index].effectiveStorageKind == .local {

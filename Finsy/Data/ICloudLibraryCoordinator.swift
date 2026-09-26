@@ -68,7 +68,7 @@ final class ICloudLibraryCoordinator: ObservableObject {
                 throw LedgerCryptoError.authorizationRequired(ledgerID: book.id, fingerprint: book.keyFingerprint)
             }
             if book.isEncrypted == true {
-                try LedgerKeyStore.publishKeyToICloud(for: book.id, expectedFingerprint: book.keyFingerprint)
+                try LedgerKeyStore.validateLocalKey(for: book.id, expectedFingerprint: book.keyFingerprint)
             }
         }
     }

@@ -2,11 +2,53 @@ import Foundation
 import CryptoKit
 
 extension LedgerStore {
+    func prepareBooksForEncryption() {
+        guard canMutateLedger, AppPreferencesStore.shared.value.endToEndEncryptionEnabled else { return }
+        commitActiveBook()
+        for index in books.indices where books[index].isEncrypted != true {
+            if books[index].isImplicitPlaceholder == true && books[index].state.accounts.isEmpty && books[index].state.transactions.isEmpty { continue }
+            do {
+                let id = books[index].id
+                let key = try LedgerKeyStore.loadKey(for: id) ?? LedgerKeyStore.generateAndSaveKey(for: id).key
+                books[index].isEncrypted = true
+                books[index].keyFingerprint = LedgerKeyStore.fingerprint(for: key, ledgerID: id)
+                books[index].encryptionVersion = LedgerCryptoService.currentEncryptionVersion
+                books[index].encryptionUpdatedAt = .now
+                books[index].updatedAt = .now
+                books[index].encryptionState = books[index].effectiveStorageKind == .local ? .enabled : .enabling
+            } catch {
+                lastSyncError = error.localizedDescription
+                presentedError = error.localizedDescription
+            }
+        }
+    }
+
+    func enableEncryptionForAllBooks() async throws {
+        guard canMutateLedger else { throw CocoaError(.fileWriteNoPermission) }
+        AppPreferencesStore.shared.update { $0.endToEndEncryptionEnabled = true }
+        guard AppPreferencesStore.shared.value.endToEndEncryptionEnabled else { throw CocoaError(.fileWriteUnknown) }
+        prepareBooksForEncryption()
+        try await persistDurableAsync()
+        var failures: [String] = []
+        for id in books.map(\.id) {
+            guard let book = books.first(where: { $0.id == id }) else { continue }
+            if book.effectiveEncryptionState == .authorizationRequired {
+                failures.append("\(book.name): device authorization required.")
+                continue
+            }
+            if book.effectiveEncryptionState == .enabling || book.effectiveEncryptionState == .migrationFailed || book.isEncrypted != true {
+                do { try await enableEncryption(bookID: id) }
+                catch { failures.append("\(book.name): \(error.localizedDescription)") }
+            }
+        }
+        if !failures.isEmpty { throw LedgerCryptoError.corruptedContainer(failures.joined(separator: "\n")) }
+    }
+
     func enableEncryption(bookID: UUID) async throws {
         guard canMutateLedger else { rejectRecoveryMutation(); throw CocoaError(.fileWriteNoPermission) }
         guard encryptionMigrations.insert(bookID).inserted else { throw CloudLedgerError.migrationInProgress }
         defer { encryptionMigrations.remove(bookID) }
-        guard let index = books.firstIndex(where: { $0.id == bookID }), books[index].effectiveStorageKind != .cloudParticipant else { return }
+        guard let index = books.firstIndex(where: { $0.id == bookID }) else { return }
         commitActiveBook()
         let existing = books[index]
         guard existing.effectiveEncryptionState != .authorizationRequired else {
@@ -48,7 +90,10 @@ extension LedgerStore {
             try await persistDurableAsync()
         } catch {
             if let currentIndex = books.firstIndex(where: { $0.id == bookID }) {
-                books[currentIndex].encryptionState = .migrationFailed
+                if case LedgerCryptoError.authorizationRequired(_, let fingerprint) = error {
+                    books[currentIndex].encryptionState = .authorizationRequired
+                    books[currentIndex].keyFingerprint = fingerprint
+                } else { books[currentIndex].encryptionState = .migrationFailed }
                 do { try await persistDurableAsync() }
                 catch {
                     LedgerDiagnostics.failure(error, operation: "Persist encryption recovery state", logger: LedgerDiagnostics.security)
@@ -71,6 +116,9 @@ extension LedgerStore {
 
     func resumeEncryptionMigrations() async {
         guard canMutateLedger else { return }
+        do { try LedgerKeyStore.migrateLegacyCloudKeys() }
+        catch { lastSyncError = error.localizedDescription; return }
+        prepareBooksForEncryption()
         for id in books.filter({ $0.effectiveEncryptionState == .authorizationRequired }).map(\.id) {
             await restoreAuthorizedLedger(bookID: id)
         }
@@ -82,5 +130,27 @@ extension LedgerStore {
                 LedgerDiagnostics.failure(error, operation: "resume-encryption", logger: LedgerDiagnostics.security)
             }
         }
+    }
+}
+
+extension LedgerStore {
+    func completeKeyTransfer(_ receipt: FinsyTransferReceipt) async throws {
+        guard canMutateLedger else { throw CocoaError(.fileWriteNoPermission) }
+        _ = try LedgerDeviceAuthorization.verify(receipt)
+        // Stop automatic re-enrollment even if local cleanup is interrupted.
+        try LedgerDeviceAuthorization.write(true, account: "revoked-" + receipt.ledgerID.uuidString)
+        commitActiveBook()
+        if let index = books.firstIndex(where: { $0.id == receipt.ledgerID }) {
+            books[index].state = SeedData.makeProductionEmpty()
+            books[index].encryptionState = .authorizationRequired
+            if activeBookID == receipt.ledgerID {
+                mutateState { $0 = SeedData.makeProductionEmpty() }
+                undoTransactions = []
+                activeUndoOperation = nil
+                undoMessage = nil
+            }
+            try await persistDurableAsync()
+        }
+        try LedgerDeviceAuthorization.revoke(receipt)
     }
 }

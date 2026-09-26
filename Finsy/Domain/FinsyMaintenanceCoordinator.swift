@@ -124,6 +124,7 @@ final class FinsyMaintenanceCoordinator {
 
         Task { @MainActor in
             defer { self.isPerformingBackgroundMaintenance = false }
+            await store.resumeEncryptionMigrations()
             await CloudLedgerService.shared.recoverSyncIfNeeded()
             await ICloudSyncCoordinator.shared.maintenance(store: store, preferences: preferences)
             await ICloudLibraryCoordinator.shared.maintenance(store: store, preferences: preferences)
