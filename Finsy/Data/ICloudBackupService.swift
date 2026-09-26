@@ -11,7 +11,18 @@ actor ICloudBackupService {
     func backup(_ envelope: LedgerBackupEnvelope, ledgerID: UUID, key: SymmetricKey?) async throws -> Date {
         let data = try BackupCodec.encodeFsy(envelope: envelope, ledgerID: ledgerID, key: key)
         let url = try await backupURL(fileName: primaryFileName, createDirectory: true)
-        try data.write(to: url, options: [.atomic, .completeFileProtection])
+        try await Task.detached(priority: .utility) {
+            let coordinator = NSFileCoordinator(filePresenter: nil)
+            var coordinationError: NSError?
+            var writeError: Error?
+            coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordinationError) { coordinatedURL in
+                do { try data.write(to: coordinatedURL, options: [.atomic, .completeFileProtection]) }
+                catch { writeError = error }
+            }
+            if let coordinationError { throw coordinationError }
+            if let writeError { throw writeError }
+        }.value
+        try await waitForTransfer(at: url, uploading: true)
         return .now
     }
 
@@ -20,26 +31,65 @@ actor ICloudBackupService {
         let previousPrimaryURL = try await backupURL(fileName: primaryFileName, createDirectory: false, legacy: true)
         let legacyURL = try await backupURL(fileName: legacyFileName, createDirectory: false, legacy: true)
 
-        let targetURL: URL
-        let sourceName: String
-        if FileManager.default.fileExists(atPath: primaryURL.path) {
-            targetURL = primaryURL
-            sourceName = primaryFileName
-        } else if FileManager.default.fileExists(atPath: previousPrimaryURL.path) {
-            targetURL = previousPrimaryURL
-            sourceName = primaryFileName
-        } else if FileManager.default.fileExists(atPath: legacyURL.path) {
-            targetURL = legacyURL
-            sourceName = legacyFileName
-        } else {
-            throw BackupError.noICloudBackup
+        // Coordinate every compatible location, including undownloaded iCloud placeholders.
+        // A stale primary file must not hide a newer backup in the legacy location.
+        var latest: (data: Data, date: Date, name: String)?
+        for url in [primaryURL, previousPrimaryURL, legacyURL] {
+            do {
+                if FileManager.default.isUbiquitousItem(at: url) {
+                    try FileManager.default.startDownloadingUbiquitousItem(at: url)
+                    try await waitForTransfer(at: url, uploading: false)
+                }
+                let snapshot = try await Self.readCoordinated(url)
+                if latest == nil || snapshot.date > latest!.date {
+                    latest = (snapshot.data, snapshot.date, url.lastPathComponent)
+                }
+            } catch let error as NSError where error.domain == NSCocoaErrorDomain &&
+                (error.code == NSFileReadNoSuchFileError || error.code == NSFileNoSuchFileError) {
+                continue
+            }
         }
+        guard let latest else { throw BackupError.noICloudBackup }
+        return try BackupCodec.decode(latest.data, sourceName: latest.name, existingState: existingState)
+    }
 
-        if FileManager.default.isUbiquitousItem(at: targetURL) {
-            try? FileManager.default.startDownloadingUbiquitousItem(at: targetURL)
+    private static func readCoordinated(_ url: URL) async throws -> (data: Data, date: Date) {
+        try await Task.detached(priority: .utility) {
+            let coordinator = NSFileCoordinator(filePresenter: nil)
+            var coordinationError: NSError?
+            var result: Result<(data: Data, date: Date), Error>?
+            // Default reading options wait for contents, unlike metadata-only coordination.
+            coordinator.coordinate(readingItemAt: url, options: [], error: &coordinationError) { coordinatedURL in
+                result = Result {
+                    let data = try Data(contentsOf: coordinatedURL)
+                    let values = try coordinatedURL.resourceValues(forKeys: [.contentModificationDateKey])
+                    return (data, values.contentModificationDate ?? .distantPast)
+                }
+            }
+            if let coordinationError { throw coordinationError }
+            guard let result else { throw BackupError.noICloudBackup }
+            return try result.get()
+        }.value
+    }
+
+    private func waitForTransfer(at url: URL, uploading: Bool) async throws {
+        let deadline = Date.now.addingTimeInterval(60)
+        while true {
+            try Task.checkCancellation()
+            // Use a fresh URL so resource-value caching cannot freeze transfer progress.
+            let values = try URL(fileURLWithPath: url.path).resourceValues(forKeys: [
+                .ubiquitousItemIsUploadedKey, .ubiquitousItemDownloadingStatusKey,
+                .ubiquitousItemUploadingErrorKey, .ubiquitousItemDownloadingErrorKey
+            ])
+            if let error = uploading ? values.ubiquitousItemUploadingError : values.ubiquitousItemDownloadingError {
+                throw error
+            }
+            if uploading ? values.ubiquitousItemIsUploaded == true : values.ubiquitousItemDownloadingStatus == .current {
+                return
+            }
+            guard Date.now < deadline else { throw BackupError.iCloudSyncPending }
+            try await Task.sleep(for: .seconds(1))
         }
-        let data = try Data(contentsOf: targetURL)
-        return try BackupCodec.decode(data, sourceName: sourceName, existingState: existingState)
     }
 
     private func backupURL(fileName: String, createDirectory: Bool, legacy: Bool = false) async throws -> URL {

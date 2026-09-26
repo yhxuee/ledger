@@ -15,10 +15,13 @@ actor CloudLedgerService {
     }
 
     func recoverSyncIfNeeded() async {
-        guard callbacksConfigured else { return }
         do {
+            guard await MainActor.run(body: { LedgerStore.shared.persistenceEnabled }) else { return }
+            try await configureCallbacksIfNeeded()
             try await ownerSync.recoverIfNeeded()
             try await participantSync.recoverIfNeeded()
+            try await ownerSync.fetchChanges()
+            try await participantSync.fetchChanges()
         } catch {
             LedgerDiagnostics.failure(error, operation: "sync-storage-recovery", logger: LedgerDiagnostics.cloud)
             let message = error.localizedDescription

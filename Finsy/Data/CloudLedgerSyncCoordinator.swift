@@ -198,6 +198,11 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         engine.state.add(pendingRecordZoneChanges: try storage.deletionIDs().map { .deleteRecord($0) })
     }
 
+    func fetchChanges() async throws {
+        guard !paused else { throw CloudLedgerError.migrationInProgress }
+        try await syncEngine().fetchChanges()
+    }
+
     func flush() async throws {
         guard !paused else { throw CloudLedgerError.migrationInProgress }
         let engine = try syncEngine()

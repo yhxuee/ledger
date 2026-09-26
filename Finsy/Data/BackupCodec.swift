@@ -252,6 +252,7 @@ enum BackupCodec {
 
 enum BackupError: LocalizedError {
     case wrongApplication, invalidFormat, futureSchema(Int), duplicateID(String), missingAccount, invalidTransfer, invalidValue(String), iCloudUnavailable, noICloudBackup
+    case iCloudSyncPending
     var errorDescription: String? {
         switch self {
         case .wrongApplication: "This file is not a Finsy backup."
@@ -263,6 +264,7 @@ enum BackupError: LocalizedError {
         case .invalidValue(let field): "Backup contains an invalid \(field) value."
         case .iCloudUnavailable: "iCloud Drive is not available. Check the app capability and Apple ID."
         case .noICloudBackup: "No iCloud backup was found."
+        case .iCloudSyncPending: "iCloud has not finished transferring the backup. Keep both devices online and try again."
         }
     }
 }

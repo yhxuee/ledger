@@ -28,6 +28,7 @@ final class FinsyMaintenanceCoordinator {
 
         await privacy.unlockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
         await store.resumeEncryptionMigrations()
+        await CloudLedgerService.shared.recoverSyncIfNeeded()
         RecentTransactionActivityCoordinator.shared.registerObservers(store: store)
 
         // Perform initial book-specific reconciliation
