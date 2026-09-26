@@ -54,6 +54,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify device encryption protocol
         run: bash Scripts/verify-ledger-crypto.sh
+      - name: Verify encrypted local ledger migration
+        run: bash Scripts/verify-encrypted-storage.sh
       - name: Verify capability source configuration
         run: bash Scripts/verify-purchase-configuration.sh
       - name: Import signing identity and API key
