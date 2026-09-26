@@ -206,6 +206,7 @@ struct LedgerView: View {
         }
         .task(id: listRequest) {
             let request = listRequest
+            guard snapshot?.request != request else { return }
             let state = store.state
             let index = store.index
             let worker = Task.detached(priority: .userInitiated) {

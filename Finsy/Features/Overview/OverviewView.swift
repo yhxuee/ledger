@@ -360,6 +360,7 @@ struct VerticalOverviewHeroLayout: Layout {
             }
             .task(id: requestedLatest) {
                 let request = requestedLatest
+                guard latestRequest != request else { return }
                 let state = store.state
                 let index = store.index
                 let worker = Task.detached(priority: .userInitiated) {

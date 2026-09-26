@@ -116,6 +116,7 @@ struct AnalyticsView: View {
         }
         .task(id: requestedSummary) {
             let request = requestedSummary
+            guard summaryRequest != request else { return }
             let state = store.state
             let index = store.index
             let worker = Task.detached(priority: .userInitiated) {

@@ -65,15 +65,32 @@ struct TaxAnalyticsPage: View {
             : String(format: "%02d/%02d/%02d", day, month, year)
     }
 
-    private var summaries: [TaxCategorySummary] {
+    private struct TaxRequest: Hashable, Sendable {
+        var bookID: UUID
+        var revision: UInt64
+        var start: Date
+        var end: Date
+        var categories: Set<LedgerCategoryID>
+        var accounts: Set<UUID>
+    }
+    @State private var completedRequest: TaxRequest?
+    @State private var cachedSummaries: [TaxCategorySummary] = []
+    private var requestedTax: TaxRequest {
         let bounds = dateBounds
+        return TaxRequest(bookID: store.activeBookID, revision: store.financialRevision,
+            start: bounds.start, end: bounds.end, categories: categories, accounts: accountIDs)
+    }
+    private var summaries: [TaxCategorySummary] { completedRequest == requestedTax ? cachedSummaries : [] }
+
+    nonisolated private static func buildSummaries(request: TaxRequest, state: LedgerState, index: LedgerIndex) -> [TaxCategorySummary] {
+        let bounds = (start: request.start, end: request.end)
         var totals: [LedgerCategoryID: Double] = [:]
 
-        for transaction in store.transactions(from: bounds.start, to: bounds.end) {
+        for transaction in index.sortedActiveTransactions {
             guard transaction.occurredAt >= bounds.start, transaction.occurredAt < bounds.end,
-                  accountIDs.isEmpty || accountIDs.contains(transaction.accountID),
-                  let taxResult = TransactionSemantics.taxEffect(transaction, in: store.state, to: store.state.settings.baseCurrency),
-                  categories.isEmpty || categories.contains(taxResult.categoryID)
+                  request.accounts.isEmpty || request.accounts.contains(transaction.accountID),
+                  let taxResult = TransactionSemantics.taxEffect(transaction, in: state, to: state.settings.baseCurrency, index: index),
+                  request.categories.isEmpty || request.categories.contains(taxResult.categoryID)
             else { continue }
 
             totals[taxResult.categoryID, default: 0] += taxResult.amount
@@ -81,7 +98,7 @@ struct TaxAnalyticsPage: View {
 
         return totals.compactMap { (categoryID, total) -> TaxCategorySummary? in
             guard total > 0.0001,
-                  let category = store.state.categories.first(where: { $0.id == categoryID })
+                  let category = state.categories.first(where: { $0.id == categoryID })
                                  ?? SeedData.categories.first(where: { $0.id == categoryID })
             else { return nil }
             return TaxCategorySummary(category: category, taxAmount: total)
@@ -105,6 +122,9 @@ struct TaxAnalyticsPage: View {
                 }
                 .pickerStyle(.segmented)
 
+                if completedRequest != requestedTax {
+                    ProgressView().frame(maxWidth: .infinity).padding()
+                }
                 pieChartView
 
                 TaxReceiptView(
@@ -115,6 +135,7 @@ struct TaxAnalyticsPage: View {
                     isExport: false,
                     onExport: exportReceipt
                 )
+                .disabled(completedRequest != requestedTax)
 
                 if WalletPassManager.shared.isIssuerConfigured {
                     Button {
@@ -135,6 +156,17 @@ struct TaxAnalyticsPage: View {
                 }
             }
             .padding()
+        }
+        .task(id: requestedTax) {
+            let request = requestedTax
+            guard completedRequest != request else { return }
+            let state = store.state
+            let index = store.index
+            let worker = Task.detached(priority: .userInitiated) { Self.buildSummaries(request: request, state: state, index: index) }
+            let result = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
+            guard !Task.isCancelled else { return }
+            cachedSummaries = result
+            completedRequest = request
         }
         .sheet(item: $exportItem) { item in
             ShareActivitySheet(items: [item.image])
