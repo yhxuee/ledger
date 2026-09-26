@@ -102,16 +102,18 @@ struct CashFlowForecastSettingsView: View {
                     }
                 }
 
-                if !forecast.eligible {
+                if !preferences.value.cashFlowForecastEnabled {
+                    SettingsGlassSection("Status") { Text("Forecasting is off").foregroundStyle(.secondary) }
+                } else if !forecast.eligible {
                     SettingsGlassSection("Status") {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Forecasting starts after 14 days of recorded spending.")
+                            Text("Insufficient data. Forecasting requires 90 days of history.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                             HStack {
-                                ProgressView(value: Double(forecast.availableHistorySpan), total: 14)
+                                ProgressView(value: Double(forecast.availableHistorySpan), total: 90)
                                     .tint(.secondary)
-                                Text("\(forecast.availableHistorySpan) of 14 days available")
+                                Text("\(forecast.availableHistorySpan) of 90 days available")
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }
@@ -120,7 +122,7 @@ struct CashFlowForecastSettingsView: View {
                 } else {
                     SettingsGlassSection("Status") {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(String(format: NSLocalizedString("Forecast based on the last %lld days", comment: ""), Int64(forecast.historyDays)))
+                            Text(String(format: NSLocalizedString("Forecasting active - Last %lld days", comment: ""), Int64(forecast.historyDays)))
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                             Text("Includes scheduled transactions and installments.")

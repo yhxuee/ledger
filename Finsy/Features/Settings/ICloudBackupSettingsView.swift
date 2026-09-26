@@ -41,12 +41,10 @@ struct ICloudBackupSettingsView: View {
                         preferences.update { $0.iCloudBackupInterval = value }
                         ICloudBackupBackground.schedule(preferences: preferences.value)
                     })) {
-                        ForEach(ICloudBackupInterval.allCases) { Text($0.rawValue).tag($0) }
+                        ForEach(ICloudBackupInterval.allCases) { Text($0 == .day ? "Daily" : ($0 == .week ? "Weekly" : "Monthly")).tag($0) }
                     }
                     .pickerStyle(.segmented)
                     .disabled(busy)
-                    Text("D · Daily   W · Weekly   M · Monthly")
-                        .font(.footnote).foregroundStyle(.secondary)
                     Text("Backups include all ledgers. If a scheduled backup is missed, Finsy catches up when you next open the app.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }

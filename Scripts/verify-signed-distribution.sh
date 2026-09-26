@@ -99,8 +99,12 @@ for path, bundle, is_app in ((app, "com.finsy.app", True),
             f"{label}: profile expired")
 
     # Invariant: App Store distribution profile must NOT have ProvisionedDevices and must not allow debugging
-    require("ProvisionedDevices" not in profile,
-            f"{label}: profile contains ProvisionedDevices (not an App Store distribution profile)")
+    if environment == "adhoc":
+        require(bool(profile.get("ProvisionedDevices")), f"{label}: Ad Hoc profile has no registered devices")
+        require(not profile.get("ProvisionsAllDevices"), f"{label}: enterprise profile is not Ad Hoc")
+    else:
+        require("ProvisionedDevices" not in profile,
+                f"{label}: profile contains ProvisionedDevices (not an App Store distribution profile)")
     require(authorized.get("get-task-allow") is not True,
             f"{label}: profile get-task-allow is True (not a distribution profile)")
 
@@ -128,7 +132,7 @@ for path, bundle, is_app in ((app, "com.finsy.app", True),
 
     # iCloud authorization (for main app)
     if is_app:
-        pass_types = {f"{team}.pass.com.finsy.{kind}" for kind in ("account", "receipt", "tax")}
+        pass_types = {f"{team}.pass.com.finsy.{kind}" for kind in ("account", "receipt")}
         signed_pass_types = set(signature.get("com.apple.developer.pass-type-identifiers", []))
         profile_pass_types = set(authorized.get("com.apple.developer.pass-type-identifiers", []))
         require(pass_types <= signed_pass_types,
@@ -151,12 +155,13 @@ for path, bundle, is_app in ((app, "com.finsy.app", True),
             require(sig_has_icloud,
                     f"{label}: signature lacks CloudKit or iCloud Documents")
 
-    if is_app and environment == "production":
+    if is_app and environment in ("production", "adhoc"):
         if signature.get("aps-environment"):
             require(signature.get("aps-environment") == "production",
                     "main app: signed APNs environment is not production")
         if authorized.get("aps-environment"):
             require(authorized.get("aps-environment") == "production",
                     "main app: profile APNs environment is not production")
-    print(f"OK {label}: bundle {bundle}; build {build}; App Store distribution profile and signed capabilities verified")
+    kind = "Ad Hoc" if environment == "adhoc" else "App Store"
+    print(f"OK {label}: bundle {bundle}; build {build}; {kind} distribution profile and signed capabilities verified")
 PY

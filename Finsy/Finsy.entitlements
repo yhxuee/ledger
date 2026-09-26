@@ -8,7 +8,6 @@
     <array>
         <string>$(TeamIdentifierPrefix)pass.com.finsy.account</string>
         <string>$(TeamIdentifierPrefix)pass.com.finsy.receipt</string>
-        <string>$(TeamIdentifierPrefix)pass.com.finsy.tax</string>
     </array>
     <key>com.apple.developer.icloud-container-identifiers</key>
     <array><string>iCloud.com.finsy.app</string></array>

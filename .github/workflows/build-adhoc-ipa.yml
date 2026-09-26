@@ -1,0 +1,126 @@
+name: Build Finsy Ad Hoc
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [build/adhoc-ipa]
+
+jobs:
+  adhoc-ipa:
+    name: Archive and export Ad Hoc IPA
+    runs-on: macos-latest
+    env:
+      SIGNING_CERTIFICATE_P12: ${{ secrets.IOS_SIGNING_CERTIFICATE_P12 }}
+      SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.IOS_SIGNING_CERTIFICATE_PASSWORD }}
+      KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+      DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+      IOS_ADHOC_PROFILE_APP: ${{ secrets.IOS_ADHOC_PROFILE_APP }}
+      IOS_ADHOC_PROFILE_WIDGET: ${{ secrets.IOS_ADHOC_PROFILE_WIDGET }}
+      WALLET_ISSUER_URL: ${{ secrets.FINSY_WALLET_PASS_ISSUER_URL }}
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Ad Hoc configuration
+        run: |
+          set -euo pipefail
+          for variable in SIGNING_CERTIFICATE_P12 SIGNING_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD DEVELOPMENT_TEAM IOS_ADHOC_PROFILE_APP IOS_ADHOC_PROFILE_WIDGET; do
+            if [[ -z "${!variable}" ]]; then
+              echo "::error::Missing Ad Hoc configuration: $variable"
+              exit 1
+            fi
+          done
+          [[ "$WALLET_ISSUER_URL" =~ ^https://[^/]+ ]] || { echo '::error::Wallet issuer HTTPS URL is required.'; exit 1; }
+          bash Scripts/verify-purchase-configuration.sh
+      - name: Import Apple Distribution identity
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/finsy-adhoc.keychain-db"
+          certificate="$RUNNER_TEMP/finsy-adhoc.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          printf '%s' "$SIGNING_CERTIFICATE_P12" | base64 --decode > "$certificate"
+          security import "$certificate" -k "$keychain" -P "$SIGNING_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          security default-keychain -d user -s "$keychain"
+          security find-identity -v -p codesigning "$keychain" | grep -q 'Apple Distribution:' || {
+            echo '::error::No Apple Distribution signing identity was imported.'
+            exit 1
+          }
+          rm -f "$certificate"
+      - name: Install supplied Ad Hoc profiles
+        run: python3 Scripts/install-adhoc-profiles.py
+      - name: Archive Finsy for registered devices
+        run: |
+          set -euo pipefail
+          xcodebuild clean archive \
+            -project Finsy.xcodeproj \
+            -scheme Finsy \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Finsy-AdHoc.xcarchive" \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            CODE_SIGN_STYLE=Manual \
+            'CODE_SIGN_IDENTITY=Apple Distribution' \
+            APP_PROFILE_SPECIFIER="$APP_PROFILE_UUID" \
+            WIDGET_PROFILE_SPECIFIER="$WIDGET_PROFILE_UUID" \
+            "FINSY_WALLET_PASS_ISSUER_URL=$WALLET_ISSUER_URL" \
+            "FINSY_BUILD_DATE=$(date -u +%Y-%m-%d)" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
+          bash Scripts/verify-signed-distribution.sh \
+            "$RUNNER_TEMP/Finsy-AdHoc.xcarchive/Products/Applications/Finsy.app" \
+            "$DEVELOPMENT_TEAM" "$BUILD_NUMBER" adhoc
+      - name: Export Ad Hoc IPA
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import plistlib
+          from pathlib import Path
+          options = {
+              'method': 'release-testing',
+              'signingStyle': 'manual',
+              'signingCertificate': 'Apple Distribution',
+              'teamID': os.environ['DEVELOPMENT_TEAM'],
+              'destination': 'export',
+              'manageAppVersionAndBuildNumber': False,
+              'iCloudContainerEnvironment': 'Production',
+              'thinning': '<none>',
+              'provisioningProfiles': {
+                  'com.finsy.app': os.environ['APP_PROFILE_UUID'],
+                  'com.finsy.app.Widget': os.environ['WIDGET_PROFILE_UUID'],
+              },
+          }
+          (Path(os.environ['RUNNER_TEMP']) / 'AdHocExportOptions.plist').write_bytes(plistlib.dumps(options))
+          PY
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Finsy-AdHoc.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/AdHocExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/adhoc-export"
+          test -s "$RUNNER_TEMP/adhoc-export/Finsy.ipa"
+      - name: Verify exported app and widget
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/adhoc-inspection"
+          ditto -x -k "$RUNNER_TEMP/adhoc-export/Finsy.ipa" "$RUNNER_TEMP/adhoc-inspection"
+          bash Scripts/verify-signed-distribution.sh \
+            "$RUNNER_TEMP/adhoc-inspection/Payload/Finsy.app" \
+            "$DEVELOPMENT_TEAM" "$BUILD_NUMBER" adhoc
+      - name: Upload Ad Hoc IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Finsy-AdHoc-IPA-${{ github.run_number }}
+          path: ${{ runner.temp }}/adhoc-export/Finsy.ipa
+          if-no-files-found: error
+      - name: Preserve Ad Hoc crash symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: Finsy-AdHoc-dSYMs-${{ github.run_number }}
+          path: ${{ runner.temp }}/Finsy-AdHoc.xcarchive/dSYMs
+          if-no-files-found: error
+      - name: Remove temporary signing material
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/finsy-adhoc.p12"
+          security delete-keychain "$RUNNER_TEMP/finsy-adhoc.keychain-db" 2>/dev/null || true

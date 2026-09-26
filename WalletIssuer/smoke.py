@@ -1,4 +1,4 @@
-"""Exercise all three local issuer endpoints and verify their pass signatures."""
+"""Exercise account and receipt issuer endpoints and verify their pass signatures."""
 
 import hashlib
 import io
@@ -31,13 +31,6 @@ SAMPLES = {
         "items": [{"name": "Item", "formattedAmount": "HK$10.00"}],
         "finalizedAt": 812345678.0,
     },
-    "tax-receipt": {
-        "passTypeIdentifier": "pass.com.finsy.tax",
-        "serialNumber": "tax-expense-2026-09",
-        "monthName": "September 2026",
-        "formattedExpenseTax": "HK$1.00",
-        "formattedTaxableExpense": "HK$10.00",
-    },
 }
 BASE_URL = os.environ.get("FINSY_ISSUER_URL", "http://127.0.0.1:8765").rstrip("/")
 
@@ -61,7 +54,7 @@ for endpoint, sample in SAMPLES.items():
         assert json.loads(bundle.read("pass.json"))["passTypeIdentifier"] == sample["passTypeIdentifier"]
         style = json.loads(bundle.read("pass.json"))
         if endpoint == "account":
-            assert "generic" in style and "strip.png" not in bundle.namelist()
+            assert "storeCard" in style and "strip.png" in bundle.namelist()
         else:
             assert "coupon" in style and "strip.png" in bundle.namelist()
         with tempfile.TemporaryDirectory() as temp:

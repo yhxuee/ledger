@@ -8,6 +8,8 @@ import json
 import math
 import os
 import re
+import struct
+import zlib
 import subprocess
 import tempfile
 import threading
@@ -25,7 +27,6 @@ PORT = int(os.environ.get("FINSY_ISSUER_PORT", "8765"))
 KINDS = {
     "/account": ("account", "pass.com.finsy.account"),
     "/purchase-receipt": ("receipt", "pass.com.finsy.receipt"),
-    "/tax-receipt": ("tax", "pass.com.finsy.tax"),
 }
 SERIAL = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
 RATE_LOCK = threading.Lock()
@@ -90,9 +91,10 @@ def make_pass(kind: str, expected_id: str, payload: dict) -> dict:
         "organizationName": "Finsy",
         "description": "Finsy financial record",
         "logoText": "Finsy",
-        "backgroundColor": "rgb(32, 32, 32)",
-        "foregroundColor": "rgb(255, 255, 255)",
-        "labelColor": "rgb(205, 205, 205)",
+        "backgroundColor": "rgb(250, 250, 250)",
+        "foregroundColor": "rgb(20, 20, 20)",
+        "labelColor": "rgb(65, 65, 65)",
+        "suppressStripShine": True,
     }
 
     if kind == "account":
@@ -100,10 +102,14 @@ def make_pass(kind: str, expected_id: str, payload: dict) -> dict:
         balance = short(payload.get("formattedBalance"))
         count = int(number(payload.get("accountCount")))
         body["description"] = "Finsy account balance"
-        body["generic"] = {
-            "primaryFields": [field("balance", title.upper()[:30], balance)],
-            "secondaryFields": [field("accounts", "ACCOUNTS", str(count))],
+        body["storeCard"] = {
+            "headerFields": [field("month", "MONTH", short(payload.get("monthTitle") or datetime.now().strftime("%b %Y").upper()))],
+            "primaryFields": [],
+            "secondaryFields": [field("expenses", "EXPENSES", short(payload.get("formattedExpenses") or "—")), field("income", "INCOME", short(payload.get("formattedIncome") or "—"))],
+            "auxiliaryFields": [field("entries", "ENTRIES", f'{int(number(payload.get("entries") or 0))} recs'), field("remaining", short(payload.get("remainingLabel") or "TODAY"), short(payload.get("formattedRemaining") or "—"))],
+            "backFields": [field("balance", "NET WORTH", balance), field("source", "ACCOUNT", title), field("recent", "RECENT ENTRIES", short(payload.get("recentEntries") or "No entries", 4000))],
         }
+        body["_artwork"] = ("NET WORTH", balance)
         locations = payload.get("locations", [])
         if not isinstance(locations, list) or len(locations) > 10:
             raise ValueError("Invalid locations")
@@ -117,47 +123,50 @@ def make_pass(kind: str, expected_id: str, payload: dict) -> dict:
                 for item in locations
             ]
     elif kind == "receipt":
-        body["backgroundColor"] = "rgb(235, 235, 235)"
-        body["foregroundColor"] = "rgb(25, 25, 25)"
-        body["labelColor"] = "rgb(85, 85, 85)"
         store = short(payload.get("storeName"))
         total = short(payload.get("formattedTotal"))
         tax = short(payload.get("formattedTax"))
         count = int(number(payload.get("itemCount")))
-        date = apple_date(payload.get("finalizedAt"))
+        date = short(payload.get("formattedDate") or apple_date(payload.get("finalizedAt")))
         items = payload.get("items", [])
         if not isinstance(items, list) or len(items) > 100:
             raise ValueError("Invalid items")
-        back = []
+        back = [field("total", "TOTAL", total), field("store", "STORE", store), field("tax", "TAX", tax)]
         for index, item in enumerate(items):
-            back.append(field(f"item-{index}", short(item.get("name"), 80), short(item.get("formattedAmount"), 40)))
+            back.append(field(f"item-{index}", f'{index + 1:02d} · {short(item.get("name"), 80)}', f'{short(item.get("category", ""), 80)}\n{short(item.get("formattedAmount"), 40)}'))
         if not back:
             back.append(field("itemsSummary", "ITEMS", short(payload.get("itemsSummary", ""), 300)))
         body["description"] = "Finsy purchase receipt"
         body["coupon"] = {
-            "headerFields": [field("store", "STORE", store)],
-            "primaryFields": [field("total", "TOTAL", total)],
-            "secondaryFields": [field("tax", "TAX", tax), field("itemCount", "ITEMS", str(count))],
-            "auxiliaryFields": [{**field("date", "DATE", date), "dateStyle": "PKDateStyleShort"}],
+            "headerFields": [field("date", "DATE", date)],
+            "primaryFields": [],
+            "secondaryFields": [field("itemCount", "ITEMS", str(count)), field("payment", "PAYMENT", short(payload.get("payment") or "Unavailable"))],
+            "auxiliaryFields": [field("invoice", "INVOICE", short(payload.get("invoiceNumber") or serial)), field("status", "STATUS", short(payload.get("transactionStatus") or "Paid"))],
             "backFields": back,
         }
+        body["_artwork"] = ("TOTAL", total)
+        barcode = payload.get("barcode")
+        if barcode is not None:
+            message = short(barcode.get("message"), 1024)
+            format_name = barcode.get("format")
+            if not message or format_name not in ("PKBarcodeFormatQR", "PKBarcodeFormatCode128"):
+                raise ValueError("Invalid barcode")
+            if format_name == "PKBarcodeFormatCode128" and not all(32 <= ord(char) <= 126 for char in message):
+                raise ValueError("Code 128 requires printable ASCII")
+            body["barcodes"] = [{"message": message, "format": format_name, "messageEncoding": "utf-8"}]
     else:
-        body["backgroundColor"] = "rgb(235, 235, 235)"
-        body["foregroundColor"] = "rgb(25, 25, 25)"
-        body["labelColor"] = "rgb(85, 85, 85)"
-        month = short(payload.get("monthName"))
-        tax = short(payload.get("formattedExpenseTax"))
-        expense = short(payload.get("formattedTaxableExpense"))
-        body["description"] = "Finsy monthly expense tax summary"
-        body["coupon"] = {
-            "headerFields": [field("month", "MONTH", month)],
-            "primaryFields": [field("tax", "EXPENSE TAX", tax)],
-            "secondaryFields": [field("expense", "TAXABLE EXPENSE", expense)],
-        }
+        raise ValueError("Unsupported pass kind")
+    theme = short(payload.get("themeColorHex") or "3A78C2", 6)
+    if not re.fullmatch(r"[0-9A-Fa-f]{6}", theme):
+        raise ValueError("Invalid theme color")
+    # Used by the artwork generator only; never emitted in pass.json.
+    body["_theme"] = theme
     return body
 
 
 def signed_pass(kind: str, body: dict) -> bytes:
+    theme = body.pop("_theme", "3A78C2")
+    title, amount = body.pop("_artwork")
     with tempfile.TemporaryDirectory(prefix="finsy-pass-") as temp:
         folder = Path(temp)
         files = {
@@ -165,9 +174,10 @@ def signed_pass(kind: str, body: dict) -> bytes:
             "icon.png": (ROOT / "assets" / "icon.png").read_bytes(),
             "icon@2x.png": (ROOT / "assets" / "icon@2x.png").read_bytes(),
         }
-        if kind in ("receipt", "tax"):
-            for name in ("strip.png", "strip@2x.png", "strip@3x.png"):
-                files[name] = (ROOT / "assets" / name).read_bytes()
+        for scale in (1, 2, 3):
+            suffix = "" if scale == 1 else f"@{scale}x"
+            files[f"logo{suffix}.png"] = (ROOT / "assets" / f"logo{suffix}.png").read_bytes()
+            files[f"strip{suffix}.png"] = ticket_strip(theme, scale, title, amount, serrated=kind == "receipt")
         manifest = {name: hashlib.sha1(contents).hexdigest() for name, contents in files.items()}
         files["manifest.json"] = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
         (folder / "manifest.json").write_bytes(files["manifest.json"])
@@ -186,6 +196,64 @@ def signed_pass(kind: str, body: dict) -> bytes:
                 bundle.writestr(name, contents)
             bundle.writestr("signature", signature.read_bytes())
         return archive.getvalue()
+
+
+def ticket_strip(theme: str, scale: int, title: str = "", amount: str = "", serrated: bool = True) -> bytes:
+    """Theme paper with an upper label and one bold currency-and-amount line."""
+    rgb = tuple(int(theme[index:index + 2], 16) for index in (0, 2, 4))
+    paper = tuple(round(255 * .9 + channel * .1) for channel in rgb)
+    width, height = 375 * scale, 144 * scale
+    rows = []
+    for y in range(height):
+        row = bytearray([0])
+        for x in range(width):
+            phase = (x % (15 * scale)) / (15 * scale)
+            edge = int(abs(phase - .5) * 2 * 7 * scale) if serrated else 0
+            if y < edge or y >= height - edge:
+                pixel = (*paper, 0)
+            elif y < edge + 2 * scale or y >= height - edge - 2 * scale:
+                pixel = (*rgb, 255)
+            else:
+                delta = 2 if (x + y * 3) % (11 * scale) == 0 else 0
+                pixel = (*(max(0, channel - delta) for channel in paper), 255)
+            row.extend(pixel)
+        rows.append(bytes(row))
+    def chunk(name: bytes, value: bytes) -> bytes:
+        return struct.pack(">I", len(value)) + name + value + struct.pack(">I", zlib.crc32(name + value))
+    png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(b"".join(rows))) + chunk(b"IEND", b"")
+    if not title:
+        return png
+    from PIL import Image, ImageDraw, ImageFont
+    image = Image.open(io.BytesIO(png)).convert("RGBA")
+    # Fine contour lines stay in opposing corners, away from the amount.
+    # Preserve the ticket's transparent teeth when clipping the decoration.
+    alpha = image.getchannel("A")
+    texture = tuple(round(base * .82 + color * .18) for base, color in zip(paper, rgb))
+    draw = ImageDraw.Draw(image)
+    for radius in (34, 45, 56, 67, 78):
+        for cx, cy in ((365, 8), (8, 143)):
+            draw.ellipse(tuple(round(value * scale) for value in
+                (cx - radius, cy - radius, cx + radius, cy + radius)),
+                outline=(*texture, 255), width=scale)
+    # A quiet perforation detail along the lower edge suggests receipt paper.
+    for x in range(104, 272, 7):
+        draw.line((x * scale, 123 * scale, (x + 2) * scale, 123 * scale),
+            fill=(*texture, 255), width=scale)
+    image.putalpha(alpha)
+    font_path = os.environ.get("FINSY_WALLET_BOLD_FONT", "/opt/finsy-wallet/fonts/SF-Pro-Display-Bold.otf")
+    label_font = ImageFont.truetype(os.environ.get("FINSY_WALLET_LABEL_FONT", "/opt/finsy-wallet/fonts/SF-Pro-Text-Semibold.otf"), 13 * scale)
+    amount_size = 36 * scale
+    amount_font = ImageFont.truetype(font_path, amount_size)
+    available_width = width - 40 * scale
+    while draw.textbbox((0, 0), amount, font=amount_font)[2] > available_width and amount_size > 8 * scale:
+        amount_size -= scale
+        amount_font = ImageFont.truetype(font_path, amount_size)
+    # Separate label and amount baselines, independent of Wallet's native primary layout.
+    draw.text((20 * scale, 26 * scale), title, font=label_font, fill=(45, 45, 45), anchor="lt")
+    draw.text((width / 2, 62 * scale), amount, font=amount_font, fill=(15, 15, 15), anchor="mt")
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
 
 
 class Handler(BaseHTTPRequestHandler):
