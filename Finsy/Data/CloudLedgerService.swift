@@ -20,7 +20,9 @@ actor CloudLedgerService {
             try await configureCallbacksIfNeeded()
             try await ownerSync.recoverIfNeeded()
             try await participantSync.recoverIfNeeded()
-            try await ownerSync.fetchChanges()
+            if await MainActor.run(body: { AppPreferencesStore.shared.value.iCloudBackupEnabled }) {
+                try await ownerSync.fetchChanges()
+            }
             try await participantSync.fetchChanges()
         } catch {
             LedgerDiagnostics.failure(error, operation: "sync-storage-recovery", logger: LedgerDiagnostics.cloud)
@@ -29,7 +31,43 @@ actor CloudLedgerService {
         }
     }
 
+    func fetchAllLedgers() async throws {
+        try await configureCallbacksIfNeeded()
+        try await ownerSync.recoverIfNeeded()
+        try await participantSync.recoverIfNeeded()
+        try await ownerSync.fetchChanges()
+        try await participantSync.fetchChanges()
+        await MainActor.run { LedgerStore.shared.iCloudSyncReady = true }
+        try await updateICloudPreference()
+    }
+
+    func flushAllLedgers() async throws {
+        try await configureCallbacksIfNeeded()
+        try await ownerSync.flush()
+        try await participantSync.flush()
+    }
+
+    func updateICloudPreference() async throws {
+        let enabled = await MainActor.run { AppPreferencesStore.shared.value.iCloudBackupEnabled && LedgerStore.shared.iCloudSyncReady }
+        try await ownerSync.setAutomaticallySync(enabled)
+    }
+
+    func deleteOwnedLedger(_ book: LedgerBook) async throws {
+        try await configureCallbacksIfNeeded()
+        let zone = book.cloudZoneName.map { CKRecordZone.ID(zoneName: $0, ownerName: CKCurrentUserDefaultName) }
+            ?? CloudRecordMapper.zoneID(for: book.id)
+        try await ownerSync.deleteZone(zone)
+    }
+
+    func leaveSharedLedger(_ book: LedgerBook) async throws {
+        guard let zoneName = book.cloudZoneName, let ownerName = book.cloudZoneOwnerName else { throw CloudLedgerError.missingZone }
+        try await configureCallbacksIfNeeded()
+        // In the shared database, deleting a zone removes only this participant's access.
+        try await participantSync.deleteZone(CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName))
+    }
+
     private func configureCallbacksIfNeeded() async throws {
+        try await updateICloudPreference()
         guard !callbacksConfigured else { return }
         callbacksConfigured = true
         do {
@@ -46,7 +84,11 @@ actor CloudLedgerService {
         do {
             if !records.contains(where: { $0.recordType == CloudRecordType.book }),
                let deletion = deletions.first(where: { $0.recordName.hasPrefix("book-") }) {
-                await MainActor.run { LedgerStore.shared.detachCloudZone(deletion.zoneID) }
+                let explicitlyLeft = participant ? try await participantSync.isZoneDeleted(deletion.zoneID) : false
+                await MainActor.run {
+                    if participant && !explicitlyLeft { LedgerStore.shared.detachCloudZone(deletion.zoneID) }
+                    else { LedgerStore.shared.removeDeletedCloudBook(in: deletion.zoneID) }
+                }
                 try await LedgerStore.shared.persistDurableAsync()
                 return true
             }
@@ -134,6 +176,7 @@ actor CloudLedgerService {
         try await configureCallbacksIfNeeded()
         try await container.accept(metadata)
         let zoneID = metadata.share.recordID.zoneID
+        try await participantSync.allowRestoredZone(zoneID)
         let records = try await fetchZoneSnapshot(database: container.sharedCloudDatabase, zoneID: zoneID)
         let book = try CloudRecordMapper.decodeBook(from: records, participant: true, attachmentFolder: AttachmentStore.folderURL)
         try await participantSync.cache(records: records)
@@ -142,6 +185,8 @@ actor CloudLedgerService {
 
     func synchronize(book: LedgerBook, revision: UInt64? = nil) async throws {
         guard book.effectiveStorageKind != .local, let zoneName = book.cloudZoneName else { return }
+        if book.effectiveStorageKind == .cloudOwner,
+           !(await MainActor.run { AppPreferencesStore.shared.value.iCloudBackupEnabled && LedgerStore.shared.iCloudSyncReady }) { return }
         try await configureCallbacksIfNeeded()
         let securityMatches = await MainActor.run {
             guard LedgerStore.shared.persistenceEnabled, let current = LedgerStore.shared.books.first(where: { $0.id == book.id }) else { return false }
@@ -154,6 +199,10 @@ actor CloudLedgerService {
         guard book.effectiveEncryptionState != .authorizationRequired,
               book.effectiveEncryptionState != .enabling,
               book.effectiveEncryptionState != .migrationFailed else { return }
+        if book.isEncrypted == true,
+           await MainActor.run(body: { AppPreferencesStore.shared.value.iCloudBackupEnabled }) {
+            try LedgerKeyStore.publishKeyToICloud(for: book.id, expectedFingerprint: book.keyFingerprint)
+        }
         switch book.effectiveStorageKind {
         case .cloudOwner: try await ownerSync.enqueue(book: book, zoneID: zoneID, ensureZone: true, revision: revision)
         case .cloudParticipant: try await participantSync.enqueue(book: book, zoneID: zoneID, ensureZone: false, revision: revision)

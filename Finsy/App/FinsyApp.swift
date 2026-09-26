@@ -4,7 +4,7 @@ import SwiftUI
 struct FinsyApp: App {
     @UIApplicationDelegateAdaptor(CloudShareAppDelegate.self) private var appDelegate
     @StateObject private var store = LedgerStore.shared
-    @StateObject private var preferences = AppPreferencesStore()
+    @StateObject private var preferences = AppPreferencesStore.shared
     @StateObject private var privacy = PrivacyController()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -42,6 +42,7 @@ struct FinsyApp: App {
                             privacy: privacy
                         )
                     } else {
+                        ICloudBackupBackground.schedule(preferences: preferences.value)
                         privacy.lockIfNeeded(protectionEnabled: preferences.value.biometricLockEnabled)
                         OverviewWidgetRelay.updateSnapshot(store: store, preferences: preferences.value)
                     }

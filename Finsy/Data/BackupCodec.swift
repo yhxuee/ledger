@@ -79,7 +79,7 @@ enum BackupCodec {
         if let fsy = try? decoder().decode(FsyBackupContainer.self, from: data), fsy.format == FsyBackupContainer.currentFormat {
             let innerData: Data
             if fsy.encrypted {
-                guard let key = try LedgerKeyStore.loadKey(for: fsy.ledgerID) else {
+                guard let key = try LedgerKeyStore.loadKey(for: fsy.ledgerID, expectedFingerprint: fsy.keyFingerprint) else {
                     throw LedgerCryptoError.authorizationRequired(ledgerID: fsy.ledgerID, fingerprint: fsy.keyFingerprint)
                 }
                 let fp = LedgerKeyStore.fingerprint(for: key, ledgerID: fsy.ledgerID)

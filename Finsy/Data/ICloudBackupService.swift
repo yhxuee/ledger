@@ -4,13 +4,49 @@ import CryptoKit
 actor ICloudBackupService {
     static let shared = ICloudBackupService()
     private let primaryFileName = "Finsy-latest.fsy"
+    private let libraryFileName = "Finsy-library-latest.fsy"
     private let legacyFileName = FinsyCompatibility.backupFile
 
     var isAvailable: Bool { FileManager.default.ubiquityIdentityToken != nil }
 
+    func backupLibrary(_ library: LedgerLibrary) async throws -> Date {
+        let data = try ICloudLibraryBackup.encode(library)
+        let url = try await backupURL(fileName: libraryFileName, createDirectory: true)
+        try await writeCoordinated(data, to: url)
+        try await waitForTransfer(at: url, uploading: true)
+        return .now
+    }
+
+    func restoreLibrary(existingState: LedgerState? = nil) async throws -> ICloudLibraryRestorePreview {
+        let url = try await backupURL(fileName: libraryFileName, createDirectory: false)
+        do {
+            if FileManager.default.isUbiquitousItem(at: url) {
+                try FileManager.default.startDownloadingUbiquitousItem(at: url)
+                try await waitForTransfer(at: url, uploading: false)
+            }
+            let snapshot = try await Self.readCoordinated(url)
+            let backup = try BackupCodec.decoder().decode(ICloudLibraryBackup.self, from: snapshot.data)
+            return try ICloudLibraryRestorePreview(library: backup.library(), createdAt: backup.createdAt)
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain &&
+            (error.code == NSFileReadNoSuchFileError || error.code == NSFileNoSuchFileError) {
+            // Existing single-ledger iCloud backups remain readable.
+            let preview = try await restoreLatest(existingState: existingState)
+            let book = LedgerBook(id: UUID(), name: "Restored Ledger", state: preview.envelope.data,
+                                  createdAt: preview.envelope.metadata.exportedAt, updatedAt: preview.envelope.data.lastModifiedAt)
+            return ICloudLibraryRestorePreview(library: LedgerLibrary(schemaVersion: BackupCodec.currentSchemaVersion,
+                activeBookID: book.id, books: [book]), createdAt: preview.envelope.metadata.exportedAt)
+        }
+    }
+
     func backup(_ envelope: LedgerBackupEnvelope, ledgerID: UUID, key: SymmetricKey?) async throws -> Date {
         let data = try BackupCodec.encodeFsy(envelope: envelope, ledgerID: ledgerID, key: key)
         let url = try await backupURL(fileName: primaryFileName, createDirectory: true)
+        try await writeCoordinated(data, to: url)
+        try await waitForTransfer(at: url, uploading: true)
+        return .now
+    }
+
+    private func writeCoordinated(_ data: Data, to url: URL) async throws {
         try await Task.detached(priority: .utility) {
             let coordinator = NSFileCoordinator(filePresenter: nil)
             var coordinationError: NSError?
@@ -22,8 +58,6 @@ actor ICloudBackupService {
             if let coordinationError { throw coordinationError }
             if let writeError { throw writeError }
         }.value
-        try await waitForTransfer(at: url, uploading: true)
-        return .now
     }
 
     func restoreLatest(existingState: LedgerState? = nil) async throws -> ImportPreview {

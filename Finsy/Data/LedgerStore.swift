@@ -141,6 +141,7 @@ public enum LedgerAccessState: Sendable {
     var currencyCatalogUpdatedAt: Date?
     /// A dismissed bridge notice stays dismissed for the current purchase.
     var suppressedPurchaseSyncWarning: String?
+    var iCloudSyncReady = false
     var persistenceEnabled: Bool
     /// Set only when a stale legacy snapshot is exposed because SQLite failed validation.
     /// Automatic writes and domain processing stay disabled so neither store is damaged.
@@ -160,7 +161,7 @@ public enum LedgerAccessState: Sendable {
         currencyCatalog = CurrencyDescriptor.bundled
         currencyCatalogUpdatedAt = nil
         let initial = SeedData.makeProductionEmpty()
-        let fallback = LedgerBook(id: UUID(), name: "Ledger 1", state: initial, createdAt: .now, updatedAt: .now)
+        let fallback = LedgerBook(id: UUID(), name: "Ledger 1", state: initial, createdAt: .now, updatedAt: .now, isImplicitPlaceholder: true)
         books = [fallback]; activeBookID = fallback.id; state = initial
         do {
             let storageOpenStart = Date.now

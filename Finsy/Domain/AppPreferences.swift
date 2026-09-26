@@ -150,6 +150,15 @@ struct RecordingReminderSlot: Codable, Hashable, Sendable, Identifiable {
     var minute: Int
 }
 
+enum ICloudBackupInterval: String, Codable, CaseIterable, Identifiable, Sendable {
+    case day = "D", week = "W", month = "M"
+    var id: String { rawValue }
+    func nextDate(after date: Date, calendar: Calendar = .current) -> Date {
+        let component: Calendar.Component = self == .day ? .day : (self == .week ? .weekOfYear : .month)
+        return calendar.date(byAdding: component, value: 1, to: date) ?? date.addingTimeInterval(86_400)
+    }
+}
+
 struct AppPreferences: Codable, Hashable, Sendable {
     static let defaultSwipeActions: [TransactionSwipeAction] = [.reimburse, .refund, .delete, .split]
     static let defaultReminderSlots: [RecordingReminderSlot] = [
@@ -158,6 +167,9 @@ struct AppPreferences: Codable, Hashable, Sendable {
         RecordingReminderSlot(id: 3, isEnabled: false, hour: 21, minute: 0)
     ]
 
+    var iCloudBackupEnabled = false
+    var iCloudBackupInterval: ICloudBackupInterval = .day
+    var iCloudLastBackupAt: Date? = nil
     var schemaVersion: Int = 1
     var languageCode: String = "en"
     var biometricLockEnabled: Bool = false
@@ -189,6 +201,7 @@ struct AppPreferences: Codable, Hashable, Sendable {
     var turboModeEnabled: Bool = false
 
     enum CodingKeys: String, CodingKey {
+        case iCloudBackupEnabled, iCloudBackupInterval, iCloudLastBackupAt
         case splitActionOnRightSwipe, reimbursementActionOnRightSwipe
         case schemaVersion, languageCode, biometricLockEnabled, swipeActionOrientation, transactionSwipeActions, hapticFeedbackEnabled, dateFormat, transactionLayout, overviewMetrics, overviewCardLayout, accountCardMaterialStyle
         case cashFlowForecastEnabled, forecastYellowThreshold, forecastRedThreshold
@@ -247,6 +260,9 @@ struct AppPreferences: Codable, Hashable, Sendable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         splitActionOnRightSwipe = try values.decodeIfPresent(Bool.self, forKey: .splitActionOnRightSwipe) ?? true
         reimbursementActionOnRightSwipe = try values.decodeIfPresent(Bool.self, forKey: .reimbursementActionOnRightSwipe) ?? true
+        iCloudBackupEnabled = try values.decodeIfPresent(Bool.self, forKey: .iCloudBackupEnabled) ?? false
+        iCloudBackupInterval = try values.decodeIfPresent(ICloudBackupInterval.self, forKey: .iCloudBackupInterval) ?? .day
+        iCloudLastBackupAt = try values.decodeIfPresent(Date.self, forKey: .iCloudLastBackupAt)
         schemaVersion = try values.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
         languageCode = try values.decodeIfPresent(String.self, forKey: .languageCode) ?? "en"
         biometricLockEnabled = try values.decodeIfPresent(Bool.self, forKey: .biometricLockEnabled) ?? false

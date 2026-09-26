@@ -219,7 +219,38 @@ enum LedgerKeyStore {
         }
     }
 
-    static func loadKey(for ledgerID: UUID) throws -> SymmetricKey? {
+    static func publishKeyToICloud(for ledgerID: UUID, expectedFingerprint: String?) throws {
+        guard let key = try loadKey(for: ledgerID, expectedFingerprint: expectedFingerprint) else {
+            throw LedgerCryptoError.authorizationRequired(ledgerID: ledgerID, fingerprint: expectedFingerprint)
+        }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service + ".icloud",
+            kSecAttrAccount as String: ledgerID.uuidString,
+            kSecAttrSynchronizable as String: true
+        ]
+        let keyData = key.withUnsafeBytes { Data($0) }
+        var readQuery = query
+        readQuery[kSecReturnData as String] = true
+        readQuery[kSecMatchLimit as String] = kSecMatchLimitOne
+        var existing: CFTypeRef?
+        let readStatus = SecItemCopyMatching(readQuery as CFDictionary, &existing)
+        if readStatus == errSecSuccess, existing as? Data == keyData { return }
+        if readStatus != errSecSuccess && readStatus != errSecItemNotFound { throw LedgerCryptoError.keychainError(readStatus) }
+        let attributes: [String: Any] = [
+            kSecValueData as String: keyData,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+        ]
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var item = query
+            item.merge(attributes) { _, new in new }
+            let added = SecItemAdd(item as CFDictionary, nil)
+            guard added == errSecSuccess else { throw LedgerCryptoError.keychainError(added) }
+        } else if status != errSecSuccess { throw LedgerCryptoError.keychainError(status) }
+    }
+
+    static func loadKey(for ledgerID: UUID, expectedFingerprint: String? = nil) throws -> SymmetricKey? {
         let account = ledgerID.uuidString
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -230,11 +261,22 @@ enum LedgerKeyStore {
         ]
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = item as? Data else {
-            throw LedgerCryptoError.keychainError(status)
+        if status != errSecSuccess && status != errSecItemNotFound { throw LedgerCryptoError.keychainError(status) }
+        if let data = item as? Data {
+            let key = SymmetricKey(data: data)
+            if expectedFingerprint == nil || fingerprint(for: key, ledgerID: ledgerID).lowercased() == expectedFingerprint?.lowercased() { return key }
         }
-        return SymmetricKey(data: data)
+        var syncedQuery = query
+        syncedQuery[kSecAttrService as String] = service + ".icloud"
+        syncedQuery[kSecAttrSynchronizable as String] = true
+        item = nil
+        let syncedStatus = SecItemCopyMatching(syncedQuery as CFDictionary, &item)
+        if syncedStatus == errSecItemNotFound { return nil }
+        guard syncedStatus == errSecSuccess, let data = item as? Data else { throw LedgerCryptoError.keychainError(syncedStatus) }
+        let key = SymmetricKey(data: data)
+        guard expectedFingerprint == nil || fingerprint(for: key, ledgerID: ledgerID).lowercased() == expectedFingerprint?.lowercased() else { return nil }
+        try saveKey(key, for: ledgerID)
+        return key
     }
 
     static func deleteKey(for ledgerID: UUID) throws {
@@ -251,7 +293,7 @@ enum LedgerKeyStore {
     }
 
     static func hasKey(for ledgerID: UUID, expectedFingerprint: String?) -> Bool {
-        guard let key = try? loadKey(for: ledgerID) else { return false }
+        guard let key = try? loadKey(for: ledgerID, expectedFingerprint: expectedFingerprint) else { return false }
         guard let expected = expectedFingerprint, !expected.isEmpty else { return true }
         let currentFp = fingerprint(for: key, ledgerID: ledgerID)
         return currentFp.lowercased() == expected.lowercased()

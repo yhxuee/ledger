@@ -3,12 +3,14 @@ import SwiftUI
 
 @MainActor
 final class AppPreferencesStore: ObservableObject {
+    static let shared = AppPreferencesStore()
     @Published private(set) var value: AppPreferences
     private var saveTask: Task<Void, Never>?
 
     init() { value = Self.load() ?? AppPreferences() }
 
     func update(_ change: (inout AppPreferences) -> Void) {
+        let previous = value
         let oldLock = value.biometricLockEnabled
         change(&value)
         let snapshot = value
@@ -16,6 +18,14 @@ final class AppPreferencesStore: ObservableObject {
             OverviewWidgetRelay.updatePrivacyMask(isPrivacyMasked: snapshot.biometricLockEnabled)
         }
         saveTask?.cancel()
+        if previous.iCloudBackupEnabled != snapshot.iCloudBackupEnabled || previous.iCloudBackupInterval != snapshot.iCloudBackupInterval || previous.iCloudLastBackupAt != snapshot.iCloudLastBackupAt {
+            do { try Self.write(snapshot) }
+            catch {
+                value = previous
+                LedgerStore.shared.presentedError = error.localizedDescription
+            }
+            return
+        }
         saveTask = Task {
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }

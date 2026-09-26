@@ -12,6 +12,8 @@ struct LedgerBookMenu: View {
     @EnvironmentObject private var store: LedgerStore
     @State private var showingNewBook = false
     @State private var showingPurchaseMode = false
+    @State private var deletingBook: LedgerBook?
+    @State private var deleting = false
 
     var body: some View {
         Menu {
@@ -24,6 +26,10 @@ struct LedgerBookMenu: View {
             }
             Divider()
             Button { showingNewBook = true } label: { Label("Add New Ledger", systemImage: "plus") }
+            Button(role: .destructive) { deletingBook = store.activeBook } label: {
+                Label(store.activeBook.effectiveStorageKind == .cloudParticipant ? "Leave Shared Ledger" : "Delete Ledger", systemImage: "trash")
+            }
+            .disabled(deleting || !store.canMutateLedger)
         } label: {
             Image(systemName: "ellipsis")
                 .font(.body.weight(.semibold))
@@ -33,6 +39,25 @@ struct LedgerBookMenu: View {
         .accessibilityLabel("Choose ledger")
         .sheet(isPresented: $showingNewBook) { NewLedgerSheet() }
         .sheet(isPresented: $showingPurchaseMode) { PurchaseModeView() }
+        .confirmationDialog("Delete Ledger", isPresented: Binding(get: { deletingBook != nil }, set: { if !$0 { deletingBook = nil } }), titleVisibility: .visible) {
+            if let book = deletingBook {
+                Button(book.effectiveStorageKind == .cloudParticipant ? "Leave Shared Ledger" : "Delete Ledger", role: .destructive) {
+                    deleting = true
+                    Task { @MainActor in
+                        defer { deleting = false }
+                        do { try await store.deleteBook(book.id) }
+                        catch { store.presentedError = error.localizedDescription }
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) { deletingBook = nil }
+        } message: {
+            if let book = deletingBook {
+                Text(book.effectiveStorageKind == .cloudParticipant
+                     ? "Leave \(book.name)? Other participants keep their data."
+                     : "Delete \(book.name) and its records? This also deletes its synced copy from your iCloud account and other devices.")
+            }
+        }
     }
 }
 

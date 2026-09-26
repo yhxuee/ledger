@@ -286,7 +286,7 @@ struct SettingsView: View {
             Button {
                 Task { await shareLedger() }
             } label: {
-                SettingsLabel(store.activeBook.effectiveStorageKind == .local ? "Share Ledger" : "Manage Sharing", systemImage: "person.2.badge.gearshape")
+                SettingsLabel("Share Ledger", systemImage: "person.2.badge.gearshape")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .foregroundStyle(.primary)
@@ -294,39 +294,12 @@ struct SettingsView: View {
 
             Divider()
 
-            Button {
-                prepareICloudBackup()
+            NavigationLink {
+                ICloudBackupSettingsView()
             } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "icloud.and.arrow.up")
-                        .frame(width: 22)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Back Up Now")
-                            .foregroundStyle(.primary)
-
-                        Text(lastBackupText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .disabled(working)
-
-            Divider()
-
-            Button {
-                Task { await performICloudRestore() }
-            } label: {
-                SettingsLabel("Restore", systemImage: "icloud.and.arrow.down")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                SettingsLinkRow("iCloud Backup", systemImage: "icloud", detail: preferences.value.iCloudBackupEnabled ? "On" : "Off")
             }
             .foregroundStyle(.primary)
-            .disabled(working)
 
             Divider()
 
@@ -458,24 +431,6 @@ struct SettingsView: View {
         action?()
     }
 
-    private func prepareICloudBackup() {
-        if store.activeBook.effectiveStorageKind != .local {
-            Task {
-                do {
-                    if let synced = try await CloudLedgerService.shared.flushAndFetch(book: store.activeBook) {
-                        store.addOrMergeCloudBook(synced)
-                    }
-                    await performICloudBackup()
-                } catch {
-                    pendingBackupAction = { Task { await self.performICloudBackup() } }
-                    confirmingPendingCloud = true
-                }
-            }
-        } else {
-            Task { await performICloudBackup() }
-        }
-    }
-
     private func prepareExportBackup() {
         if store.activeBook.effectiveStorageKind != .local {
             Task {
@@ -504,29 +459,6 @@ struct SettingsView: View {
         } catch { store.presentedError = error.localizedDescription }
     }
 
-    private func performICloudBackup() async {
-        working = true; defer { working = false }
-        do {
-            let key = try CloudRecordMapper.encryptionKey(for: store.activeBook)
-            let date = try await ICloudBackupService.shared.backup(
-                store.backupEnvelope(),
-                ledgerID: store.activeBook.id,
-                key: key
-            )
-            store.updateSettings { $0.lastBackupAt = date }
-            statusMessage = "Backup saved to iCloud Drive."
-        } catch {
-            store.presentedError = error.localizedDescription
-        }
-    }
-    private func performICloudRestore() async {
-        working = true; defer { working = false }
-        do {
-            importPreview = try await ICloudBackupService.shared.restoreLatest(existingState: store.state)
-        } catch {
-            store.presentedError = error.localizedDescription
-        }
-    }
     private func shareLedger() async {
         working = true; defer { working = false }
         do {

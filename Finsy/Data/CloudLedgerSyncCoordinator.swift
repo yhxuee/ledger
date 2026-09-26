@@ -10,6 +10,7 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
     private var stopped = false
     private var lastAssetPrune: Date?
     private var storageFailed = false
+    private var automaticallySync = true
     private var lastSubmittedRevision: [UUID: UInt64] = [:]
     private var receive: (@Sendable ([CKRecord], [CKRecord.ID]) async -> Bool)?
 
@@ -42,6 +43,52 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         paused = false
         _ = try syncEngine()
         try await deliverChanges()
+    }
+
+    func setAutomaticallySync(_ enabled: Bool) async throws {
+        guard automaticallySync != enabled else { return }
+        automaticallySync = enabled
+        if let engine { await engine.cancelOperations() }
+        engine = nil
+        if receive != nil { _ = try syncEngine() }
+    }
+
+    func deleteZone(_ zone: CKRecordZone.ID) async throws {
+        let engine = try syncEngine()
+        await engine.cancelOperations()
+        let storage = try storage()
+        let changes = engine.state.pendingRecordZoneChanges.filter {
+            switch $0 {
+            case .saveRecord(let id), .deleteRecord(let id): return id.zoneID == zone
+            @unknown default: return false
+            }
+        }
+        let key = zoneKey(zone)
+        let data = try NSKeyedArchiver.archivedData(withRootObject: zone, requiringSecureCoding: true)
+        try storage.database.transaction {
+            try storage.removeZone(zone)
+            try storage.database.put("deleted-zones", key, data)
+            try storage.database.put("pending-zone-deletions", key, data)
+            try storage.database.remove("delivery", key)
+            try storage.database.remove("delivery-version", key)
+        }
+        engine.state.remove(pendingRecordZoneChanges: changes)
+        engine.state.remove(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zone))])
+        engine.state.add(pendingDatabaseChanges: [.deleteZone(zone)])
+    }
+
+    func allowRestoredZone(_ zone: CKRecordZone.ID) throws {
+        let storage = try storage()
+        let engine = try syncEngine()
+        try storage.database.transaction {
+            try storage.database.remove("deleted-zones", zoneKey(zone))
+            try storage.database.remove("pending-zone-deletions", zoneKey(zone))
+        }
+        engine.state.remove(pendingDatabaseChanges: [.deleteZone(zone)])
+    }
+
+    func isZoneDeleted(_ zone: CKRecordZone.ID) throws -> Bool {
+        try storage().database.data("deleted-zones", zoneKey(zone)) != nil
     }
 
     func recoverIfNeeded() async throws {
@@ -79,7 +126,7 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         // Old JSON tokens are intentionally not imported: there was no durable record cache
         // behind those tokens. The SDK bootstraps a complete incremental cache once.
         var configuration = CKSyncEngine.Configuration(database: database, stateSerialization: serialization, delegate: self)
-        configuration.automaticallySync = true
+        configuration.automaticallySync = automaticallySync
         let value = CKSyncEngine(configuration)
         engine = value
         // The journal is authoritative if the process stopped between acknowledgement
@@ -87,10 +134,16 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         value.state.remove(pendingRecordZoneChanges: value.state.pendingRecordZoneChanges)
         value.state.add(pendingRecordZoneChanges: try storage.pendingIDs().map { .saveRecord($0) })
         value.state.add(pendingRecordZoneChanges: try storage.deletionIDs().map { .deleteRecord($0) })
+        for key in try storage.database.keys("pending-zone-deletions") {
+            guard let data = try storage.database.data("pending-zone-deletions", key),
+                  let zone = try NSKeyedUnarchiver.unarchivedObject(ofClass: CKRecordZone.ID.self, from: data) else { throw BackupError.invalidFormat }
+            value.state.add(pendingDatabaseChanges: [.deleteZone(zone)])
+        }
         return value
     }
 
     func enqueue(book: LedgerBook, zoneID: CKRecordZone.ID, ensureZone: Bool, revision: UInt64? = nil) throws {
+        guard try storage().database.data("deleted-zones", zoneKey(zoneID)) == nil else { return }
         if let revision, let latest = lastSubmittedRevision[book.id], revision < latest { return }
         guard !paused else { throw CloudLedgerError.migrationInProgress }
         _ = try CloudRecordMapper.encryptionKey(for: book)
@@ -207,7 +260,8 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         guard !paused else { throw CloudLedgerError.migrationInProgress }
         let engine = try syncEngine()
         try await engine.sendChanges()
-        guard try !storage().hasPendingChanges() else { throw CloudLedgerError.pendingChanges }
+        guard try !storage().hasPendingChanges(),
+              storage().database.keys("pending-zone-deletions").isEmpty else { throw CloudLedgerError.pendingChanges }
         try await engine.fetchChanges()
     }
 
@@ -230,6 +284,9 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
                     let deleting = try storage.deletionIDs().filter { $0.zoneID == zone }
                     try storage.database.transaction {
                         try storage.removeZone(zone)
+                        if database.databaseScope == .private {
+                            try storage.database.put("deleted-zones", zoneKey(zone), NSKeyedArchiver.archivedData(withRootObject: zone, requiringSecureCoding: true))
+                        }
                         try storage.database.put("remote-deletions", CloudRecordJournal.key(rootID), NSKeyedArchiver.archivedData(withRootObject: rootID, requiringSecureCoding: true))
                         try markChanged(zone, storage: storage)
                     }
@@ -240,10 +297,12 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
                 try storage.database.transaction {
                     // Process security metadata first; record ordering in a fetched batch is unspecified.
                     for modification in changes.modifications where modification.record.recordType == CloudRecordType.book {
+                        guard try storage.database.data("deleted-zones", zoneKey(modification.record.recordID.zoneID)) == nil else { continue }
                         let record = modification.record
                         try storage.mergeEncryptionPolicy(CloudEncryptionPolicy(record: record), in: record.recordID.zoneID)
                     }
                     for modification in changes.modifications {
+                        guard try storage.database.data("deleted-zones", zoneKey(modification.record.recordID.zoneID)) == nil else { continue }
                         let remote = modification.record
                         try markChanged(remote.recordID.zoneID, storage: storage)
                         if try storage.pending(remote.recordID), let local = try storage.record(remote.recordID) {
@@ -270,11 +329,13 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
             case .sentRecordZoneChanges(let sent):
                 try storage.database.transaction {
                     for failure in sent.failedRecordSaves {
+                        guard try storage.database.data("deleted-zones", zoneKey(failure.record.recordID.zoneID)) == nil else { continue }
                         if let server = failure.error.serverRecord, server.recordType == CloudRecordType.book {
                             try storage.mergeEncryptionPolicy(CloudEncryptionPolicy(record: server), in: server.recordID.zoneID)
                         }
                     }
                     for saved in sent.savedRecords {
+                        guard try storage.database.data("deleted-zones", zoneKey(saved.recordID.zoneID)) == nil else { continue }
                         if let current = try storage.record(saved.recordID), !Self.sameContent(current, saved) {
                             // An edit made during the request must survive its older acknowledgement.
                             Self.copyUserFields(from: current, to: saved)
@@ -292,15 +353,13 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
                         try storage.database.remove("deletions", CloudRecordJournal.key(id))
                     }
                     for failure in sent.failedRecordSaves {
+                        guard try storage.database.data("deleted-zones", zoneKey(failure.record.recordID.zoneID)) == nil else { continue }
                         LedgerDiagnostics.failure(failure.error, operation: "record-save", logger: LedgerDiagnostics.cloud)
                         let local = try storage.record(failure.record.recordID) ?? failure.record
-                        if failure.error.code == .unknownItem || (failure.error.code == .zoneNotFound && database.databaseScope == .private) {
+                        if failure.error.code == .unknownItem {
                             let replacement = CKRecord(recordType: local.recordType, recordID: local.recordID)
                             Self.copyUserFields(from: local, to: replacement)
                             try storage.store(replacement)
-                            if failure.error.code == .zoneNotFound {
-                                syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: local.recordID.zoneID))])
-                            }
                             syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(local.recordID)])
                             continue
                         }
@@ -324,6 +383,16 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
                     await MainActor.run { LedgerStore.shared.lastSyncError = nil }
                 }
                 LedgerDiagnostics.cloud.info("Sent saved=\(sent.savedRecords.count) failed=\(sent.failedRecordSaves.count) deleted=\(sent.deletedRecordIDs.count)")
+            case .sentDatabaseChanges(let sent):
+                for zone in sent.deletedZoneIDs {
+                    try storage.database.remove("pending-zone-deletions", zoneKey(zone))
+                }
+                for (zone, error) in sent.failedZoneDeletes {
+                    if error.code == .zoneNotFound || error.code == .unknownItem {
+                        try storage.database.remove("pending-zone-deletions", zoneKey(zone))
+                        syncEngine.state.remove(pendingDatabaseChanges: [.deleteZone(zone)])
+                    } else { await report(error) }
+                }
             case .didFetchChanges:
                 try await deliverChanges()
                 if try !storage.hasPendingChanges(),
@@ -416,7 +485,7 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
                 let allowed: Bool
                 if let cached = allowedZones[id.zoneID] { allowed = cached }
                 else {
-                    allowed = try storage.database.data("blocked", zoneKey(id.zoneID)) == nil
+                    allowed = try storage.database.data("blocked", zoneKey(id.zoneID)) == nil && storage.database.data("deleted-zones", zoneKey(id.zoneID)) == nil
                     allowedZones[id.zoneID] = allowed
                 }
                 guard allowed else { continue }

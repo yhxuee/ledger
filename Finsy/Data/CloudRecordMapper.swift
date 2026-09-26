@@ -63,7 +63,7 @@ enum CloudRecordMapper {
         }
         let required = book.isEncrypted == true || book.effectiveEncryptionState != .disabled
         guard required else { return nil }
-        guard let key = try LedgerKeyStore.loadKey(for: book.id) else {
+        guard let key = try LedgerKeyStore.loadKey(for: book.id, expectedFingerprint: book.keyFingerprint) else {
             throw LedgerCryptoError.authorizationRequired(ledgerID: book.id, fingerprint: book.keyFingerprint)
         }
         if let expected = book.keyFingerprint,

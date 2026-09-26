@@ -31,6 +31,7 @@ extension LedgerStore {
         let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = trimmed.isEmpty ? "Ledger \(books.count + 1)" : trimmed
         commitActiveBook()
+        books.removeAll { $0.isImplicitPlaceholder == true && $0.state.accounts.isEmpty && $0.state.transactions.isEmpty }
         let book = LedgerBook(id: UUID(), name: name, state: SeedData.makeEmpty(), createdAt: .now, updatedAt: .now)
         books.append(book)
         activeBookID = book.id
@@ -38,6 +39,60 @@ extension LedgerStore {
         undoTransactions = []
         activeUndoOperation = nil
         undoMessage = nil
+        scheduleSave()
+    }
+
+    func prepareBooksForICloudSync() {
+        guard canMutateLedger, iCloudSyncReady, AppPreferencesStore.shared.value.iCloudBackupEnabled else { return }
+        commitActiveBook()
+        for index in books.indices where books[index].effectiveStorageKind == .local {
+            if books[index].isImplicitPlaceholder == true {
+                guard !books[index].state.accounts.isEmpty || !books[index].state.transactions.isEmpty else { continue }
+                books[index].isImplicitPlaceholder = false
+            }
+            books[index].storageKind = .cloudOwner
+            books[index].cloudZoneName = CloudRecordMapper.zoneID(for: books[index].id).zoneName
+            books[index].cloudZoneOwnerName = CKCurrentUserDefaultName
+        }
+    }
+
+    func deleteBook(_ id: UUID) async throws {
+        guard canMutateLedger else { throw BackupError.invalidFormat }
+        guard let book = books.first(where: { $0.id == id }) else { return }
+        if book.effectiveStorageKind == .cloudParticipant {
+            try await CloudLedgerService.shared.leaveSharedLedger(book)
+        } else if book.effectiveStorageKind == .cloudOwner || AppPreferencesStore.shared.value.iCloudBackupEnabled {
+            // Persist the cloud deletion before removing the local copy, including offline.
+            try await CloudLedgerService.shared.deleteOwnedLedger(book)
+        }
+        removeBookLocally(id)
+        try await persistDurableAsync()
+    }
+
+    func removeDeletedCloudBook(in zone: CKRecordZone.ID) {
+        let ids = books.filter {
+            $0.effectiveStorageKind != .local && $0.cloudZoneName == zone.zoneName &&
+            ($0.cloudZoneOwnerName ?? CKCurrentUserDefaultName) == zone.ownerName
+        }.map(\.id)
+        for id in ids { removeBookLocally(id) }
+    }
+
+    private func removeBookLocally(_ id: UUID) {
+        guard canMutateLedger, books.contains(where: { $0.id == id }) else { return }
+        commitActiveBook()
+        books.removeAll { $0.id == id }
+        if books.isEmpty {
+            let now = Date.now
+            books = [LedgerBook(id: UUID(), name: "Ledger 1", state: SeedData.makeProductionEmpty(), createdAt: now, updatedAt: now, isImplicitPlaceholder: true)]
+        }
+        if activeBookID == id {
+            activeBookID = books[0].id
+            let replacement = books[0].state
+            mutateState { $0 = replacement }
+            undoTransactions = []
+            activeUndoOperation = nil
+            undoMessage = nil
+        }
         scheduleSave()
     }
 
@@ -96,9 +151,11 @@ extension LedgerStore {
                 books[index] = merged
                 if activeBookID == book.id { mutateState { $0 = merged.state } }
             } else {
+                let replacingPlaceholder = books.contains { $0.id == activeBookID && $0.isImplicitPlaceholder == true && $0.state.accounts.isEmpty && $0.state.transactions.isEmpty }
+                books.removeAll { $0.isImplicitPlaceholder == true && $0.state.accounts.isEmpty && $0.state.transactions.isEmpty }
                 books.append(book)
                 // Keep the existing share-acceptance behavior for a newly joined ledger.
-                if selectNewBook {
+                if selectNewBook || replacingPlaceholder {
                     activeBookID = book.id
                     mutateState { $0 = book.state }
                 }
@@ -119,6 +176,7 @@ extension LedgerStore {
         }
         #endif
         guard persistenceEnabled else { return }
+        prepareBooksForICloudSync()
         commitActiveBook()
         saveTask?.cancel()
         saveRevision &+= 1
@@ -141,6 +199,7 @@ extension LedgerStore {
             if !canMutateLedger { rejectRecoveryMutation() }
             return
         }
+        prepareBooksForICloudSync()
         commitActiveBook()
         saveTask?.cancel()
         saveRevision &+= 1

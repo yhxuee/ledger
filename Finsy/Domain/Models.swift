@@ -847,6 +847,7 @@ struct LedgerBook: Identifiable, Codable, Hashable, Sendable {
     var state: LedgerState
     var createdAt: Date
     var updatedAt: Date
+    var isImplicitPlaceholder: Bool? = nil
     var storageKind: LedgerStorageKind? = nil
     var cloudZoneName: String? = nil
     var cloudZoneOwnerName: String? = nil
