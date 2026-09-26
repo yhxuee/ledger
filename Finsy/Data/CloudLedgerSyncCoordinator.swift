@@ -11,6 +11,8 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
     private var lastAssetPrune: Date?
     private var storageFailed = false
     private var automaticallySync = true
+    private var submittedRecords: [CKRecord.ID: CKRecord] = [:]
+    private var sendFailureCodes: [CKError.Code] = []
     private var lastSubmittedRevision: [UUID: UInt64] = [:]
     private var receive: (@Sendable ([CKRecord], [CKRecord.ID]) async -> Bool)?
 
@@ -27,6 +29,7 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         journal = nil
         receive = nil
         lastSubmittedRevision.removeAll()
+        submittedRecords.removeAll()
         storageFailed = false
     }
 
@@ -50,6 +53,7 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         automaticallySync = enabled
         if let engine { await engine.cancelOperations() }
         engine = nil
+        submittedRecords.removeAll()
         if receive != nil { _ = try syncEngine() }
     }
 
@@ -259,10 +263,48 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
     func flush() async throws {
         guard !paused else { throw CloudLedgerError.migrationInProgress }
         let engine = try syncEngine()
-        try await engine.sendChanges()
-        guard try !storage().hasPendingChanges(),
-              try storage().database.keys("pending-zone-deletions").isEmpty else { throw CloudLedgerError.pendingChanges }
+        for attempt in 0..<3 {
+            sendFailureCodes = []
+            let before = Set(try storage().pendingIDs() + storage().deletionIDs())
+            do { try await engine.sendChanges() }
+            catch {
+                // Conflicts handled by the delegate need a new send operation with fresh tags.
+                let recovered = !sendFailureCodes.isEmpty && sendFailureCodes.contains { $0 == .serverRecordChanged || $0 == .unknownItem }
+                    && sendFailureCodes.allSatisfy { $0 == .serverRecordChanged || $0 == .unknownItem || $0 == .batchRequestFailed }
+                if recovered && attempt < 2 { continue }
+                throw try detailedSendError(fallback: error)
+            }
+            if try !storage().hasPendingChanges(), try storage().database.keys("pending-zone-deletions").isEmpty { break }
+            let after = Set(try storage().pendingIDs() + storage().deletionIDs())
+            if attempt == 2 || before == after { throw try detailedSendError(fallback: CloudLedgerError.pendingChanges) }
+        }
         try await engine.fetchChanges()
+    }
+
+    private func detailedSendError(fallback: Error) throws -> Error {
+        let storage = try storage()
+        let failures = try storage.database.keys("send-failures").compactMap { key -> CloudSendFailure? in
+            guard let data = try storage.database.data("send-failures", key) else { return nil }
+            return try JSONDecoder().decode(CloudSendFailure.self, from: data)
+        }
+        // Atomic companions say only that another record failed; show the actual rejection first.
+        if let failure = failures.first(where: { $0.code != CKError.Code.batchRequestFailed.rawValue }) ?? failures.first { return failure }
+        let pending = try storage.pendingIDs()
+        if let id = pending.first, let record = try storage.record(id) {
+            let blocked = try storage.database.data("blocked", zoneKey(id.zoneID)) != nil
+            let required = try storage.encryptionPolicy(in: id.zoneID)?.required == true
+            let reason = blocked ? "Encryption migration is blocking this zone." :
+                (required && record["ciphertextV1"] == nil ? "The pending record requires encryption but has no encrypted payload." : fallback.localizedDescription)
+            return CloudSendFailure(message: "Record: \(record.recordType) \(id.recordName)\nZone: \(id.zoneID.zoneName)\nPending records: \(pending.count)\nReason: \(reason)")
+        }
+        return fallback
+    }
+
+    private func rememberSendFailure(_ error: CKError, id: CKRecord.ID, type: String) throws {
+        sendFailureCodes.append(error.code)
+        let reason = error.userInfo[NSLocalizedFailureReasonErrorKey] as? String ?? error.localizedDescription
+        let detail = "Record: \(type) \(id.recordName)\nZone: \(id.zoneID.zoneName)\nCloudKit: \(error.code) (\(error.code.rawValue))\nReason: \(reason)"
+        try storage().database.put("send-failures", CloudRecordJournal.key(id), JSONEncoder().encode(CloudSendFailure(message: detail, code: error.code.rawValue)))
     }
 
     func handleEvent(_ event: CKSyncEngine.Event, syncEngine: CKSyncEngine) async {
@@ -336,7 +378,10 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
                     }
                     for saved in sent.savedRecords {
                         guard try storage.database.data("deleted-zones", zoneKey(saved.recordID.zoneID)) == nil else { continue }
-                        if let current = try storage.record(saved.recordID), !Self.sameContent(current, saved) {
+                        let submitted = submittedRecords.removeValue(forKey: saved.recordID)
+                        try storage.database.remove("send-failures", CloudRecordJournal.key(saved.recordID))
+                        if let current = try storage.record(saved.recordID),
+                           submitted.map({ !Self.sameContent(current, $0) }) ?? !Self.sameContent(current, saved) {
                             // An edit made during the request must survive its older acknowledgement.
                             Self.copyUserFields(from: current, to: saved)
                             try storage.store(saved)
@@ -347,6 +392,7 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
                         }
                     }
                     for id in sent.deletedRecordIDs {
+                        try storage.database.remove("send-failures", CloudRecordJournal.key(id))
                         if try storage.pending(id) {
                             syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(id)])
                         } else { try storage.remove(id) }
@@ -354,6 +400,8 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
                     }
                     for failure in sent.failedRecordSaves {
                         guard try storage.database.data("deleted-zones", zoneKey(failure.record.recordID.zoneID)) == nil else { continue }
+                        submittedRecords.removeValue(forKey: failure.record.recordID)
+                        try rememberSendFailure(failure.error, id: failure.record.recordID, type: failure.record.recordType)
                         LedgerDiagnostics.failure(failure.error, operation: "record-save", logger: LedgerDiagnostics.cloud)
                         let local = try storage.record(failure.record.recordID) ?? failure.record
                         if failure.error.code == .unknownItem {
@@ -377,6 +425,7 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
                         }
                     }
                 }
+                for (id, error) in sent.failedRecordDeletes { try rememberSendFailure(error, id: id, type: "Delete") }
                 if let failure = sent.failedRecordSaves.first?.error ?? sent.failedRecordDeletes.values.first {
                     await report(failure)
                 } else if try !storage.hasPendingChanges() {
@@ -384,14 +433,25 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
                 }
                 LedgerDiagnostics.cloud.info("Sent saved=\(sent.savedRecords.count) failed=\(sent.failedRecordSaves.count) deleted=\(sent.deletedRecordIDs.count)")
             case .sentDatabaseChanges(let sent):
+                for failed in sent.failedZoneSaves {
+                    try rememberSendFailure(failed.error, id: CKRecord.ID(recordName: "zone-operation", zoneID: failed.zone.zoneID), type: "Create Zone")
+                }
+                for zone in sent.savedZones {
+                    try storage.database.remove("send-failures", CloudRecordJournal.key(CKRecord.ID(recordName: "zone-operation", zoneID: zone.zoneID)))
+                }
                 for zone in sent.deletedZoneIDs {
                     try storage.database.remove("pending-zone-deletions", zoneKey(zone))
+                    try storage.database.remove("send-failures", CloudRecordJournal.key(CKRecord.ID(recordName: "zone-operation", zoneID: zone)))
                 }
                 for (zone, error) in sent.failedZoneDeletes {
                     if error.code == .zoneNotFound || error.code == .unknownItem {
                         try storage.database.remove("pending-zone-deletions", zoneKey(zone))
+                        try storage.database.remove("send-failures", CloudRecordJournal.key(CKRecord.ID(recordName: "zone-operation", zoneID: zone)))
                         syncEngine.state.remove(pendingDatabaseChanges: [.deleteZone(zone)])
-                    } else { await report(error) }
+                    } else {
+                        try rememberSendFailure(error, id: CKRecord.ID(recordName: "zone-operation", zoneID: zone), type: "Delete Zone")
+                        await report(error)
+                    }
                 }
             case .didFetchChanges:
                 try await deliverChanges()
@@ -444,7 +504,7 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
     }
 
     private func report(_ error: Error) async {
-        let message = error.localizedDescription
+        let message = ((try? detailedSendError(fallback: error)) ?? error).localizedDescription
         await MainActor.run { LedgerStore.shared.lastSyncError = message }
     }
 
@@ -505,6 +565,10 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
             }
             guard !batch.isEmpty else { return nil }
             let records = snapshot
+            for (id, record) in records {
+                guard let copy = record.copy() as? CKRecord else { throw BackupError.invalidFormat }
+                submittedRecords[id] = copy
+            }
             return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: batch) { id in records[id] }
 
         } catch {
@@ -512,4 +576,10 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
             return nil
         }
     }
+}
+
+struct CloudSendFailure: LocalizedError, Codable {
+    var message: String
+    var code: Int? = nil
+    var errorDescription: String? { message }
 }

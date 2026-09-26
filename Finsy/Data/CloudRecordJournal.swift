@@ -80,7 +80,10 @@ final class CloudRecordJournal {
             return CKRecord.ID(recordName: recordName, zoneID: zone)
         }
     }
-    func acknowledge(_ id: CKRecord.ID) throws { try database.remove("outbox", Self.key(id)) }
+    func acknowledge(_ id: CKRecord.ID) throws {
+        try database.remove("outbox", Self.key(id))
+        try database.remove("send-failures", Self.key(id))
+    }
     func pendingIDs() throws -> [CKRecord.ID] {
         try database.keys("outbox").map { key in
             guard let data = try database.data("outbox", key),
@@ -122,7 +125,7 @@ final class CloudRecordJournal {
 
     func removeZone(_ zone: CKRecordZone.ID) throws {
         let prefix = Self.zonePrefix(zone)
-        for namespace in ["records", "asset-files", "outbox", "deletions", "fingerprints", "blocked", "remote-deletions", "encryption-policy"] {
+        for namespace in ["records", "asset-files", "outbox", "deletions", "fingerprints", "blocked", "remote-deletions", "encryption-policy", "send-failures"] {
             for key in try database.keys(namespace, prefix: prefix) { try database.remove(namespace, key) }
         }
     }

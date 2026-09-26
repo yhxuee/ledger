@@ -768,6 +768,11 @@ struct DiagnosticsSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
+                SettingsGlassSection("iCloud Sync") {
+                    Text(store.lastSyncError ?? "No sync error recorded.")
+                        .font(.system(.footnote, design: .monospaced))
+                        .textSelection(.enabled)
+                }
                 widgetDataSection
             }
             .padding()

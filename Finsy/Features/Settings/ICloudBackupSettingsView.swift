@@ -76,8 +76,8 @@ struct ICloudBackupSettingsView: View {
                     .disabled(!preferences.value.iCloudBackupEnabled || busy || !store.canMutateLedger)
                 }
                 if busy { ProgressView("Updating iCloud…") }
-                if let error = coordinator.lastError {
-                    Text(error).font(.footnote).foregroundStyle(.secondary)
+                if let error = coordinator.lastError ?? store.lastSyncError {
+                    Text(error).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
                 }
             }
             .padding()
