@@ -261,7 +261,7 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         let engine = try syncEngine()
         try await engine.sendChanges()
         guard try !storage().hasPendingChanges(),
-              storage().database.keys("pending-zone-deletions").isEmpty else { throw CloudLedgerError.pendingChanges }
+              try storage().database.keys("pending-zone-deletions").isEmpty else { throw CloudLedgerError.pendingChanges }
         try await engine.fetchChanges()
     }
 
