@@ -17,6 +17,9 @@ struct PurchaseSummaryView: View {
     @State private var generatingPass = false
     @State private var passToPresent: PKPass?
     @State private var showingAddPassSheet = false
+    @State private var showingBarcodeOptions = false
+    @State private var requestedPass = false
+    @State private var pendingBarcode: WalletReceiptBarcode?
     @State private var passErrorMessage: String?
     private var session: PurchaseSession? { store.purchaseSessions.first(where: { $0.id == sessionID }) }
 
@@ -29,7 +32,7 @@ struct PurchaseSummaryView: View {
     }
 
     private var isWalletActionEnabled: Bool {
-        readOnly && isPassLibraryAvailable && isIssuerConfigured && !generatingPass
+        readOnly && session?.status == .completed && isPassLibraryAvailable && isIssuerConfigured && !generatingPass
     }
 
     private var walletStatusMessage: String? {
@@ -71,7 +74,7 @@ struct PurchaseSummaryView: View {
                         Section {
                             VStack(spacing: 6) {
                                 Button {
-                                    Task { await addReceiptToWallet() }
+                                    showingBarcodeOptions = true
                                 } label: {
                                     HStack(spacing: 8) {
                                         Image(systemName: "wallet.pass.fill")
@@ -170,6 +173,18 @@ struct PurchaseSummaryView: View {
             }
         }
         .sheet(isPresented: $showingCamera) { CameraPicker(image: $receiptImage) }
+        .sheet(isPresented: $showingBarcodeOptions, onDismiss: {
+            guard requestedPass else { return }
+            requestedPass = false
+            let barcode = pendingBarcode
+            pendingBarcode = nil
+            Task { await addReceiptToWallet(barcode: barcode) }
+        }) {
+            ReceiptBarcodeSheet { barcode in
+                pendingBarcode = barcode
+                requestedPass = true
+            }
+        }
         .sheet(isPresented: $showingAddPassSheet) {
             if let pass = passToPresent {
                 AddPassSheetView(pass: pass) {
@@ -192,7 +207,7 @@ struct PurchaseSummaryView: View {
         }
     }
 
-    private func addReceiptToWallet() async {
+    private func addReceiptToWallet(barcode: WalletReceiptBarcode?) async {
         guard let session else { return }
         guard WalletPassManager.shared.canAddPasses else {
             passErrorMessage = WalletPassError.libraryUnavailable.localizedDescription
@@ -201,9 +216,13 @@ struct PurchaseSummaryView: View {
         generatingPass = true
         defer { generatingPass = false }
 
-        let snapshot = WalletPassManager.shared.buildPurchaseReceiptSnapshot(session: session, store: store)
+        var snapshot = WalletPassManager.shared.buildPurchaseReceiptSnapshot(session: session, store: store)
+        snapshot.barcode = barcode
         do {
             let pass = try await WalletPassManager.shared.issuer.issuePurchaseReceiptPass(snapshot: snapshot)
+            let key = "wallet-barcode-\(snapshot.serialNumber)"
+            if let barcode { UserDefaults.standard.set(try JSONEncoder().encode(barcode), forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
             passToPresent = pass
             showingAddPassSheet = true
         } catch {

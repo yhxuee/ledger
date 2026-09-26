@@ -23,13 +23,11 @@ struct ICloudSyncSettingsView: View {
                 SettingsGlassSection("iCloud Sync") {
                     Toggle("iCloud Sync", isOn: enabled)
                         .disabled(coordinator.working || !store.canMutateLedger)
-                    Text("Keep all your ledgers up to date across devices using the same iCloud account. Saved changes are sent automatically.")
+                    Text("Sync ledgers across your iCloud devices.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Text("Other devices receive changes through CloudKit notifications. Finsy also checks when you open the app. Background delivery may be delayed by iOS or your connection.")
+                    Text("Changes sync automatically when connected.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Text("Encrypted ledgers use iCloud Keychain to securely sync their keys between your devices.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    Text("iCloud Backup saves separate snapshots on its own schedule.")
+                    Text("Keys stay on this device. Authorize other devices separately.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 SettingsGlassSection("Sync") {
@@ -40,9 +38,6 @@ struct ICloudSyncSettingsView: View {
                     .disabled(!preferences.value.iCloudSyncEnabled || coordinator.working || !store.canMutateLedger)
                 }
                 if coordinator.working { ProgressView("Syncing…") }
-                if let error = store.lastSyncError {
-                    Text(error).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
-                }
             }
             .padding()
         }

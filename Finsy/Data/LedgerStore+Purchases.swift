@@ -26,7 +26,9 @@ extension LedgerStore {
 
     /// Category identification colors attached to Live Activity item rows.
     var purchaseActivityCategoryColors: [String: String] {
-        Dictionary(state.categories.map { ($0.id.rawValue, $0.colorHex) }, uniquingKeysWith: { first, _ in first })
+        var colors = Dictionary(state.categories.map { ($0.id.rawValue, $0.colorHex) }, uniquingKeysWith: { first, _ in first })
+        colors["__theme"] = AppPreferencesStore.shared.value.statementThemeColorHex
+        return colors
     }
 
     var recurringRules: [RecurringRule] { (state.recurringRules ?? []).filter { $0.deletedAt == nil } }
@@ -40,6 +42,18 @@ extension LedgerStore {
         updated.normalizeSections()
         mutateState(.purchaseOnly) { state in
             var sessions = state.purchaseSessions ?? []
+            // Assign legacy receipts in creation order; existing invoice numbers never change.
+            let order = sessions.indices.sorted {
+                sessions[$0].createdAt == sessions[$1].createdAt
+                    ? sessions[$0].id.uuidString < sessions[$1].id.uuidString
+                    : sessions[$0].createdAt < sessions[$1].createdAt
+            }
+            var next = (sessions.compactMap(\.receiptNumber).max() ?? 0) + 1
+            for index in order where sessions[index].receiptNumber == nil {
+                sessions[index].receiptNumber = next
+                next += 1
+            }
+            updated.receiptNumber = sessions.first { $0.id == updated.id }?.receiptNumber ?? next
             if let index = sessions.firstIndex(where: { $0.id == updated.id }) { sessions[index] = updated } else { sessions.append(updated) }
             state.purchaseSessions = sessions
         }

@@ -1,7 +1,6 @@
 import SwiftUI
 import Charts
 import UIKit
-import PassKit
 
 struct TaxCategorySummary: Identifiable, Sendable {
     var id: LedgerCategoryID { category.id }
@@ -19,11 +18,6 @@ struct TaxAnalyticsPage: View {
     let accountIDs: Set<UUID>
 
     @State private var exportItem: ExportImageItem?
-    @State private var generatingWalletPass = false
-    @State private var passToPresent: PKPass?
-    @State private var showingAddPassSheet = false
-    @State private var passErrorMessage: String?
-
     private var dateBounds: (start: Date, end: Date) {
         let calendar = Calendar.current
         let now = Date.now
@@ -137,23 +131,7 @@ struct TaxAnalyticsPage: View {
                 )
                 .disabled(completedRequest != requestedTax)
 
-                if WalletPassManager.shared.isIssuerConfigured {
-                    Button {
-                        Task { await addTaxReceiptToWallet() }
-                    } label: {
-                        HStack {
-                            Label("Add Tax Receipt to Apple Wallet", systemImage: "wallet.pass")
-                            if generatingWalletPass {
-                                Spacer()
-                                ProgressView()
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .disabled(generatingWalletPass || privacy.isLocked || summaries.isEmpty)
-                }
+
             }
             .padding()
         }
@@ -172,21 +150,7 @@ struct TaxAnalyticsPage: View {
             ShareActivitySheet(items: [item.image])
                 .presentationDetents([.medium, .large])
         }
-        .sheet(isPresented: $showingAddPassSheet) {
-            if let pass = passToPresent {
-                AddPassSheetView(pass: pass) {
-                    passToPresent = nil
-                }
-            }
-        }
-        .alert("Apple Wallet", isPresented: Binding(
-            get: { passErrorMessage != nil },
-            set: { if !$0 { passErrorMessage = nil } }
-        )) {
-            Button("OK") { passErrorMessage = nil }
-        } message: {
-            Text(passErrorMessage ?? "")
-        }
+
     }
 
     private var pieChartView: some View {
@@ -237,47 +201,16 @@ struct TaxAnalyticsPage: View {
         return "\(Int(p))%"
     }
 
+
     @MainActor
     private func exportReceipt() {
         guard !privacy.isLocked, !summaries.isEmpty else { return }
-        let exportView = TaxReceiptView(
-            summaries: summaries,
-            totalTax: totalTax,
-            currency: store.state.settings.baseCurrency,
-            dateRangeString: dateRangeString,
-            isExport: true,
-            onExport: nil
-        )
-        .environmentObject(privacy)
-        let renderer = ImageRenderer(content: exportView)
-        renderer.scale = 3.0
-        if let image = renderer.uiImage {
-            exportItem = ExportImageItem(image: image)
-        }
-    }
-
-    private func addTaxReceiptToWallet() async {
-        guard !privacy.isLocked, !summaries.isEmpty else { return }
-        guard WalletPassManager.shared.isPassLibraryAvailable else {
-            passErrorMessage = WalletPassError.libraryUnavailable.localizedDescription
-            return
-        }
-        generatingWalletPass = true
-        defer { generatingWalletPass = false }
-
-        let calendar = Calendar.current
-        let comps = calendar.dateComponents([.year, .month], from: dateBounds.start)
-        let year = comps.year ?? calendar.component(.year, from: .now)
-        let month = comps.month ?? calendar.component(.month, from: .now)
-
-        let snapshot = WalletPassManager.shared.buildTaxReceiptSnapshot(year: year, month: month, store: store)
-        do {
-            let pass = try await WalletPassManager.shared.issuer.issueTaxReceiptPass(snapshot: snapshot)
-            passToPresent = pass
-            showingAddPassSheet = true
-        } catch {
-            passErrorMessage = error.localizedDescription
-        }
+        let view = TaxReceiptView(summaries: summaries, totalTax: totalTax,
+            currency: store.state.settings.baseCurrency, dateRangeString: dateRangeString,
+            isExport: true).environmentObject(privacy)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 3
+        if let image = renderer.uiImage { exportItem = ExportImageItem(image: image) }
     }
 }
 
@@ -409,7 +342,9 @@ struct TaxReceiptView: View {
         }
         .padding(24)
         .frame(width: 340)
-        .background(Color(uiColor: .systemBackground))
+        .padding(.vertical, 8)
+        .background(Color.white, in: SerratedTicketShape())
+        .foregroundStyle(Color.black)
     }
 }
 

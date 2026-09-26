@@ -46,6 +46,7 @@ struct PurchaseSession: Identifiable, Codable, Hashable, Sendable {
     var receiptAttachmentID: String?
     var currency: CurrencyCode = .HKD
     var accountID: UUID? = nil
+    var receiptNumber: Int? = nil
     var updatedAt: Date? = nil
     var requiresCurrencyMigration = false
     var requiresPaymentMigration = false
@@ -53,6 +54,7 @@ struct PurchaseSession: Identifiable, Codable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id, ledgerBookID, name, status, sections, items, createdAt, startedAt, completedAt, receiptAttachmentID
         case currency, accountID, updatedAt
+        case receiptNumber
     }
 
     var orderedSections: [PurchaseCategorySection] {
@@ -101,6 +103,7 @@ extension PurchaseSession {
         receiptAttachmentID = try c.decodeIfPresent(String.self, forKey: .receiptAttachmentID)
         currency = try c.decodeIfPresent(CurrencyCode.self, forKey: .currency) ?? .HKD
         accountID = try c.decodeIfPresent(UUID.self, forKey: .accountID)
+        receiptNumber = try c.decodeIfPresent(Int.self, forKey: .receiptNumber)
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
         requiresCurrencyMigration = !c.contains(.currency)
         requiresPaymentMigration = !c.contains(.currency) && !c.contains(.accountID)

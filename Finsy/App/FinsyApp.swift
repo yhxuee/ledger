@@ -15,12 +15,23 @@ struct FinsyApp: App {
                 .environmentObject(preferences)
                 .environmentObject(privacy)
                 .preferredColorScheme(nil)
+                .tint(Color(hex: preferences.value.statementThemeColorHex))
+                .task(id: WalletPassRefreshKey(bookID: store.activeBookID, modifiedAt: store.state.lastModifiedAt, preferences: preferences.value)) {
+                    await WalletPassManager.shared.refreshInstalledPasses(store: store, preferences: preferences.value)
+                }
                 .onOpenURL {
                     CloudShareSceneDelegate.open($0)
                     store.handleDeepLink($0)
                 }
                 .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
                     if let url = activity.webpageURL { CloudShareSceneDelegate.open(url) }
+                }
+                .onChange(of: preferences.value.statementThemeColorHex) { _, _ in
+                    Task {
+                        for session in store.purchaseSessions where session.status == .active || session.status == .awaitingSummary {
+                            await store.publish(session: session, requestActivity: false)
+                        }
+                    }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .acceptedCloudLedger)) { notification in
                     if let book = notification.object as? LedgerBook { store.addOrMergeCloudBook(book) }
@@ -42,6 +53,9 @@ struct FinsyApp: App {
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
+                        Task {
+                            await WalletPassManager.shared.refreshInstalledPasses(store: store, preferences: preferences.value, force: true)
+                        }
                         FinsyMaintenanceCoordinator.shared.performForegroundMaintenance(
                             store: store,
                             preferences: preferences,

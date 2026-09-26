@@ -20,6 +20,14 @@ enum WalletAccountPassSource: Codable, Hashable, Sendable {
 }
 
 struct AccountPassSnapshot: Codable, Hashable, Sendable {
+    var monthTitle: String? = nil
+    var formattedExpenses: String? = nil
+    var formattedIncome: String? = nil
+    var entries: Int? = nil
+    var remainingLabel: String? = nil
+    var formattedRemaining: String? = nil
+    var recentEntries: String? = nil
+    var themeColorHex: String? = nil
     var passTypeIdentifier: String
     var serialNumber: String
     var title: String
@@ -68,6 +76,12 @@ struct PurchaseReceiptPassItem: Codable, Hashable, Sendable {
 }
 
 struct PurchaseReceiptPassSnapshot: Codable, Hashable, Sendable {
+    var formattedDate: String? = nil
+    var payment: String? = nil
+    var invoiceNumber: String? = nil
+    var transactionStatus: String? = nil
+    var themeColorHex: String? = nil
+    var barcode: WalletReceiptBarcode? = nil
     var passTypeIdentifier: String
     var serialNumber: String
     var sessionID: UUID
@@ -84,6 +98,7 @@ struct PurchaseReceiptPassSnapshot: Codable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case passTypeIdentifier, serialNumber, sessionID, storeName, totalAmount, currency, formattedTotal, itemCount, itemsSummary, items, taxAmount, formattedTax, finalizedAt
+        case formattedDate, payment, invoiceNumber, transactionStatus, themeColorHex, barcode
     }
 
     init(
@@ -101,8 +116,8 @@ struct PurchaseReceiptPassSnapshot: Codable, Hashable, Sendable {
         finalizedAt: Date
     ) {
         self.passTypeIdentifier = passTypeIdentifier
-        // A receipt stays as it was when added, even if the session is exported again.
-        self.serialNumber = "purchase-\(sessionID.uuidString)-\(UUID().uuidString)"
+        // Stable identity lets ledger refunds replace the installed receipt.
+        self.serialNumber = "purchase-\(sessionID.uuidString)"
         self.sessionID = sessionID
         self.storeName = storeName
         self.totalAmount = totalAmount
@@ -131,47 +146,18 @@ struct PurchaseReceiptPassSnapshot: Codable, Hashable, Sendable {
         taxAmount = try container.decodeIfPresent(Double.self, forKey: .taxAmount) ?? 0.0
         formattedTax = try container.decodeIfPresent(String.self, forKey: .formattedTax) ?? ""
         finalizedAt = try container.decode(Date.self, forKey: .finalizedAt)
+        formattedDate = try container.decodeIfPresent(String.self, forKey: .formattedDate)
+        payment = try container.decodeIfPresent(String.self, forKey: .payment)
+        invoiceNumber = try container.decodeIfPresent(String.self, forKey: .invoiceNumber)
+        transactionStatus = try container.decodeIfPresent(String.self, forKey: .transactionStatus)
+        themeColorHex = try container.decodeIfPresent(String.self, forKey: .themeColorHex)
+        barcode = try container.decodeIfPresent(WalletReceiptBarcode.self, forKey: .barcode)
     }
 }
 
-struct TaxReceiptPassSnapshot: Codable, Hashable, Sendable {
-    var passTypeIdentifier: String
-    var serialNumber: String
-    var year: Int
-    var month: Int
-    var monthName: String
-    var totalExpenseTax: Double
-    var totalTaxableExpense: Double
-    var currency: CurrencyCode
-    var formattedExpenseTax: String
-    var formattedTaxableExpense: String
-    var generatedAt: Date
-
-    init(
-        passTypeIdentifier: String = "pass.com.finsy.tax",
-        year: Int,
-        month: Int,
-        monthName: String,
-        totalExpenseTax: Double,
-        totalTaxableExpense: Double,
-        currency: CurrencyCode,
-        formattedExpenseTax: String,
-        formattedTaxableExpense: String,
-        generatedAt: Date = .now
-    ) {
-        self.passTypeIdentifier = passTypeIdentifier
-        // A later export of the same month must not replace an earlier snapshot.
-        self.serialNumber = "tax-expense-\(year)-\(String(format: "%02d", month))-\(UUID().uuidString)"
-        self.year = year
-        self.month = month
-        self.monthName = monthName
-        self.totalExpenseTax = totalExpenseTax
-        self.totalTaxableExpense = totalTaxableExpense
-        self.currency = currency
-        self.formattedExpenseTax = formattedExpenseTax
-        self.formattedTaxableExpense = formattedTaxableExpense
-        self.generatedAt = generatedAt
-    }
+struct WalletReceiptBarcode: Codable, Hashable, Sendable {
+    var message: String
+    var format: String
 }
 
 enum WalletPassError: LocalizedError, Sendable {

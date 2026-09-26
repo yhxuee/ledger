@@ -28,7 +28,6 @@ protocol WalletPassIssuer: Sendable {
     var isConfigured: Bool { get }
     func issueAccountPass(snapshot: AccountPassSnapshot) async throws -> PKPass
     func issuePurchaseReceiptPass(snapshot: PurchaseReceiptPassSnapshot) async throws -> PKPass
-    func issueTaxReceiptPass(snapshot: TaxReceiptPassSnapshot) async throws -> PKPass
 }
 
 final class NetworkWalletPassIssuer: WalletPassIssuer {
@@ -52,9 +51,6 @@ final class NetworkWalletPassIssuer: WalletPassIssuer {
         try await requestPass(endpointSuffix: "purchase-receipt", payload: snapshot)
     }
 
-    func issueTaxReceiptPass(snapshot: TaxReceiptPassSnapshot) async throws -> PKPass {
-        try await requestPass(endpointSuffix: "tax-receipt", payload: snapshot)
-    }
 
     private func requestPass<T: Encodable>(endpointSuffix: String, payload: T) async throws -> PKPass {
         guard let base = signingEndpoint else {
@@ -87,7 +83,6 @@ final class MockWalletPassIssuer: WalletPassIssuer, @unchecked Sendable {
     var mockPassToReturn: PKPass?
     var lastAccountSnapshot: AccountPassSnapshot?
     var lastPurchaseSnapshot: PurchaseReceiptPassSnapshot?
-    var lastTaxSnapshot: TaxReceiptPassSnapshot?
 
     init(mockPassToReturn: PKPass? = nil) {
         self.mockPassToReturn = mockPassToReturn
@@ -105,10 +100,5 @@ final class MockWalletPassIssuer: WalletPassIssuer, @unchecked Sendable {
         throw WalletPassError.signingServiceUnavailable("Mock pass not configured.")
     }
 
-    func issueTaxReceiptPass(snapshot: TaxReceiptPassSnapshot) async throws -> PKPass {
-        lastTaxSnapshot = snapshot
-        if let pass = mockPassToReturn { return pass }
-        throw WalletPassError.signingServiceUnavailable("Mock pass not configured.")
-    }
 }
 #endif

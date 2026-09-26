@@ -20,7 +20,7 @@ struct CompletePurchaseItemIntent: LiveActivityIntent {
             session: snapshot.session,
             // The shared write just succeeded, so interactive controls stay available.
             interactiveCompletionAvailable: true,
-            categoryColors: snapshot.resolvedCategoryColors)
+            categoryColors: snapshot.resolvedCategoryColors, themeColorHex: snapshot.themeColorHex)
         for activity in Activity<PurchaseActivityAttributes>.activities where activity.attributes.sessionID == sessionID {
             await activity.update(ActivityContent(state: state, staleDate: nil))
         }

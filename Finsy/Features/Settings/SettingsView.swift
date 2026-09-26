@@ -133,7 +133,7 @@ struct SettingsView: View {
             Divider()
 
             ColorPicker(selection: statementColorBinding, supportsOpacity: false) {
-                SettingsLabel("Statement Color", systemImage: "paintpalette")
+                SettingsLabel("Theme Color", systemImage: "paintpalette")
             }
         }
     }
@@ -229,7 +229,7 @@ struct SettingsView: View {
             NavigationLink {
                 MarketDataSettingsView()
             } label: {
-                SettingsLinkRow("Alpha Vantage API Key", systemImage: "key", detail: nil)
+                SettingsLinkRow("Market Data", systemImage: "key", detail: nil)
             }
             .foregroundStyle(.primary)
 
@@ -340,11 +340,11 @@ struct SettingsView: View {
     }
 
     private var diagnosticsSection: some View {
-        SettingsGlassSection("Diagnostics") {
+        SettingsGlassSection("About") {
             NavigationLink {
                 DiagnosticsSettingsView()
             } label: {
-                SettingsLinkRow("Diagnostics", systemImage: "wrench.and.screwdriver", detail: nil)
+                SettingsLinkRow("About", systemImage: "wrench.and.screwdriver", detail: nil)
             }
             .foregroundStyle(.primary)
         }
@@ -792,30 +792,109 @@ struct DiagnosticsSettingsView: View {
     @State private var diagnostics: OverviewWidgetBridgeDiagnostics = OverviewWidgetSnapshotStore.diagnostics()
     @State private var refreshMessage: String?
     @State private var isRefreshing = false
+    @State private var storageBytes: Int64 = 0
+    @State private var cloudStatus = "Checking…"
+    @State private var walletStatus = "Checking…"
+    @State private var exchangeStatus = "Checking…"
+    @State private var marketStatus = "Checking…"
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                SettingsGlassSection("iCloud Sync") {
-                    Text(store.lastSyncError ?? "No sync error recorded.")
-                        .font(.system(.footnote, design: .monospaced))
-                        .textSelection(.enabled)
+                SettingsGlassSection("Finsy") {
+                    LabeledContent("Version", value: appVersion)
+                    LabeledContent("Last Updated", value: buildDate)
+                    LabeledContent("Storage Used", value: ByteCountFormatter.string(fromByteCount: storageBytes, countStyle: .file))
+                }
+                SettingsGlassSection("Connections") {
+                    LabeledContent("iCloud", value: cloudStatus)
+                    LabeledContent("Wallet Server", value: walletStatus)
+                    LabeledContent("Exchange Rate API", value: exchangeStatus)
+                    LabeledContent("Market Data API", value: marketStatus)
+                }
+                SettingsGlassSection("Diagnostics · Sync & Wallet") {
+                    LabeledContent("Ledger Sync", value: store.iCloudSyncReady ? "Ready" : "Inactive")
+                    LabeledContent("Automatic Sync", value: preferences.value.iCloudSyncEnabled ? "On" : "Off")
+                    LabeledContent("Automatic Backup", value: preferences.value.iCloudBackupEnabled ? "On" : "Off")
+                    LabeledContent("Account Pass", value: WalletPassManager.shared.isAccountPassInstalled() ? "Installed" : "Not Added")
+                    LabeledContent("Pass Updates", value: WalletPassManager.shared.refreshStatus ?? "Not refreshed this session")
+                    if let error = store.lastSyncError { Text(error).font(.caption).textSelection(.enabled) }
+                    if let warning = store.purchaseSyncWarning { Text(warning).font(.caption).textSelection(.enabled) }
+                    if let error = ICloudLibraryCoordinator.shared.lastError { Text(error).font(.caption).textSelection(.enabled) }
+                    LabeledContent("Storage", value: store.canMutateLedger ? "Writable" : "Recovery · Read Only")
+                    if let status = StockQuoteRefreshService.shared.status { Text(status).font(.caption).textSelection(.enabled) }
                 }
                 widgetDataSection
             }
             .padding()
         }
         .background(LedgerBackground())
-        .navigationTitle("Diagnostics")
+        .navigationTitle("About")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             diagnostics = OverviewWidgetSnapshotStore.diagnostics()
+            await refreshConnections()
         }
         .alert("Widget Data", isPresented: Binding(get: { refreshMessage != nil }, set: { if !$0 { refreshMessage = nil } })) {
             Button("OK") { refreshMessage = nil }
         } message: {
             Text(refreshMessage ?? "")
         }
+    }
+
+    private var appVersion: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        return "\(info["CFBundleShortVersionString"] as? String ?? "—") (\(info["CFBundleVersion"] as? String ?? "—"))"
+    }
+
+    private var buildDate: String {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "FinsyBuildDate") as? String,
+              !value.isEmpty, !value.hasPrefix("$(") else { return "Unavailable" }
+        return value
+    }
+
+    @MainActor
+    private func refreshConnections() async {
+        async let bytes = Task.detached(priority: .utility) { () -> Int64 in
+            AboutStorageMeasurement.bytes()
+        }.value
+        async let cloud: String = probeCloud()
+        async let wallet: String = probeWallet()
+        async let exchange: String = probeExchange()
+        async let market: String = probeMarket()
+        (storageBytes, cloudStatus, walletStatus, exchangeStatus, marketStatus) = await (bytes, cloud, wallet, exchange, market)
+    }
+
+    private func probeCloud() async -> String {
+        do {
+            let status = try await CKContainer(identifier: "iCloud.com.finsy.app").accountStatus()
+            switch status {
+            case .available: return "Connected"
+            case .noAccount: return "Not Signed In"
+            case .restricted: return "Restricted"
+            default: return "Unavailable"
+            }
+        } catch { return "Unavailable" }
+    }
+
+    private func probeWallet() async -> String {
+        guard let base = WalletPassConfiguration.issuerURL else { return "Not Configured" }
+        do {
+            let request = URLRequest(url: base.appendingPathComponent("health"), timeoutInterval: 10)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            return (response as? HTTPURLResponse)?.statusCode == 200 && String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) == "ok" ? "Connected" : "Unavailable"
+        } catch { return "Unavailable" }
+    }
+
+    private func probeExchange() async -> String {
+        do { _ = try await FrankfurterRateService.shared.latest(); return "Connected" }
+        catch { return "Unavailable" }
+    }
+
+    private func probeMarket() async -> String {
+        guard (try? MarketDataKeychain.read()) != nil else { return "Not Configured" }
+        do { _ = try await AlphaVantageService.shared.marketStatus(); return "Connected" }
+        catch { return "Unavailable" }
     }
 
     private var widgetDataSection: some View {
@@ -949,4 +1028,24 @@ private struct LockedBackupImport: Identifiable {
     var fingerprint: String?
     var data: Data
     var sourceName: String
+}
+
+private enum AboutStorageMeasurement {
+    static func bytes() -> Int64 {
+        let manager = FileManager.default
+        let directories: [FileManager.SearchPathDirectory] = [.applicationSupportDirectory, .cachesDirectory, .documentDirectory]
+        var roots = directories.compactMap { manager.urls(for: $0, in: .userDomainMask).first }
+        roots.append(Bundle.main.bundleURL)
+        if let shared = manager.containerURL(forSecurityApplicationGroupIdentifier: "group.com.finsy.app") { roots.append(shared) }
+        var total: Int64 = 0
+        for root in roots {
+            guard let enumerator = manager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey], options: [.skipsHiddenFiles]) else { continue }
+            for case let url as URL in enumerator {
+                if let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true {
+                    total += Int64(values.fileSize ?? 0)
+                }
+            }
+        }
+        return total
+    }
 }

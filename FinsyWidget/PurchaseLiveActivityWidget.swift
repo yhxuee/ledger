@@ -26,6 +26,7 @@ struct PurchaseLiveActivityWidget: Widget {
                     PurchaseProgressRing(
                         fraction: context.state.completionFraction,
                         completed: context.state.isCompleted,
+                        tint: accent(context),
                         iconSize: 13,
                         lineWidth: 4)
                         .frame(width: 46, height: 46)
@@ -46,7 +47,7 @@ struct PurchaseLiveActivityWidget: Widget {
                         if context.state.isCompleted {
                             Label("Purchase Complete", systemImage: "checkmark.circle.fill")
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(PurchaseActivityPalette.success)
+                                .foregroundStyle(accent(context))
                         } else {
                             ForEach(context.state.nextItems) { item in
                                 itemRow(item,
@@ -82,6 +83,7 @@ struct PurchaseLiveActivityWidget: Widget {
                 PurchaseProgressRing(
                     fraction: context.state.completionFraction,
                     completed: context.state.isCompleted,
+                        tint: accent(context),
                     iconSize: 16,
                     lineWidth: 5)
                     .frame(width: 52, height: 52)
@@ -141,7 +143,9 @@ struct PurchaseLiveActivityWidget: Widget {
     }
 
     private func accent(_ context: ActivityViewContext<PurchaseActivityAttributes>) -> Color {
-        PurchaseActivityPalette.progressTint(completed: context.state.isCompleted)
+        context.state.isCompleted
+            ? PurchaseActivityPalette.color(hex: context.state.themeColorHex ?? "3A78C2")
+            : PurchaseActivityPalette.accent
     }
 
     private func deepLink(_ id: UUID) -> URL { URL(string: "finsy://purchase/\(id.uuidString)")! }

@@ -31,9 +31,10 @@ struct ICloudBackupSettingsView: View {
                 SettingsGlassSection("iCloud Backup") {
                     Toggle("iCloud Backup", isOn: enabled)
                         .disabled(busy || !store.canMutateLedger)
-                    Text("Automatically save snapshots of all your ledgers to iCloud Drive. Restore a snapshot on any device using the same iCloud account.")
+                    Text("Save ledger snapshots to iCloud Drive.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Text("Encryption keys stay in each device's local Keychain. Authorize another device through iCloud Sync, QR, or AirDrop before restoring encrypted data.")
+                    Text("Keys stay on this device. Authorize another device before restoring.")
+
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 SettingsGlassSection("Backup Frequency") {
@@ -45,8 +46,7 @@ struct ICloudBackupSettingsView: View {
                     }
                     .pickerStyle(.segmented)
                     .disabled(busy)
-                    Text("Backups include all ledgers. If a scheduled backup is missed, Finsy catches up when you next open the app.")
-                        .font(.footnote).foregroundStyle(.secondary)
+
                 }
                 SettingsGlassSection("Backup & Restore") {
                     Button {
@@ -75,9 +75,6 @@ struct ICloudBackupSettingsView: View {
                     .disabled(!preferences.value.iCloudBackupEnabled || busy || !store.canMutateLedger)
                 }
                 if busy { ProgressView("Updating iCloud…") }
-                if let error = coordinator.lastError {
-                    Text(error).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
-                }
             }
             .padding()
         }

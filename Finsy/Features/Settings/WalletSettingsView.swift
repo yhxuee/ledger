@@ -28,14 +28,8 @@ struct WalletSettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Apple Wallet Account Pass")
                             .font(.headline)
-                        Text(walletManager.isAccountPassInstalled() ? LocalizedStringKey("Pass Installed in Apple Wallet") : LocalizedStringKey("Pass Not Added"))
-                            .font(.caption)
-                            .foregroundStyle(walletManager.isAccountPassInstalled() ? Color.green : Color.secondary)
-                        if let refreshed = preferences.value.walletPassLastRefreshedAt {
-                            Text(String(format: String(localized: "Last Refreshed: %@"), refreshed.formatted(date: .abbreviated, time: .shortened)))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
+                        Text("Updates automatically while Finsy is open.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 .padding(.vertical, 4)
@@ -47,9 +41,6 @@ struct WalletSettingsView: View {
                         Label("Wallet Pass Issuer Not Configured", systemImage: "exclamationmark.triangle.fill")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.orange)
-                        Text("Apple Wallet pass signing requires a server-side endpoint configured with FINSY_WALLET_PASS_ISSUER_URL. Pass issuing and updates are currently disabled.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 4)
                 }
@@ -62,7 +53,7 @@ struct WalletSettingsView: View {
                         preferences.update { $0.walletAccountPassSource = newSource }
                     }
                 )) {
-                    Text("All Accounts (Net Worth)").tag(WalletAccountPassSource.allAccounts)
+                    Text("All").tag(WalletAccountPassSource.allAccounts)
                     ForEach(store.state.accounts.filter { $0.deletedAt == nil }) { account in
                         Text(account.name).tag(WalletAccountPassSource.specificAccount(account.id))
                     }
@@ -126,8 +117,6 @@ struct WalletSettingsView: View {
                     }
                     .disabled(isRefreshing || !walletManager.isIssuerConfigured)
                 }
-            } footer: {
-                Text("Account Pass is static and refreshed manually. It does not use background push updates or bank transaction reading.")
             }
         }
         .navigationTitle("Apple Wallet")

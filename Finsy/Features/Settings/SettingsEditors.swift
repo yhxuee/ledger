@@ -127,7 +127,7 @@ struct ExchangeRateEditorView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                SettingsGlassSection("Automatic Rates", footer: "Automatic mode uses Frankfurter, keeps the last successful values offline, and locks manual input.") {
+                SettingsGlassSection("Automatic Rates") {
                     Toggle("Automatic Daily Rates", isOn: automaticBinding)
 
                     Divider()
@@ -315,8 +315,7 @@ struct SwipeActionsEditorView: View {
         ScrollView {
             VStack(spacing: 16) {
                 SettingsGlassSection(
-                    "Swipe Action Order",
-                    footer: "Order: [1] Far Left [2] Near Left — ROW — [3] Near Right [4] Far Right.\nSwiping right reveals Near Left then Far Left. Swiping left reveals Near Right then Far Right."
+                    "Swipe Action Order"
                 ) {
                     VStack(spacing: 0) {
                         ForEach(0..<4, id: \.self) { index in
