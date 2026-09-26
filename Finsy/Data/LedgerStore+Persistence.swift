@@ -221,6 +221,9 @@ extension LedgerStore {
                 return
             }
             guard !Task.isCancelled, self.persistenceEnabled else { return }
+            if snapshot.books.contains(where: { $0.effectiveEncryptionState == .enabling }), self.encryptionMigrations.isEmpty {
+                await self.resumeEncryptionMigrations()
+            }
             for active in snapshot.books where active.effectiveStorageKind != .local {
                 do { try await CloudLedgerService.shared.synchronize(book: active, revision: revision) }
                 catch { self.lastSyncError = error.localizedDescription }

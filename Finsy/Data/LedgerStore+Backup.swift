@@ -69,6 +69,7 @@ extension LedgerStore {
         await CloudLedgerService.shared.resetLocalState()
         try Self.localRepository.resetLocalData()
         try PurchaseSharedStateStore.resetLocalSnapshots()
+        IncrementalLedgerRepository.clearDecryptedCache()
         try LedgerKeyStore.reset()
         leaveRecoveryModeAfterReset()
         Task { await PurchaseLiveActivityController.shared.endAll() }

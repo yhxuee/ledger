@@ -36,6 +36,95 @@ struct IncrementalLedgerRepository: Sendable {
         }
     }
 
+    private final class VaultCacheEntry: @unchecked Sendable {
+        let book: LedgerBook
+        init(_ book: LedgerBook) { self.book = book }
+    }
+    nonisolated(unsafe) private static let vaultCache: NSCache<NSString, VaultCacheEntry> = {
+        let cache = NSCache<NSString, VaultCacheEntry>()
+        cache.countLimit = 2
+        return cache
+    }()
+    static func clearDecryptedCache() { vaultCache.removeAllObjects() }
+
+    private struct EncryptedLocalBook: Codable {
+        var version: Int
+        var fingerprint: String
+        var ciphertext: Data
+    }
+
+    private func encryptedBook(id: UUID) throws -> LedgerBook? {
+        guard let data = try database.data(id.uuidString, "encrypted-book") else { return nil }
+        let sealed = try decoder.decode(EncryptedLocalBook.self, from: data)
+        guard !LedgerDeviceAuthorization.isRevoked(id),
+              let key = try LedgerKeyStore.loadKey(for: id, expectedFingerprint: sealed.fingerprint) else {
+            let header: Header = try read(id.uuidString, "header")
+            var locked = header.book
+            locked.state = SeedData.makeProductionEmpty()
+            locked.encryptionState = .authorizationRequired
+            return locked
+        }
+        let cacheID = (id.uuidString + SHA256.hash(data: sealed.ciphertext).map { String(format: "%02x", $0) }.joined()) as NSString
+        // Authorization is checked before using a cached plaintext value.
+        if let cached = Self.vaultCache.object(forKey: cacheID) {
+            let header: Header = try read(id.uuidString, "header")
+            var value = cached.book
+            if header.book.effectiveEncryptionState == .authorizationRequired {
+                value.encryptionState = .authorizationRequired
+                value.keyFingerprint = header.book.keyFingerprint
+            }
+            return value
+        }
+        let plain = try LedgerCryptoService.decryptRecord(sealed.ciphertext, ledgerID: id,
+            recordType: "LocalLedger", recordID: "encrypted-book", key: key, version: sealed.version,
+            expectedFingerprint: sealed.fingerprint)
+        var book = try decoder.decode(LedgerBook.self, from: plain)
+        guard book.id == id else { throw PersistenceIntegrityError.identifierMismatch("encrypted book") }
+        let header: Header = try read(id.uuidString, "header")
+        if header.book.effectiveEncryptionState == .authorizationRequired {
+            book.encryptionState = .authorizationRequired
+            book.keyFingerprint = header.book.keyFingerprint
+        }
+        Self.vaultCache.setObject(VaultCacheEntry(book), forKey: cacheID)
+        return book
+    }
+
+    private func saveEncryptedBook(_ book: LedgerBook) throws {
+        let namespace = book.id.uuidString
+        if book.effectiveEncryptionState == .authorizationRequired,
+           !LedgerDeviceAuthorization.isRevoked(book.id), try database.data(namespace, "encrypted-book") != nil {
+            // Keep the existing ciphertext until authorization restores the key.
+            var publicBook = book
+            publicBook.name = "Encrypted Ledger"
+            publicBook.state = SeedData.makeProductionEmpty()
+            try database.put(namespace, "header", encoder.encode(Header(publicBook)))
+            return
+        }
+        var publicBook = book
+        publicBook.name = "Encrypted Ledger"
+        publicBook.state = SeedData.makeProductionEmpty()
+        let sealed: Data?
+        if LedgerDeviceAuthorization.isRevoked(book.id) {
+            publicBook.encryptionState = .authorizationRequired
+            sealed = nil
+        } else {
+            guard let key = try LedgerKeyStore.loadKey(for: book.id) else {
+                throw LedgerCryptoError.authorizationRequired(ledgerID: book.id, fingerprint: book.keyFingerprint)
+            }
+            let value = try LedgerCryptoService.encryptRecord(encoder.encode(book), ledgerID: book.id,
+                recordType: "LocalLedger", recordID: "encrypted-book", key: key)
+            sealed = try encoder.encode(EncryptedLocalBook(version: LedgerCryptoService.currentEncryptionVersion,
+                fingerprint: value.fingerprint, ciphertext: value.ciphertext))
+        }
+        // The surrounding SQLite transaction atomically replaces all plaintext entities
+        // and financial indexes with one authenticated vault and a nonfinancial header.
+        for key in try database.keys(namespace) { try database.remove(namespace, key) }
+        try database.removeAllIndexedTransactions(bookID: namespace)
+        try database.removeTransactionIndexState(bookID: namespace)
+        try database.put(namespace, "header", encoder.encode(Header(publicBook)))
+        if let sealed { try database.put(namespace, "encrypted-book", sealed) }
+    }
+
     // Internal storage uses full precision dates; portable backups retain their existing codec.
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
@@ -67,6 +156,7 @@ struct IncrementalLedgerRepository: Sendable {
             }
             manifestDuration = Date.now.timeIntervalSince(manifestStart)
             let books = try manifest.bookIDs.map { id -> LedgerBook in
+                if let encrypted = try encryptedBook(id: id) { return encrypted }
                 let headerStart = Date.now
                 let namespace = id.uuidString
                 let header: Header = try read(namespace, "header")
@@ -103,6 +193,7 @@ struct IncrementalLedgerRepository: Sendable {
     }
 
     func materializeFullBook(id: UUID) throws -> LedgerBook {
+        if let encrypted = try encryptedBook(id: id) { return encrypted }
         let namespace = id.uuidString
         let header: Header = try read(namespace, "header")
         guard header.book.id == id else { throw PersistenceIntegrityError.identifierMismatch("book") }
@@ -172,6 +263,7 @@ struct IncrementalLedgerRepository: Sendable {
 
     func save(_ library: LedgerLibrary, previous: LedgerLibrary?) throws {
         let start = Date.now
+        var convertedPlaintext = false
         try database.transaction {
             try requireUnique(library.books.map(\.id), label: "book")
             guard library.books.contains(where: { $0.id == library.activeBookID }) else {
@@ -184,8 +276,18 @@ struct IncrementalLedgerRepository: Sendable {
                 try requireUnique((book.state.recurringRules ?? []).map(\.id), label: "recurring rule")
                 try requireUnique((book.state.purchaseSessions ?? []).map(\.id), label: "purchase session")
                 let old = oldBooks[book.id]
-                guard book != old else { continue }
+                let existingVault = try database.data(book.id.uuidString, "encrypted-book")
+                guard book != old || (book.isEncrypted == true && existingVault == nil) else { continue }
                 let namespace = book.id.uuidString
+                if book.isEncrypted == true {
+                    if try database.data(namespace, "encrypted-book") == nil { convertedPlaintext = true }
+                    try saveEncryptedBook(book)
+                    continue
+                }
+                // Encryption is never downgraded by an ordinary plaintext save.
+                guard try database.data(namespace, "encrypted-book") == nil else {
+                    throw LedgerCryptoError.authorizationRequired(ledgerID: book.id, fingerprint: book.keyFingerprint)
+                }
                 try update(book.state.accounts, previous: old?.state.accounts, namespace: namespace, prefix: "account")
                 try updateTransactions(book.state.transactions, previous: old?.state.transactions, namespace: namespace)
                 try update(book.state.recurringRules ?? [], previous: old?.state.recurringRules, namespace: namespace, prefix: "recurring")
@@ -204,6 +306,11 @@ struct IncrementalLedgerRepository: Sendable {
                 }
             }
             try database.put("library", "manifest", encoder.encode(manifest))
+        }
+        if convertedPlaintext {
+            try database.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            try database.execute("VACUUM")
+            try database.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         }
         LedgerDiagnostics.persistence.info("Saved library books=\(library.books.count) elapsed=\(Date.now.timeIntervalSince(start))")
     }
@@ -338,6 +445,7 @@ struct IncrementalLedgerRepository: Sendable {
 
 extension IncrementalLedgerRepository: LedgerTransactionRepository {
     func transaction(id: UUID, bookID: UUID) throws -> LedgerTransaction? {
+        if let book = try encryptedBook(id: bookID) { return book.state.transactions.first { $0.id == id } }
         let key = "transaction-\(id)"
         guard let data = try database.data(bookID.uuidString, key) else { return nil }
         let transaction = try decoder.decode(LedgerTransaction.self, from: data)
@@ -349,6 +457,12 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
         guard limit.map({ $0 >= 0 }) ?? true, offset.map({ $0 >= 0 }) ?? true else {
             throw PersistenceIntegrityError.invalidPagination
         }
+        if let book = try encryptedBook(id: bookID) {
+            let values = sortedEncryptedTransactions(book).filter {
+                (from == nil || $0.occurredAt >= from!) && (to == nil || $0.occurredAt <= to!)
+            }.dropFirst(offset ?? 0)
+            return limit.map { Array(values.prefix($0)) } ?? Array(values)
+        }
         try ensureIndexPopulated(for: bookID)
         let ids = try database.transactionIDs(bookID: bookID.uuidString, from: from, to: to, limit: limit, offset: offset)
         return try readIndexedTransactions(ids, bookID: bookID)
@@ -358,9 +472,22 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
         guard limit > 0, (before == nil) == (beforeID == nil) else {
             throw PersistenceIntegrityError.invalidPagination
         }
+        if let book = try encryptedBook(id: bookID) {
+            let values = sortedEncryptedTransactions(book).filter {
+                guard let before, let beforeID else { return true }
+                return $0.occurredAt < before || ($0.occurredAt == before && $0.id.uuidString < beforeID.uuidString)
+            }
+            return Array(values.prefix(limit))
+        }
         try ensureIndexPopulated(for: bookID)
         let ids = try database.recentTransactionIDs(bookID: bookID.uuidString, before: before, beforeID: beforeID?.uuidString, limit: limit)
         return try readIndexedTransactions(ids, bookID: bookID)
+    }
+
+    private func sortedEncryptedTransactions(_ book: LedgerBook) -> [LedgerTransaction] {
+        book.state.transactions.filter { $0.deletedAt == nil }.sorted {
+            $0.occurredAt == $1.occurredAt ? $0.id.uuidString > $1.id.uuidString : $0.occurredAt > $1.occurredAt
+        }
     }
 
     private func readIndexedTransactions(_ ids: [String], bookID: UUID) throws -> [LedgerTransaction] {
@@ -374,11 +501,13 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
     }
 
     func transactionCount(bookID: UUID) throws -> Int {
+        if let book = try encryptedBook(id: bookID) { return book.state.transactions.filter { $0.deletedAt == nil }.count }
         try ensureIndexPopulated(for: bookID)
         return try database.transactionCount(bookID: bookID.uuidString)
     }
 
     func allTransactionIDs(bookID: UUID) throws -> [UUID] {
+        if let book = try encryptedBook(id: bookID) { return book.state.transactions.map(\.id) }
         let header: Header = try read(bookID.uuidString, "header")
         guard header.book.id == bookID else { throw PersistenceIntegrityError.identifierMismatch("book") }
         try validateCatalog(header, namespace: bookID.uuidString)
@@ -400,6 +529,7 @@ extension IncrementalLedgerRepository: LedgerTransactionRepository {
     }
 
     func pocketBalances(for account: LedgerAccount, bookID: UUID) throws -> [(currency: CurrencyCode, balance: Double)] {
+        if let book = try encryptedBook(id: bookID) { return LedgerCalculations.pocketBalances(for: account, in: book.state) }
         try ensureIndexPopulated(for: bookID)
         let pockets = account.normalizedPockets
         var result: [(currency: CurrencyCode, balance: Double)] = []

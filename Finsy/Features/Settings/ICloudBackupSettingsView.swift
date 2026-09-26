@@ -7,6 +7,12 @@ struct ICloudBackupSettingsView: View {
     @State private var preview: ICloudLibraryRestorePreview?
     @State private var message: String?
     @State private var restoring = false
+    @State private var authorizationID: UUID?
+    @State private var authorizationFingerprint: String?
+    @State private var askingAuthorization = false
+    @State private var showingAuthorization = false
+    @State private var authorizedRestore: ICloudLibraryRestorePreview?
+    @State private var retryAfterAuthorization = false
 
     private var busy: Bool { coordinator.working || restoring }
     private var enabled: Binding<Bool> {
@@ -27,7 +33,7 @@ struct ICloudBackupSettingsView: View {
                         .disabled(busy || !store.canMutateLedger)
                     Text("Automatically save snapshots of all your ledgers to iCloud Drive. Restore a snapshot on any device using the same iCloud account.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Text("Encrypted backups use iCloud Keychain to securely make their keys available on your devices.")
+                    Text("Encryption keys stay in each device's local Keychain. Authorize another device through iCloud Sync, QR, or AirDrop before restoring encrypted data.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 SettingsGlassSection("Backup Frequency") {
@@ -64,8 +70,7 @@ struct ICloudBackupSettingsView: View {
                     Divider()
                     Button {
                         Task {
-                            do { preview = try await coordinator.restorePreview(store: store, preferences: preferences) }
-                            catch { message = error.localizedDescription }
+                            await restorePreview()
                         }
                     } label: { SettingsLabel("Restore", systemImage: "icloud.and.arrow.down") }
                     .foregroundStyle(.primary)
@@ -84,6 +89,28 @@ struct ICloudBackupSettingsView: View {
         .alert("iCloud Backup", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("OK") { message = nil }
         } message: { Text(message ?? "") }
+        .alert("Backup Cannot Be Decrypted", isPresented: $askingAuthorization) {
+            Button("Exit", role: .cancel) { authorizationID = nil }
+            Button("Request Authorization") { showingAuthorization = true }
+        } message: {
+            Text("Request a key migration from an authorized device. After confirmation, the original device's key for this ledger is revoked.")
+        }
+        .sheet(isPresented: $showingAuthorization, onDismiss: {
+            if let authorizedRestore { preview = authorizedRestore }
+            authorizedRestore = nil
+            if retryAfterAuthorization {
+                retryAfterAuthorization = false
+                Task { await restorePreview() }
+            }
+        }) {
+            if let authorizationID {
+                NavigationStack {
+                    DeviceAuthorizationView(targetLedgerID: authorizationID, targetName: "Encrypted iCloud Backup",
+                        targetFingerprint: authorizationFingerprint, requestPurpose: .migration,
+                        onAuthorized: { retryAfterAuthorization = true })
+                }
+            }
+        }
         .sheet(item: $preview) { snapshot in
             NavigationStack {
                 Form {
@@ -118,5 +145,13 @@ struct ICloudBackupSettingsView: View {
                 .interactiveDismissDisabled(restoring)
             }
         }
+    }    private func restorePreview() async {
+        do { preview = try await coordinator.restorePreview(store: store, preferences: preferences) }
+        catch LedgerCryptoError.authorizationRequired(let id, let fingerprint) {
+            authorizationID = id
+            authorizationFingerprint = fingerprint
+            askingAuthorization = true
+        } catch { message = error.localizedDescription }
     }
+
 }

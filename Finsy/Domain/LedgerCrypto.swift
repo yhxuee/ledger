@@ -115,6 +115,8 @@ struct LedgerKeyGrantPayload: Codable, Sendable {
     var keyFingerprint: String
     var keyVersion: Int
     var request: FinsyPairingRequest
+    var additionalKeys: [String: Data]
+    var currentFingerprint: String
 }
 
 // MARK: - Device Identity (K_device)
@@ -212,6 +214,10 @@ enum LedgerKeyStore {
     }
 
     static func saveKey(_ key: SymmetricKey, for ledgerID: UUID) throws {
+        let fingerprint = fingerprint(for: key, ledgerID: ledgerID)
+        if let existing = try loadKey(for: ledgerID), Self.fingerprint(for: existing, ledgerID: ledgerID) != fingerprint {
+            try saveHistoricalKey(existing, for: ledgerID)
+        }
         let plain = key.withUnsafeBytes { Data($0) }
         let sealed = try AES.GCM.seal(plain, using: LedgerDeviceIdentity.localWrappingKey(for: ledgerID), authenticating: Data(ledgerID.uuidString.utf8))
         guard let combined = sealed.combined else { throw LedgerCryptoError.decryptionFailed }
@@ -241,6 +247,70 @@ enum LedgerKeyStore {
         }
     }
 
+    private static func saveHistoricalKey(_ key: SymmetricKey, for id: UUID) throws {
+        let fingerprint = fingerprint(for: key, ledgerID: id)
+        let sealed = try AES.GCM.seal(key.withUnsafeBytes { Data($0) },
+            using: LedgerDeviceIdentity.localWrappingKey(for: id), authenticating: Data((id.uuidString + fingerprint).utf8))
+        guard let data = sealed.combined else { throw LedgerCryptoError.decryptionFailed }
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service + ".history", kSecAttrAccount as String: id.uuidString + ":" + fingerprint,
+            kSecAttrSynchronizable as String: false]
+        let attributes: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var add = query; add.merge(attributes) { _, new in new }
+            let result = SecItemAdd(add as CFDictionary, nil)
+            guard result == errSecSuccess else { throw LedgerCryptoError.keychainError(result) }
+        } else if status != errSecSuccess { throw LedgerCryptoError.keychainError(status) }
+    }
+
+    private static func historicalKey(for id: UUID, fingerprint: String?) throws -> SymmetricKey? {
+        guard let fingerprint else { return nil }
+        let normalized = fingerprint.lowercased()
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service + ".history", kSecAttrAccount as String: id.uuidString + ":" + normalized,
+            kSecAttrSynchronizable as String: false, kSecReturnData as String: true]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = item as? Data else { throw LedgerCryptoError.keychainError(status) }
+        let plain = try AES.GCM.open(AES.GCM.SealedBox(combined: data),
+            using: LedgerDeviceIdentity.localWrappingKey(for: id, create: false), authenticating: Data((id.uuidString + normalized).utf8))
+        return SymmetricKey(data: plain)
+    }
+
+    static func keyBundle(for id: UUID) throws -> (currentFingerprint: String, keys: [String: Data]) {
+        guard let current = try loadKey(for: id) else { throw LedgerCryptoError.keyNotFound(id) }
+        let currentFingerprint = fingerprint(for: current, ledgerID: id)
+        var keys = [currentFingerprint: current.withUnsafeBytes { Data($0) }]
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service + ".history", kSecAttrSynchronizable as String: false,
+            kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitAll]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw LedgerCryptoError.keychainError(status) }
+        for item in (result as? [[String: Any]]) ?? [] {
+            guard let account = item[kSecAttrAccount as String] as? String, account.hasPrefix(id.uuidString + ":") else { continue }
+            let fingerprint = String(account.dropFirst(id.uuidString.count + 1))
+            if let key = try historicalKey(for: id, fingerprint: fingerprint) { keys[fingerprint] = key.withUnsafeBytes { Data($0) } }
+        }
+        return (currentFingerprint, keys)
+    }
+    static func migrateLegacyLocalKeys() throws {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrSynchronizable as String: false,
+            kSecReturnAttributes as String: true, kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitAll]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return }
+        guard status == errSecSuccess else { throw LedgerCryptoError.keychainError(status) }
+        for item in (result as? [[String: Any]]) ?? [] {
+            guard let account = item[kSecAttrAccount as String] as? String, let id = UUID(uuidString: account),
+                  let data = item[kSecValueData as String] as? Data, data.count == 32 else { continue }
+            try saveKey(SymmetricKey(data: data), for: id)
+        }
+    }
+
     static func validateLocalKey(for ledgerID: UUID, expectedFingerprint: String?) throws {
         guard try loadKey(for: ledgerID, expectedFingerprint: expectedFingerprint) != nil else {
             throw LedgerCryptoError.authorizationRequired(ledgerID: ledgerID, fingerprint: expectedFingerprint)
@@ -265,7 +335,10 @@ enum LedgerKeyStore {
             guard let name = item[kSecAttrAccount as String] as? String,
                   let id = UUID(uuidString: name), let data = item[kSecValueData as String] as? Data,
                   data.count == 32 else { throw LedgerCryptoError.corruptedContainer("Legacy cloud key is invalid.") }
-            if !LedgerDeviceAuthorization.isRevoked(id), try loadKey(for: id) == nil { try saveKey(SymmetricKey(data: data), for: id) }
+            if !LedgerDeviceAuthorization.isRevoked(id) {
+                if try loadKey(for: id) == nil { try saveKey(SymmetricKey(data: data), for: id) }
+                else { try saveHistoricalKey(SymmetricKey(data: data), for: id) }
+            }
         }
         let deleted = SecItemDelete(query as CFDictionary)
         guard deleted == errSecSuccess || deleted == errSecItemNotFound else { throw LedgerCryptoError.keychainError(deleted) }
@@ -278,7 +351,7 @@ enum LedgerKeyStore {
             kSecMatchLimit as String: kSecMatchLimitOne]
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecItemNotFound { return nil }
+        if status == errSecItemNotFound { return try historicalKey(for: ledgerID, fingerprint: expectedFingerprint) }
         guard status == errSecSuccess, let data = item as? Data else { throw LedgerCryptoError.keychainError(status) }
         let plain: Data
         if data.starts(with: wrappedPrefix) {
@@ -291,8 +364,8 @@ enum LedgerKeyStore {
             plain = data
         }
         let key = SymmetricKey(data: plain)
-        guard expectedFingerprint == nil || fingerprint(for: key, ledgerID: ledgerID).lowercased() == expectedFingerprint?.lowercased() else { return nil }
-        if !data.starts(with: wrappedPrefix) { try saveKey(key, for: ledgerID) }
+        guard expectedFingerprint == nil || fingerprint(for: key, ledgerID: ledgerID).lowercased() == expectedFingerprint?.lowercased() else { return try historicalKey(for: ledgerID, fingerprint: expectedFingerprint) }
+
         return key
     }
 
@@ -310,7 +383,7 @@ enum LedgerKeyStore {
     }
 
     static func reset() throws {
-        for name in [service, service + ".icloud"] {
+        for name in [service, service + ".icloud", service + ".history"] {
             let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: name, kSecAttrSynchronizable as String: kSecAttrSynchronizableAny]
             let status = SecItemDelete(query as CFDictionary)
@@ -318,6 +391,24 @@ enum LedgerKeyStore {
         }
         try LedgerDeviceAuthorization.reset()
         try LedgerDeviceIdentity.reset()
+    }
+
+    static func deleteHistoricalKeys(for id: UUID) throws {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service + ".history", kSecAttrSynchronizable as String: false,
+            kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitAll]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return }
+        guard status == errSecSuccess else { throw LedgerCryptoError.keychainError(status) }
+        for item in (result as? [[String: Any]]) ?? [] {
+            guard let account = item[kSecAttrAccount as String] as? String, account.hasPrefix(id.uuidString + ":") else { continue }
+            let delete: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service + ".history", kSecAttrAccount as String: account,
+                kSecAttrSynchronizable as String: false]
+            let deleted = SecItemDelete(delete as CFDictionary)
+            guard deleted == errSecSuccess || deleted == errSecItemNotFound else { throw LedgerCryptoError.keychainError(deleted) }
+        }
     }
 
     static func hasKey(for ledgerID: UUID, expectedFingerprint: String?) -> Bool {
@@ -483,7 +574,8 @@ enum LedgerCryptoService {
 
     static func grantKey(
         request: FinsyPairingRequest,
-        ledgerKey: SymmetricKey
+        ledgerKey: SymmetricKey,
+        bundle: (currentFingerprint: String, keys: [String: Data])? = nil
     ) throws -> FinsyKeyGrantEnvelope {
         try request.validate()
         guard let recipientKey = try? P256.KeyAgreement.PublicKey(rawRepresentation: request.newDevicePublicKey) else {
@@ -500,7 +592,9 @@ enum LedgerCryptoService {
             keyData: keyData,
             keyFingerprint: fp,
             keyVersion: currentEncryptionVersion,
-            request: request
+            request: request,
+            additionalKeys: bundle?.keys ?? [:],
+            currentFingerprint: bundle?.currentFingerprint ?? fp
         )
         let encodedPayload = try JSONEncoder().encode(payload)
 
@@ -562,7 +656,19 @@ enum LedgerCryptoService {
         if let expected = request.expectedFingerprint, expected.lowercased() != recoveredFp.lowercased() {
             throw LedgerCryptoError.fingerprintMismatch(expected: expected, actual: recoveredFp)
         }
-        try LedgerKeyStore.saveKey(recoveredKey, for: payload.ledgerID)
+        var importedKeys = payload.additionalKeys
+        importedKeys[recoveredFp] = payload.keyData
+        guard importedKeys[payload.currentFingerprint] != nil else { throw LedgerCryptoError.corruptedContainer("Missing current ledger key.") }
+        for (fingerprint, data) in importedKeys {
+            guard data.count == 32, LedgerKeyStore.fingerprint(for: SymmetricKey(data: data), ledgerID: payload.ledgerID) == fingerprint else {
+                throw LedgerCryptoError.corruptedContainer("Invalid historical key binding.")
+            }
+        }
+        // Validate the complete bundle before changing any local secrets.
+        for (fingerprint, data) in importedKeys where fingerprint != payload.currentFingerprint {
+            try LedgerKeyStore.saveKey(SymmetricKey(data: data), for: payload.ledgerID)
+        }
+        try LedgerKeyStore.saveKey(SymmetricKey(data: importedKeys[payload.currentFingerprint]!), for: payload.ledgerID)
         return (recoveredKey, payload.ledgerID, recoveredFp)
     }
 }
@@ -654,7 +760,7 @@ enum LedgerDeviceAuthorization {
         guard let key = try LedgerKeyStore.loadKey(for: request.ledgerID, expectedFingerprint: request.expectedFingerprint) else {
             throw LedgerCryptoError.authorizationRequired(ledgerID: request.ledgerID, fingerprint: request.expectedFingerprint)
         }
-        let grant = try LedgerCryptoService.grantKey(request: request, ledgerKey: key)
+        let grant = try LedgerCryptoService.grantKey(request: request, ledgerKey: key, bundle: LedgerKeyStore.keyBundle(for: request.ledgerID))
         if request.effectivePurpose == .migration {
             try write(PendingTransfer(request: request, grant: grant), account: "transfer-" + request.requestID.uuidString)
         }
@@ -698,6 +804,7 @@ enum LedgerDeviceAuthorization {
         // Persist the tombstone before deletion; automatic sync must never re-enroll this device.
         try write(true, account: "revoked-" + receipt.ledgerID.uuidString)
         try LedgerKeyStore.deleteKey(for: receipt.ledgerID)
+        try LedgerKeyStore.deleteHistoricalKeys(for: receipt.ledgerID)
         try LedgerDeviceIdentity.revoke(for: receipt.ledgerID)
         try remove("request-" + receipt.ledgerID.uuidString)
         try remove("transfer-" + receipt.requestID.uuidString)

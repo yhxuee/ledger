@@ -57,6 +57,8 @@ struct LocalLedgerRepository: LedgerRepository {
         let url = folder.appending(path: "library.json")
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let data = try Data(contentsOf: url)
+        if let encrypted = try? BackupCodec.decoder().decode(ICloudLibraryBackup.self, from: data),
+           encrypted.format == ICloudLibraryBackup.currentFormat { return try encrypted.library() }
         if var current = try? BackupCodec.decoder().decode(LedgerLibrary.self, from: data), current.schemaVersion >= 2 {
             for index in current.books.indices { PurchaseRules.migrateDevelopmentSessions(in: &current.books[index].state) }
             return current
@@ -72,7 +74,26 @@ struct LocalLedgerRepository: LedgerRepository {
     func saveLibrary(_ library: LedgerLibrary, previous: LedgerLibrary?) throws {
         try FinsyStorage.prepare()
         let database = try LedgerDiskDatabase(url: folder.appending(path: "ledger.sqlite"))
+        for book in library.books { try AttachmentStore.encryptLocalAttachments(for: book) }
         try IncrementalLedgerRepository(database: database).save(library, previous: previous)
+    }
+
+    func encryptLegacyRecoverySnapshot() throws {
+        let url = folder.appending(path: "library.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let data = try Data(contentsOf: url)
+        if let current = try? BackupCodec.decoder().decode(ICloudLibraryBackup.self, from: data),
+           current.format == ICloudLibraryBackup.currentFormat { return }
+        guard var legacy = try loadLegacyJSON() else { return }
+        for index in legacy.books.indices {
+            let id = legacy.books[index].id
+            let key = try LedgerKeyStore.loadKey(for: id) ?? LedgerKeyStore.generateAndSaveKey(for: id).key
+            legacy.books[index].isEncrypted = true
+            legacy.books[index].encryptionState = .enabled
+            legacy.books[index].keyFingerprint = LedgerKeyStore.fingerprint(for: key, ledgerID: id)
+            legacy.books[index].encryptionVersion = LedgerCryptoService.currentEncryptionVersion
+        }
+        try ICloudLibraryBackup.encode(legacy).write(to: url, options: [.atomic, .completeFileProtection])
     }
 
     func resetLocalData() throws {

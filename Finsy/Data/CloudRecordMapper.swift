@@ -138,7 +138,7 @@ enum CloudRecordMapper {
                 let file = try AttachmentPath.url(identifier, in: folder)
                 if FileManager.default.fileExists(atPath: file.path) {
                     if let key {
-                        let fileData = try Data(contentsOf: file)
+                        let fileData = try AttachmentStore.plaintextData(at: file)
                         let encryptedData = try LedgerCryptoService.encryptAttachment(
                             fileData,
                             ledgerID: book.id,
@@ -238,7 +238,7 @@ enum CloudRecordMapper {
                 let file = try AttachmentPath.url(identifier, in: folder)
                 if FileManager.default.fileExists(atPath: file.path) {
                     if let key {
-                        let fileData = try Data(contentsOf: file)
+                        let fileData = try AttachmentStore.plaintextData(at: file)
                         let encryptedData = try LedgerCryptoService.encryptAttachment(
                             fileData,
                             ledgerID: book.id,
@@ -431,6 +431,9 @@ enum CloudRecordMapper {
                 data = try LedgerCryptoService.decryptAttachment(data, ledgerID: bookID, attachmentID: write.identifier, associatedID: write.associatedID, key: attachmentKey)
             }
             try FileManager.default.createDirectory(at: write.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if isRecordEncrypted, let attachmentKey, let bookID = inferredID {
+                data = try AttachmentStore.protectedData(data, identifier: write.identifier, ledgerID: bookID, key: attachmentKey)
+            }
             try data.write(to: write.destination, options: [.atomic, .completeFileProtection])
         }
 

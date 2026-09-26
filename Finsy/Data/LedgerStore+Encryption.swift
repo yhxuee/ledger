@@ -29,6 +29,7 @@ extension LedgerStore {
         guard AppPreferencesStore.shared.value.endToEndEncryptionEnabled else { throw CocoaError(.fileWriteUnknown) }
         prepareBooksForEncryption()
         try await persistDurableAsync()
+        try Self.localRepository.encryptLegacyRecoverySnapshot()
         var failures: [String] = []
         for id in books.map(\.id) {
             guard let book = books.first(where: { $0.id == id }) else { continue }
@@ -116,7 +117,7 @@ extension LedgerStore {
 
     func resumeEncryptionMigrations() async {
         guard canMutateLedger else { return }
-        do { try LedgerKeyStore.migrateLegacyCloudKeys() }
+        do { try LedgerKeyStore.migrateLegacyLocalKeys(); try LedgerKeyStore.migrateLegacyCloudKeys() }
         catch { lastSyncError = error.localizedDescription; return }
         prepareBooksForEncryption()
         for id in books.filter({ $0.effectiveEncryptionState == .authorizationRequired }).map(\.id) {
@@ -146,6 +147,10 @@ extension LedgerStore {
         commitActiveBook()
         if let index = books.firstIndex(where: { $0.id == receipt.ledgerID }) {
             let transferred = books[index]
+            // Rewrap attachments referenced by another encrypted ledger before revoking this key.
+            for retainedBook in books where retainedBook.id != receipt.ledgerID {
+                try AttachmentStore.encryptLocalAttachments(for: retainedBook)
+            }
             try await CloudLedgerService.shared.revokeLocalAccess(transferred)
             // Leave attachments still referenced by another ledger untouched.
             let retained = Set(books.filter { $0.id != receipt.ledgerID }.flatMap { Self.encryptionAttachmentIDs($0) })
@@ -162,6 +167,7 @@ extension LedgerStore {
             }
             try await persistDurableAsync()
         }
+        IncrementalLedgerRepository.clearDecryptedCache()
         try LedgerDeviceAuthorization.revoke(receipt)
     }
 }
