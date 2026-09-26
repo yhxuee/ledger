@@ -442,22 +442,10 @@ struct SettingsView: View {
     }
 
     private func prepareExportBackup() {
+        // Export the complete, currently available local snapshot. Cloud sync runs
+        // independently; exporting must not fetch or upload the entire remote zone.
         guard !working else { return }
-        let source = store.activeBook
-        guard source.effectiveStorageKind != .local else { performExportBackup(book: source); return }
-        working = true
-        Task { @MainActor in
-            do {
-                let synced = try await CloudLedgerService.shared.flushAndFetch(book: source) ?? source
-                store.addOrMergeCloudBook(synced, selectNewBook: false)
-                working = false
-                performExportBackup(book: synced)
-            } catch {
-                working = false
-                pendingBackupAction = { self.performExportBackup(book: source) }
-                confirmingPendingCloud = true
-            }
-        }
+        performExportBackup(book: store.activeBook)
     }
 
     private func performExportBackup(book: LedgerBook) {
