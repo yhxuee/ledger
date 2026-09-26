@@ -76,7 +76,9 @@ struct EncryptedStorageVerification {
         for suffix in ["", "-wal"] {
             let path = url.path + suffix
             if FileManager.default.fileExists(atPath: path) {
-                let data = FileManager.default.contents(atPath: path) ?? (try Data(contentsOf: URL(fileURLWithPath: path), options: .uncached))
+                guard let data = FileManager.default.contents(atPath: path) else {
+                    throw NSError(domain: "EncryptedStorageVerification", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to read \(path)"])
+                }
                 try require(data.range(of: Data(marker.utf8)) == nil, "Plaintext financial content remains on disk")
             }
         }
