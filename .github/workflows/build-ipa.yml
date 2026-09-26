@@ -3,6 +3,10 @@ name: Build Finsy
 on:
   workflow_dispatch:
     inputs:
+      compile_only:
+        description: Compile app and widget without distribution
+        type: boolean
+        default: false
       upload_testflight:
         description: Upload signed build to TestFlight
         type: boolean
@@ -15,8 +19,27 @@ on:
     branches: [main]
 
 jobs:
+  compile:
+    name: Compile app and widget
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Release
+        env:
+          WALLET_ISSUER_URL: ${{ secrets.FINSY_WALLET_PASS_ISSUER_URL }}
+        run: |
+          xcodebuild build \
+            -project Finsy.xcodeproj \
+            -scheme Finsy \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            "FINSY_WALLET_PASS_ISSUER_URL=$WALLET_ISSUER_URL" \
+            "FINSY_BUILD_DATE=$(date -u +%Y-%m-%d)"
+
   signed-ipa:
     name: Archive and export signed IPA
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.compile_only != true }}
     runs-on: macos-latest
     env:
       SIGNING_CERTIFICATE_P12: ${{ secrets.IOS_SIGNING_CERTIFICATE_P12 }}
@@ -101,6 +124,7 @@ jobs:
             APP_PROFILE_SPECIFIER="$APP_PROFILE_NAME" \
             WIDGET_PROFILE_SPECIFIER="$WIDGET_PROFILE_NAME" \
             "FINSY_WALLET_PASS_ISSUER_URL=$WALLET_ISSUER_URL" \
+            "FINSY_BUILD_DATE=$(date -u +%Y-%m-%d)" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
       - name: Verify archived app and widget
         run: |

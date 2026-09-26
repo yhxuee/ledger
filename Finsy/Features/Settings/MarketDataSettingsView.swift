@@ -11,7 +11,7 @@ struct MarketDataSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                SettingsGlassSection("Alpha Vantage API Key") {
+                SettingsGlassSection("Market Data") {
                     SecureField("API Key", text: $key)
                         .textFieldStyle(.roundedBorder)
                         .textInputAutocapitalization(.never)
@@ -63,16 +63,11 @@ struct MarketDataSettingsView: View {
                     }
                 }
 
-                SettingsGlassSection("Status & Notes", footer: "Prices may be end-of-day, depending on your Alpha Vantage subscription. FX rates are supplied separately by Frankfurter.") {
+                SettingsGlassSection("Status") {
                     if let message {
                         Text(message)
                             .font(.subheadline)
                             .foregroundStyle(.primary)
-                    }
-                    if let status = refresh.status {
-                        Text(status)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
                 }
             }

@@ -15,7 +15,18 @@ struct FinsyApp: App {
                 .environmentObject(preferences)
                 .environmentObject(privacy)
                 .preferredColorScheme(nil)
+                .tint(Color(hex: preferences.value.statementThemeColorHex))
+                .task(id: WalletPassRefreshKey(bookID: store.activeBookID, modifiedAt: store.state.lastModifiedAt, preferences: preferences.value)) {
+                    await WalletPassManager.shared.refreshInstalledPasses(store: store, preferences: preferences.value)
+                }
                 .onOpenURL { store.handleDeepLink($0) }
+                .onChange(of: preferences.value.statementThemeColorHex) { _, _ in
+                    Task {
+                        for session in store.purchaseSessions where session.status == .active || session.status == .awaitingSummary {
+                            await store.publish(session: session, requestActivity: false)
+                        }
+                    }
+                }
                 .onReceive(NotificationCenter.default.publisher(for: .acceptedCloudLedger)) { notification in
                     if let book = notification.object as? LedgerBook { store.addOrMergeCloudBook(book) }
                     else if let error = notification.object as? Error { store.presentedError = error.localizedDescription }
@@ -36,6 +47,9 @@ struct FinsyApp: App {
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
+                        Task {
+                            await WalletPassManager.shared.refreshInstalledPasses(store: store, preferences: preferences.value, force: true)
+                        }
                         FinsyMaintenanceCoordinator.shared.performForegroundMaintenance(
                             store: store,
                             preferences: preferences,

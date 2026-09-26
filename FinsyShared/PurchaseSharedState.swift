@@ -6,6 +6,7 @@ struct PurchaseSharedSnapshot: Codable, Hashable, Sendable {
     var updatedAt: Date
     /// Optional so snapshots written by earlier builds still decode.
     var categoryColors: [String: String]? = nil
+    var themeColorHex: String? = nil
 
     var resolvedCategoryColors: [String: String] { categoryColors ?? [:] }
 }
@@ -123,13 +124,13 @@ enum PurchaseSharedStateStore {
         return snapshot.updatedAt > localTimestamp ? snapshot : nil
     }
 
-    static func write(session: PurchaseSession, categoryColors: [String: String] = [:]) throws {
+    static func write(session: PurchaseSession, categoryColors: [String: String] = [:], themeColorHex: String? = nil) throws {
         guard let url = url(sessionID: session.id) else { throw PurchaseSharedStateError.appGroupUnavailable }
         try coordinateWrite(url: url) { target in
             let timestamp = session.updatedAt ?? session.startedAt ?? session.createdAt
             // Never overwrite a newer widget/AppIntent snapshot with an older local session.
             if let old = decode(at: target), old.updatedAt > timestamp { return }
-            let snapshot = PurchaseSharedSnapshot(session: session, currencyCode: session.currency, updatedAt: timestamp, categoryColors: categoryColors)
+            let snapshot = PurchaseSharedSnapshot(session: session, currencyCode: session.currency, updatedAt: timestamp, categoryColors: categoryColors, themeColorHex: themeColorHex)
             let data = try JSONEncoder.purchaseShared.encode(snapshot)
             try data.write(to: target, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         }

@@ -47,7 +47,7 @@ actor PurchaseLiveActivityController: PurchaseActivityStarting {
     private let requestActivity: @Sendable (PurchaseActivityAttributes, PurchaseActivityAttributes.ContentState) throws -> String
 
     init(
-        snapshotWriter: @escaping @Sendable (PurchaseSession, [String: String]) throws -> Void = { try PurchaseSharedStateStore.write(session: $0, categoryColors: $1) },
+        snapshotWriter: @escaping @Sendable (PurchaseSession, [String: String]) throws -> Void = { try PurchaseSharedStateStore.write(session: $0, categoryColors: $1, themeColorHex: $1["__theme"]) },
         activitiesEnabled: @escaping @Sendable () -> Bool = { ActivityAuthorizationInfo().areActivitiesEnabled },
         requestActivity: @escaping @Sendable (PurchaseActivityAttributes, PurchaseActivityAttributes.ContentState) throws -> String = {
             try Activity.request(attributes: $0, content: ActivityContent(state: $1, staleDate: nil), pushType: nil).id
@@ -78,7 +78,7 @@ actor PurchaseLiveActivityController: PurchaseActivityStarting {
         let state = PurchaseActivityAttributes.ContentState.make(
             session: session,
             interactiveCompletionAvailable: interactive,
-            categoryColors: categoryColors)
+            categoryColors: categoryColors, themeColorHex: categoryColors["__theme"])
 
         if let activity = Activity<PurchaseActivityAttributes>.activities.first(where: { $0.attributes.sessionID == session.id }) {
             await activity.update(ActivityContent(state: state, staleDate: nil))

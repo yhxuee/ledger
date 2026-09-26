@@ -60,7 +60,7 @@ struct CashFlowForecast: Sendable {
 }
 
 enum CashFlowForecastEngine {
-    static let minEligibilityDays = 14
+    static let minEligibilityDays = 90
     static let maxHistoryDays = 90
     static let holtAlpha: Double = 0.20
     static let holtBeta: Double = 0.10
@@ -95,10 +95,7 @@ enum CashFlowForecastEngine {
 
         // 1. Check history span eligibility
         let active = state.transactions.filter { $0.deletedAt == nil }
-        let eligibleExpenses = active.filter { t in
-            guard let effect = TransactionSemantics.expenseEffect(t, in: state, to: baseCurrency, now: now) else { return false }
-            return effect > 0
-        }
+        let eligibleExpenses = active.filter { $0.occurredAt <= now && $0.isCompleted(asOf: now) }
 
         guard let earliestDate = eligibleExpenses.map(\.occurredAt).min() else {
             return CashFlowForecast(
