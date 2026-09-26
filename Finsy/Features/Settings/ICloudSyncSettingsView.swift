@@ -37,7 +37,24 @@ struct ICloudSyncSettingsView: View {
                     .foregroundStyle(.primary)
                     .disabled(!preferences.value.iCloudSyncEnabled || coordinator.working || !store.canMutateLedger)
                 }
-                if coordinator.working { ProgressView("Syncing…") }
+                if coordinator.working {
+                    SettingsGlassSection("Sync Progress") {
+                        ProgressView(coordinator.phase)
+                        if let start = coordinator.startedAt {
+                            TimelineView(.periodic(from: start, by: 1)) { context in
+                                Text("Elapsed: \(Int(context.date.timeIntervalSince(start))) seconds")
+                                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            }
+                        }
+                        Button("Stop Sync") { Task { await coordinator.cancel() } }
+                    }
+                } else {
+                    if let error = store.lastSyncError {
+                        Text(error).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
+                    } else if let date = coordinator.lastCompletedAt {
+                        LabeledContent("Last Synced", value: date.formatted(date: .abbreviated, time: .shortened))
+                    }
+                }
             }
             .padding()
         }

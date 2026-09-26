@@ -31,7 +31,7 @@ struct ICloudBackupSettingsView: View {
                 SettingsGlassSection("iCloud Backup") {
                     Toggle("iCloud Backup", isOn: enabled)
                         .disabled(busy || !store.canMutateLedger)
-                    Text("Save ledger snapshots to iCloud Drive.")
+                    Text("Save all ledgers to iCloud Drive, replacing the previous backup.")
                         .font(.footnote).foregroundStyle(.secondary)
                     Text("Keys stay on this device. Authorize another device before restoring.")
 

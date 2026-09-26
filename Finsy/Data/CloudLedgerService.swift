@@ -22,11 +22,13 @@ actor CloudLedgerService {
             try await ownerSync.recoverIfNeeded()
             try await participantSync.recoverIfNeeded()
             if await MainActor.run(body: {
-                AppPreferencesStore.shared.value.iCloudSyncEnabled || LedgerStore.shared.ownsSharedLedgers
+                !AppPreferencesStore.shared.value.iCloudSyncEnabled && LedgerStore.shared.ownsSharedLedgers
             }) {
                 try await ownerSync.fetchChanges()
             }
-            try await participantSync.fetchChanges()
+            if await MainActor.run(body: { !AppPreferencesStore.shared.value.iCloudSyncEnabled }) {
+                try await participantSync.fetchChanges()
+            }
         } catch {
             LedgerDiagnostics.failure(error, operation: "sync-storage-recovery", logger: LedgerDiagnostics.cloud)
             let message = error.localizedDescription
@@ -34,12 +36,22 @@ actor CloudLedgerService {
         }
     }
 
-    func fetchAllLedgers() async throws {
+    func cancelSyncOperations() async {
+        await ownerSync.cancelOperations()
+        await participantSync.cancelOperations()
+    }
+
+    func fetchAllLedgers(progress: (@Sendable (String) async -> Void)? = nil) async throws {
         try await configureCallbacksIfNeeded()
         try await ownerSync.recoverIfNeeded()
         try await participantSync.recoverIfNeeded()
+        try Task.checkCancellation()
+        await progress?("Downloading personal ledgers...")
         try await ownerSync.fetchChanges()
+        try Task.checkCancellation()
+        await progress?("Downloading shared ledgers...")
         try await participantSync.fetchChanges()
+        try Task.checkCancellation()
         await MainActor.run { LedgerStore.shared.iCloudSyncReady = true }
         try await updateICloudPreference()
     }

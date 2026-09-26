@@ -310,14 +310,23 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         engine.state.add(pendingRecordZoneChanges: try storage.deletionIDs().map { .deleteRecord($0) })
     }
 
+    func cancelOperations() async {
+        requestedSend = false
+        sendTask?.cancel()
+        if let engine { await engine.cancelOperations() }
+    }
+
     func fetchChanges() async throws {
+        try Task.checkCancellation()
         guard !paused else { throw CloudLedgerError.migrationInProgress }
         try await syncEngine().fetchChanges()
     }
 
     func flush() async throws {
         if let sendTask { await sendTask.value }
+        try Task.checkCancellation()
         try await sendPendingChanges()
+        try Task.checkCancellation()
         try await syncEngine().fetchChanges()
     }
 
@@ -325,6 +334,7 @@ actor CloudLedgerSyncCoordinator: CKSyncEngineDelegate {
         guard !paused else { throw CloudLedgerError.migrationInProgress }
         let engine = try syncEngine()
         for attempt in 0..<3 {
+            try Task.checkCancellation()
             sendFailureCodes = []
             let before = Set(try storage().pendingIDs() + storage().deletionIDs())
             do { try await engine.sendChanges() }
